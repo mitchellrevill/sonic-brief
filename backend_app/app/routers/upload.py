@@ -10,7 +10,10 @@ from fastapi import (
     UploadFile,
     Query,
     Form,
+    Response,
 )
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import tempfile
 import os
@@ -274,8 +277,14 @@ async def get_jobs(
                     path_parts = urlparse(file_path).path.strip("/").split("/")
                     job["file_name"] = path_parts[-1] if path_parts else None
                     job["file_path"] = storage_service.add_sas_token_to_url(file_path)
-                    job["transcription_file_path"] = (storage_service.add_sas_token_to_url(job["transcription_file_path"]))
-                    job["analysis_file_path"] = storage_service.add_sas_token_to_url(job["analysis_file_path"])
+                    job["transcription_file_path"] = (
+                        storage_service.add_sas_token_to_url(
+                            job["transcription_file_path"]
+                        )
+                    )
+                    job["analysis_file_path"] = storage_service.add_sas_token_to_url(
+                        job["analysis_file_path"]
+                    )
 
             return {
                 "status": 200,
@@ -291,3 +300,94 @@ async def get_jobs(
     except Exception as e:
         logger.error(f"Unexpected error getting jobs: {str(e)}", exc_info=True)
         return {"status": 500, "message": f"An unexpected error occurred: {str(e)}"}
+
+
+@router.get("/jobs/transcription/{job_id}")
+async def get_job_transcription(
+    job_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> StreamingResponse:
+    """
+    Stream the transcription file content for a specific job.
+
+    Args:
+        job_id: The ID of the job
+        current_user: Authenticated user from token
+
+    Returns:
+        StreamingResponse containing the transcription file content
+    """
+    # Initialize services (outside try-except for clarity)
+    config = AppConfig()
+
+    try:
+        cosmos_db = CosmosDB(config)
+        logger.debug("CosmosDB client initialized for transcription query")
+        storage_service = StorageService(config)
+    except DatabaseError as e:
+        logger.error(f"Database initialization failed: {str(e)}")
+        raise HTTPException(status_code=503, detail="Database service unavailable")
+    except Exception as e:
+        logger.error(f"Service initialization error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error initializing services")
+
+    # Query the job with proper error handling
+    try:
+        # Build query to get the specific job
+        query = "SELECT * FROM c WHERE c.type = 'job' AND c.id = @job_id"
+        parameters = [{"name": "@job_id", "value": job_id}]
+
+        jobs = list(
+            cosmos_db.jobs_container.query_items(
+                query=query,
+                parameters=parameters,
+                enable_cross_partition_query=True,
+            )
+        )
+
+        if not jobs:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        job = jobs[0]
+
+        # Check if transcription exists
+        if not job.get("transcription_file_path"):
+            raise HTTPException(
+                status_code=404, detail="Transcription not available for this job"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving job: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving job information")
+
+    # Stream the content
+    try:
+        # Get the blob URL
+        transcription_url = job["transcription_file_path"]
+
+        # Extract file name for the content-disposition header
+        path_parts = urlparse(transcription_url).path.strip("/").split("/")
+        file_name = path_parts[-1] if path_parts else "transcription.txt"
+
+        # Determine content type based on file extension (optional improvement)
+        content_type = "text/plain"  # Default
+        if file_name.endswith(".json"):
+            content_type = "application/json"
+        elif file_name.endswith(".xml"):
+            content_type = "application/xml"
+
+        # Stream the blob content
+        content_stream = storage_service.stream_blob_content(transcription_url)
+
+        # Return as streaming response
+        return StreamingResponse(
+            content_stream,
+            media_type=content_type,
+            headers={"Content-Disposition": f"inline; filename={file_name}"},
+        )
+    except Exception as e:
+        logger.error(f"Error streaming transcription: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail="Error streaming transcription file"
+        )

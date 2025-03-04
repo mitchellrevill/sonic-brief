@@ -1,12 +1,13 @@
 import os
 import logging
-from typing import Optional
+from typing import Optional, AsyncGenerator
 from azure.storage.blob import BlobServiceClient, BlobSasPermissions, generate_blob_sas
+from azure.storage.blob.aio import BlobClient as AsyncBlobClient
 from azure.identity import DefaultAzureCredential
 from azure.core.exceptions import AzureError
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
-
+from azure.core.exceptions import ResourceNotFoundError
 from app.core.config import AppConfig
 
 
@@ -65,7 +66,9 @@ class StorageService:
 
         sas_token = self.generate_sas_token(blob_url)
         if sas_token:
+            self.logger.debug(f"Adding SAS token to blob URL: {blob_url}")
             return f"{blob_url}?{sas_token}"
+        self.logger.debug(f"No SAS token generated for blob URL: {blob_url}")
         return blob_url
 
     def upload_file(self, file_path: str, original_filename: str) -> str:
@@ -94,4 +97,70 @@ class StorageService:
             raise
         except Exception as e:
             self.logger.error(f"Error uploading file: {str(e)}")
+            raise
+
+    async def stream_blob_content(
+        self, file_blob_url: str
+    ) -> AsyncGenerator[bytes, None]:
+        """
+        Stream content from a blob asynchronously.
+
+        Args:
+            file_blob_url (str): URL of the blob to stream.
+
+        Returns:
+            AsyncGenerator[bytes, None]: Yields chunks of file content asynchronously.
+
+        Raises:
+            ValueError: If the provided URL is invalid or missing required parts.
+            ResourceNotFoundError: If the blob does not exist.
+            Exception: For other unexpected errors.
+        """
+        if not file_blob_url:
+            raise ValueError("Blob URL cannot be empty.")
+
+        try:
+            parsed_url = urlparse(file_blob_url)
+            if not parsed_url.path:
+                raise ValueError("Invalid blob URL: Missing path.")
+
+            # Extract the blob name from the URL
+            if self.config.storage.recordings_container not in parsed_url.path:
+                raise ValueError(
+                    f"Blob URL does not contain the expected container: {self.config.storage.recordings_container}"
+                )
+
+            blob_name = parsed_url.path.split(
+                self.config.storage.recordings_container, 1
+            )[-1].lstrip("/")
+            self.logger.debug(f"Extracted blob name: {blob_name}")
+
+            # Create an async blob client
+            async_blob_client = AsyncBlobClient(
+                account_url=self.config.storage.account_url,
+                container_name=self.config.storage.recordings_container,
+                blob_name=blob_name,
+                credential=self.credential,
+            )
+
+            # Stream the blob content in chunks
+            async with async_blob_client:
+                # Get the downloader without specifying chunk size
+                # The chunks() method doesn't accept a chunk_size parameter
+                downloader = await async_blob_client.download_blob()
+
+                # Stream the chunks as they come
+                async for chunk in downloader.chunks():
+                    yield chunk
+
+        except ValueError as ve:
+            self.logger.warning(f"Validation error: {ve}")
+            raise
+        except ResourceNotFoundError as rnfe:
+            self.logger.error(f"Blob not found: {rnfe}")
+            raise
+        except Exception as e:
+            self.logger.error(
+                f"Unexpected error streaming blob content: {str(e)}", exc_info=True
+            )
             raise
