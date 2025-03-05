@@ -70,7 +70,7 @@ resource "azurerm_linux_function_app" "function_call_function_app" {
     AZURE_COSMOS_DB        = azurerm_cosmosdb_sql_database.voice_db.name
 
 
-    AZURE_OPENAI_API_VERSION          = azurerm_cognitive_deployment.openai_deployments["gpt-4o"].model[0].version
+    AZURE_OPENAI_API_VERSION          = var.openai_api_version
     AZURE_OPENAI_DEPLOYMENT           = azurerm_cognitive_deployment.openai_deployments["gpt-4o"].model[0].name
     AZURE_OPENAI_ENDPOINT             = azurerm_cognitive_account.openai.endpoint
     AZURE_SPEECH_CANDIDATE_LOCALES    = "en-US,zu-ZA,af-ZA"

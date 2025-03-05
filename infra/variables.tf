@@ -23,6 +23,13 @@ variable "is_windows" {
 
 }
 
+variable "openai_api_version" {
+  description = "Specifies the API version of the Azure OpenAI Service"
+  type        = string
+  default     = "2024-10-21"
+
+}
+
 variable "name" {
   default = "echo-brief"
 }

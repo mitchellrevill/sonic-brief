@@ -23,12 +23,14 @@ variable "openai_deployments" {
         version = "2024-08-06"
       }
       sku = {
-        name     = "GlobalStandard"
-        capacity = 1
+        name     = "Standard"
+        capacity = 100
       }
     }
   ]
 }
+
+
 
 resource "azurerm_cognitive_account" "openai" {
   resource_group_name           = azurerm_resource_group.rg.name
