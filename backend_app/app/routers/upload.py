@@ -317,18 +317,46 @@ async def get_job_transcription(
     Returns:
         StreamingResponse containing the transcription file content
     """
+    request_id = f"transcription_req_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{job_id[:8]}"
+    logger.info(
+        f"[{request_id}] Transcription request received for job_id: {job_id} by user: {current_user.get('username')}"
+    )
+
     # Initialize services (outside try-except for clarity)
     config = AppConfig()
+    logger.debug(
+        f"[{request_id}] AppConfig initialized with environment: {config.environment if hasattr(config, 'environment') else 'not specified'}"
+    )
 
     try:
+        logger.debug(
+            f"[{request_id}] Initializing CosmosDB connection for job: {job_id}"
+        )
         cosmos_db = CosmosDB(config)
-        logger.debug("CosmosDB client initialized for transcription query")
+        logger.debug(
+            f"[{request_id}] CosmosDB client initialized successfully. Container: {cosmos_db.jobs_container.container_link}"
+        )
+
+        logger.debug(f"[{request_id}] Initializing StorageService for job: {job_id}")
         storage_service = StorageService(config)
+        logger.debug(
+            f"[{request_id}] StorageService initialized successfully. Account: {storage_service.account_name if hasattr(storage_service, 'account_name') else 'unknown'}"
+        )
     except DatabaseError as e:
-        logger.error(f"Database initialization failed: {str(e)}")
+        error_details = str(e)
+        logger.error(
+            f"[{request_id}] Database initialization failed: {error_details}",
+            exc_info=True,
+        )
+        logger.error(f"[{request_id}] Stack trace: {traceback.format_exc()}")
         raise HTTPException(status_code=503, detail="Database service unavailable")
     except Exception as e:
-        logger.error(f"Service initialization error: {str(e)}")
+        error_details = str(e)
+        logger.error(
+            f"[{request_id}] Service initialization error: {error_details}",
+            exc_info=True,
+        )
+        logger.error(f"[{request_id}] Stack trace: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Error initializing services")
 
     # Query the job with proper error handling
@@ -337,6 +365,12 @@ async def get_job_transcription(
         query = "SELECT * FROM c WHERE c.type = 'job' AND c.id = @job_id"
         parameters = [{"name": "@job_id", "value": job_id}]
 
+        logger.info(f"[{request_id}] Querying CosmosDB for job_id: {job_id}")
+        logger.debug(
+            f"[{request_id}] Query: {query}, Parameters: {json.dumps(parameters)}"
+        )
+
+        start_time = datetime.now(timezone.utc)
         jobs = list(
             cosmos_db.jobs_container.query_items(
                 query=query,
@@ -344,50 +378,113 @@ async def get_job_transcription(
                 enable_cross_partition_query=True,
             )
         )
+        query_duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+        logger.debug(
+            f"[{request_id}] CosmosDB query completed in {query_duration:.3f} seconds"
+        )
 
         if not jobs:
+            logger.warning(f"[{request_id}] Job not found in database: {job_id}")
             raise HTTPException(status_code=404, detail="Job not found")
 
         job = jobs[0]
+        logger.debug(
+            f"[{request_id}] Job retrieved successfully. Job status: {job.get('status', 'unknown')}, Created: {job.get('created_at', 'unknown')}"
+        )
+
+        # Log job metadata for debugging (redacting sensitive information)
+        safe_job_metadata = {
+            k: v
+            for k, v in job.items()
+            if k not in ("user_details", "auth_token", "api_key", "password")
+        }
+        logger.debug(
+            f"[{request_id}] Job metadata: {json.dumps(safe_job_metadata, default=str)}"
+        )
 
         # Check if transcription exists
         if not job.get("transcription_file_path"):
+            logger.warning(
+                f"[{request_id}] Transcription file path not found for job: {job_id}"
+            )
             raise HTTPException(
                 status_code=404, detail="Transcription not available for this job"
             )
+
+        logger.info(
+            f"[{request_id}] Found transcription file path: {job.get('transcription_file_path')}"
+        )
     except HTTPException:
+        # Re-raise HTTP exceptions without additional logging (already logged above)
         raise
     except Exception as e:
-        logger.error(f"Error retrieving job: {str(e)}")
+        error_details = str(e)
+        logger.error(
+            f"[{request_id}] Error retrieving job: {error_details}", exc_info=True
+        )
+        logger.error(f"[{request_id}] Stack trace: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Error retrieving job information")
 
     # Stream the content
     try:
         # Get the blob URL
         transcription_url = job["transcription_file_path"]
+        logger.info(
+            f"[{request_id}] Preparing to stream transcription from: {transcription_url}"
+        )
 
         # Extract file name for the content-disposition header
         path_parts = urlparse(transcription_url).path.strip("/").split("/")
         file_name = path_parts[-1] if path_parts else "transcription.txt"
+        logger.debug(f"[{request_id}] Extracted file name: {file_name} from URL path")
 
-        # Determine content type based on file extension (optional improvement)
+        # Determine content type based on file extension
         content_type = "text/plain"  # Default
         if file_name.endswith(".json"):
             content_type = "application/json"
         elif file_name.endswith(".xml"):
             content_type = "application/xml"
+        logger.debug(f"[{request_id}] Content type determined as: {content_type}")
 
         # Stream the blob content
+        logger.info(f"[{request_id}] Initiating blob streaming from Storage Service")
+        start_time = datetime.now(timezone.utc)
         content_stream = storage_service.stream_blob_content(transcription_url)
+        logger.debug(
+            f"[{request_id}] Storage service returned stream handle in {(datetime.now(timezone.utc) - start_time).total_seconds():.3f} seconds"
+        )
 
         # Return as streaming response
-        return StreamingResponse(
+        logger.info(
+            f"[{request_id}] Successfully preparing StreamingResponse for client with content-type: {content_type}"
+        )
+        response = StreamingResponse(
             content_stream,
             media_type=content_type,
             headers={"Content-Disposition": f"inline; filename={file_name}"},
         )
+
+        logger.info(
+            f"[{request_id}] Transcription streaming response ready to be sent to client"
+        )
+        return response
+    except AzureError as e:
+        error_details = str(e)
+        logger.error(
+            f"[{request_id}] Azure storage error: {error_details}", exc_info=True
+        )
+        logger.error(
+            f"[{request_id}] Azure error code: {getattr(e, 'error_code', 'unknown')}"
+        )
+        logger.error(f"[{request_id}] Stack trace: {traceback.format_exc()}")
+        raise HTTPException(status_code=502, detail="Error accessing storage service")
     except Exception as e:
-        logger.error(f"Error streaming transcription: {str(e)}", exc_info=True)
+        error_details = str(e)
+        logger.error(
+            f"[{request_id}] Error streaming transcription: {error_details}",
+            exc_info=True,
+        )
+        logger.error(f"[{request_id}] Stack trace: {traceback.format_exc()}")
         raise HTTPException(
             status_code=500, detail="Error streaming transcription file"
         )

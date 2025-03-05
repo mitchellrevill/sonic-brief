@@ -22,6 +22,79 @@ Before you start, ensure you have:
 - Azure CLI installed and configured
 - A GitHub account (if you plan to fork the repository)
 
+## Create Terrafom Storage Account
+
+### Login to Azure (if not already logged in)
+az login
+
+### Create the resource group named 'terraform'
+az group create --name terraform --location eastus
+
+
+
+#### UNCOMMENT FOR WINDOWS:
+$RANDOM_SUFFIX = [System.Guid]::NewGuid().ToString().Substring(0,4)
+
+# Create the storage account with random suffix
+$STORAGE_ACCOUNT = "terraform$RANDOM_SUFFIX"
+echo "Creating storage account: $STORAGE_ACCOUNT"
+az storage account create --name $STORAGE_ACCOUNT --resource-group terraform --sku Standard_LRS --encryption-services blob
+$ACCOUNT_KEY=$(az storage account keys list --resource-group terraform --account-name $STORAGE_ACCOUNT --query '[0].value' -o tsv)
+
+
+#### UNCOMMENT FOR LINUX:
+RANDOM_SUFFIX=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 4 | head -n 1)
+
+#### Create the storage account with random suffix
+STORAGE_ACCOUNT="terraform${RANDOM_SUFFIX}"
+echo "Creating storage account: $STORAGE_ACCOUNT"
+az storage account create --name $STORAGE_ACCOUNT --resource-group terraform --sku Standard_LRS --encryption-services blob
+ACCOUNT_KEY=$(az storage account keys list --resource-group terraform --account-name $STORAGE_ACCOUNT --query '[0].value' -o tsv)
+
+
+# Create the container named 'tfstate'
+az storage container create --name tfstate --account-name $STORAGE_ACCOUNT --account-key $ACCOUNT_KEY
+
+# Output the storage account name for future reference
+echo "Storage account created: $STORAGE_ACCOUNT"
+
+## Update backend.tf
+
+```hcl
+terraform {
+  backend "azurerm" {
+    resource_group_name  = "terraform"
+    storage_account_name = "terraform9999"
+    container_name       = "tfstate"
+    key                  = "echo-brief.tfstate"
+    use_azuread_auth     = true
+  }
+}
+```
+
+## Deployment Steps
+
+1. **Prepare Your Environment**
+   ```bash
+   # Login to Azure
+   az login
+
+   # Clone the repository
+   git clone <repository-url>
+   cd <repository-name>
+   ```
+
+2. **Configure Variables**
+   - Create a `terraform.tfvars` file with your subscription ID and other variables
+
+3. **Initialize and Deploy**
+   ```bash
+   terraform init
+   terraform plan
+   terraform apply -auto-approve
+   ```
+
+
 ## Resource Components
 The solution deploys the following Azure resources:
 
@@ -65,29 +138,6 @@ The solution deploys the following Azure resources:
    - 30-day retention policy
    - PerGB2018 SKU
    - Integrated with other services for centralized logging
-
-## Deployment Steps
-
-1. **Prepare Your Environment**
-   ```bash
-   # Login to Azure
-   az login
-
-   # Clone the repository
-   git clone <repository-url>
-   cd <repository-name>
-   ```
-
-2. **Configure Variables**
-   - Create a `terraform.tfvars` file with your subscription ID and other variables
-   - Set the `is_windows` variable based on your operating system
-
-3. **Initialize and Deploy**
-   ```bash
-   terraform init
-   terraform plan
-   terraform apply -auto-approve
-   ```
 
 ## Understanding the Terraform Configuration Files
 
@@ -349,6 +399,120 @@ To remove all deployed resources:
 terraform destroy -auto-approve
 ```
 
+## Troubleshooting
+
+### Deployment Error: Insufficient Quota
+
+If you encounter an error similar to the snippet below when creating a deployment:
+
+```h
+╷
+│ Error: creating Deployment (Subscription: "299017f8-8082-4f07-9e0c-86f500a4e95f"
+│ Resource Group Name: "tf-echo-brief-dev-accelerator-rg"
+│ Account Name: "tf-echo-brief-dev-openai"
+│ Deployment Name: "gpt-4o"): performing CreateOrUpdate: unexpected status 400 (400 Bad Request) with error: InsufficientQuota: This operation require 100 new capacity in quota Tokens Per Minute (thousands) - gpt-4o, which is bigger than the current available capacity 1. The current quota usage is 0 and the quota limit is 1 for quota Tokens Per Minute (thousands) - gpt-4o.
+│
+│   with azurerm_cognitive_deployment.openai_deployments["gpt-4o"],
+│   on openai.tf line 55, in resource "azurerm_cognitive_deployment" "openai_deployments":
+│   55: resource "azurerm_cognitive_deployment" "openai_deployments" {
+│
+│ creating Deployment (Subscription: "299017f8-8082-4f07-9e0c-86f500a4e95f"
+│ Resource Group Name: "tf-echo-brief-dev-accelerator-rg"
+│ Account Name: "tf-echo-brief-dev-openai"
+│ Deployment Name: "gpt-4o"): performing CreateOrUpdate: unexpected status 400 (400 Bad Request) with error: InsufficientQuota: This operation require 100 new capacity in quota Tokens Per Minute (thousands) - gpt-4o, which is bigger than the current available capacity
+│ 1. The current quota usage is 0 and the quota limit is 1 for quota Tokens Per Minute (thousands) - gpt-4o.
+```
+
+This error means that your deployment is attempting to allocate more quota than is currently available. Specifically, it requires an additional 100 capacity in the quota for **Tokens Per Minute (thousands)** for the `gpt-4o` deployment.
+
+#### How to Resolve:
+
+1. **Request Additional Quota:**  
+   - Open the Azure Portal and navigate to your subscription’s quota page.  
+   - Locate the quota for **Tokens Per Minute (thousands)** associated with `gpt-4o`.  
+   - Click on **Request Increase** and fill in the necessary details.
+
+2. **Follow the Screenshots:**  
+   - Refer to the screenshots provided in this repository that illustrate the step-by-step process to request an increased quota.
+![OpenAI portal](./images/openai_1.png)
+![Go to AI Foundry](./images/openai_2.png)
+![Request Quota](./images/openai_3.png)
+3. **Re-run the Deployment:**  
+   - Once your quota has been increased, re-run the deployment to verify that the error has been resolved.
+
+If you continue to experience issues, please open a GitHub issue with details of your configuration and the error output.
+
+### Frontend Not Displaying
+
+
+If the frontend is not showing the website, follow these steps to redeploy it:
+
+#### Step 1: Get the Deployment Token
+1. Go to the **Azure Portal** and navigate to your **Static Web App**.
+2. Click on **Manage deployment token** (as shown in the image below).
+3. Copy the **Deployment Token**.
+
+
+![Get Deployment Token](./images/frontend_deploy_2.png)
+#### Step 2: Run the Deployment Command with the New Token
+Once you have the new deployment token, run the following command:
+
+```sh
+swa deploy ./frontend_app/out --env production --deployment-token='YOUR_DEPLOYMENT_TOKEN'
+```
+
+**Replace `YOUR_DEPLOYMENT_TOKEN` with the token copied from Azure.**
+
+After running the command, wait for the deployment to complete. If the issue persists, check the deployment logs or re-run the command.
+
+
+![SWA Command](./images/frontend_deploy.png)
+
+
+If the issue persists after these steps, please review your deployment logs for any errors and consider opening a GitHub issue with your configuration details for further assistance.
+
+### Additional Step: Creating Prompts Using `prompts.sh`
+
+To successfully create prompts, follow these steps:
+
+#### **Step 1: Update Your Environment Variables**
+Before running `prompts.sh`, replace the necessary variables inside the script:
+
+```sh
+# Replace {backend} with your backend's base URL (e.g., my.backend.service.azurewebsites.net)                                                                    
+API_BASE_URL="{your_backend_url}"
+
+# Replace with your registered account credentials (the account you registered on the website)                              
+EMAIL="your_email@example.com"
+PASSWORD="your_secure_password"
+```
+
+### **Step 2: Run the Script**
+Once you've updated the values, execute:
+
+```sh
+./prompts.sh
+```
+
+#### **Expected Output**
+If the script runs successfully, you should see messages indicating successful prompt creation:
+
+```
+Attempting to login...
+-e Successfully Obtained Bearer token
+Creating prompt 'Social Worker - Children - CP Stat Visit'...
+-e Successfully created prompt 'Social Worker - Children - CP Stat Visit'
+...
+-e All prompts have been created successfully!
+Script execution complete.
+Press Enter to exit...
+```
+
+#### **Reference Screenshot**
+![Prompt Creation](./images/prompt.png)
+
+
+
 ## Important Notices
 1. If you encounter a `401` error:
    - Re-run `az login` to ensure you're logged into the correct tenant
@@ -356,10 +520,6 @@ terraform destroy -auto-approve
 2. If you encounter a `502` error or other issues:
    - Re-run `terraform apply -auto-approve`
 
-3. For Mac users encountering "Permission denied":
-   - Prepend commands with `sudo`, e.g.:
-   ```bash
-   sudo terraform apply -auto-approve
-   ```
+
 
 Note: Before destroying resources, ensure you have backups of any important data.

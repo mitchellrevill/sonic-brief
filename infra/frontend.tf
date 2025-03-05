@@ -8,9 +8,6 @@ resource "azurerm_static_web_app" "frontend_webapp" {
 }
 
 resource "null_resource" "copy_frontend_source_code" {
-  triggers = {
-    always_run = timestamp()
-  }
   provisioner "local-exec" {
     interpreter = var.is_windows ? ["PowerShell", "-Command"] : ["/bin/bash", "-c"]
     command     = var.is_windows ? "Copy-Item -Path ..\\frontend_app -Destination . -Recurse -Force" : "cp -R ../frontend_app ."
@@ -18,27 +15,54 @@ resource "null_resource" "copy_frontend_source_code" {
   }
 }
 
-# Replace the base name in the apiConstants.js file
+# Replace the base name in the apiConstants.ts file
 # This works only for Windows, we need to add a null_resource for Linux/macOS
 resource "null_resource" "replace_base_name" {
   triggers = {
-    # always_run = timestamp() # Forces re-execution every time Terraform runs
     base_name = local.base_name
   }
-  depends_on = [azurerm_static_web_app.frontend_webapp]
+  depends_on = [null_resource.copy_frontend_source_code]
 
   provisioner "local-exec" {
     interpreter = var.is_windows ? ["PowerShell", "-Command"] : ["/bin/bash", "-c"]
-    command     = var.is_windows ? "(Get-Content .\\frontend_app\\constants\\apiConstants.js) | ForEach-Object { $_ -replace 'BASE_NAME = \"BASE_NAME\"', 'BASE_NAME = \"${local.base_name}\"' } | Set-Content .\\frontend_app\\constants\\apiConstants.js" : "sed -i 's/BASE_NAME = \"BASE_NAME\"/BASE_NAME = \"${local.base_name}\"/g' ${local.file_path}"
+    command     = var.is_windows ? "(Get-Content .\\frontend_app\\lib\\apiConstants.ts) | ForEach-Object { $_ -replace 'BASE_NAME = \"BASE_NAME\"', 'BASE_NAME = \"${local.base_name}\"' } | Set-Content .\\frontend_app\\lib\\apiConstants.ts" : "sed -i 's/BASE_NAME = \"BASE_NAME\"/BASE_NAME = \"${local.base_name}\"/g' ${local.file_path}"
     when        = create
   }
 }
 
+
 # Define local-exec provisioner to run az cli commands
-resource "null_resource" "publish_website" {
+resource "null_resource" "npm_run_build" {
   depends_on = [null_resource.replace_base_name]
-  triggers   = { always_run = "${timestamp()}" }
   provisioner "local-exec" {
-    command = "swa deploy ./frontend_app/out --env production --deployment-token='${azurerm_static_web_app.frontend_webapp.api_key}'"
+    command     = "npm install --legacy-peer-deps"
+    working_dir = "./frontend_app"
+  }
+
+  provisioner "local-exec" {
+    command     = "npm run build"
+    working_dir = "./frontend_app"
+  }
+}
+
+resource "time_sleep" "wait_before_start_frontend" {
+  depends_on      = [null_resource.npm_run_build]
+  create_duration = "120s" # Adjust the time as needed
+}
+
+resource "null_resource" "create_deploy_script" {
+  provisioner "local-exec" {
+    command = <<EOT
+      echo swa deploy ./frontend_app/out --env production --deployment-token '${azurerm_static_web_app.frontend_webapp.api_key}' > deploy.bat
+    EOT
+  }
+}
+
+resource "null_resource" "publish_website" {
+  depends_on = [null_resource.replace_base_name, time_sleep.wait_before_start_frontend, null_resource.create_deploy_script]
+  triggers   = { always_run = "${timestamp()}" }
+
+  provisioner "local-exec" {
+    command = "./deploy.bat"
   }
 }

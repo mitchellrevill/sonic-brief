@@ -146,8 +146,6 @@ resource "azurerm_cosmosdb_sql_role_assignment" "data_contributor_role" {
 }
 
 
-
-
 #Storage Account Contributor
 resource "azurerm_role_assignment" "func_storage_account_contributor" {
   depends_on           = [azurerm_linux_function_app.function_call_function_app, azurerm_storage_account.storage]
@@ -180,14 +178,18 @@ resource "azurerm_role_assignment" "func_recording_container_storage_contributor
   principal_id         = azurerm_linux_function_app.function_call_function_app.identity[0].principal_id
 }
 
+resource "time_sleep" "wait_before_start" {
+  depends_on      = [azurerm_linux_function_app.function_call_function_app]
+  create_duration = "120s" # Adjust the time as needed
+}
 
 
 # # Define local-exec provisioner to run az cli commands
 
 resource "null_resource" "publish_function_call_zip" {
-  triggers = { always_run = "${timestamp()}" }
+  # triggers = { always_run = "${timestamp()}" }
   provisioner "local-exec" {
-    command = "az functionapp deployment source config-zip --subscription ${var.subscription_id}  --resource-group ${azurerm_linux_function_app.function_call_function_app.resource_group_name} --name ${azurerm_linux_function_app.function_call_function_app.name} --src ${data.archive_file.az_func_audio_package.output_path} --build-remote true"
+    command = "az functionapp deployment source config-zip --subscription ${var.subscription_id}  --resource-group ${azurerm_linux_function_app.function_call_function_app.resource_group_name} --name ${azurerm_linux_function_app.function_call_function_app.name} --src ${data.archive_file.az_func_audio_package.output_path} --build-remote true  --timeout 600"
   }
-  depends_on = [azurerm_linux_function_app.function_call_function_app]
+  depends_on = [azurerm_linux_function_app.function_call_function_app, time_sleep.wait_before_start]
 }

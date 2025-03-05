@@ -86,6 +86,11 @@ yarn.lock
 /.next/
 /out/
 
+
+infra/.terraform.lock.hcl
+infra/deploy.bat
+infra/frontend_app/
+
 # Misc
 .DS_Store
 *.pem

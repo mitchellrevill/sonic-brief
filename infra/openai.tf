@@ -23,8 +23,8 @@ variable "openai_deployments" {
         version = "2024-08-06"
       }
       sku = {
-        name     = "Standard"
-        capacity = 100
+        name     = "GlobalStandard"
+        capacity = 1
       }
     }
   ]
