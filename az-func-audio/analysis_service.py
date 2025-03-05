@@ -29,7 +29,7 @@ class AnalysisService:
             )
 
             api_url = (
-                f"{self.config.azure_openai_endpoint}/openai/deployments/"
+                f"{self.config.azure_openai_endpoint}openai/deployments/"
                 f"{self.config.azure_openai_deployment}/chat/completions"
                 f"?api-version={self.config.azure_openai_version}"
             )
