@@ -85,12 +85,17 @@ resource "azurerm_linux_web_app" "backend_webapp" {
 
 }
 
+resource "time_sleep" "wait_before_start_backend" {
+  depends_on      = [data.archive_file.python_backend_webapp_package]
+  create_duration = "360s" # Adjust the time as needed
+}
+
 resource "null_resource" "publish_backend_app_zip" {
   #triggers = {always_run = "${timestamp()}"}
   provisioner "local-exec" {
     command = "az webapp deploy --subscription ${var.subscription_id} --resource-group ${azurerm_linux_web_app.backend_webapp.resource_group_name} --name ${azurerm_linux_web_app.backend_webapp.name} --src-path ${data.archive_file.python_backend_webapp_package.output_path} --type zip"
   }
-  depends_on = [data.archive_file.python_backend_webapp_package]
+  depends_on = [time_sleep.wait_before_start_backend]
 }
 
 

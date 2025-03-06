@@ -47,10 +47,11 @@ resource "null_resource" "npm_run_build" {
 
 resource "time_sleep" "wait_before_start_frontend" {
   depends_on      = [null_resource.npm_run_build]
-  create_duration = "120s" # Adjust the time as needed
+  create_duration = "360s" # Adjust the time as needed
 }
 
 resource "null_resource" "create_deploy_script" {
+  triggers = { always_run = "${timestamp()}" }
   provisioner "local-exec" {
     command = <<EOT
       echo swa deploy ./frontend_app/out --env production --deployment-token '${azurerm_static_web_app.frontend_webapp.api_key}' > deploy.bat
@@ -63,6 +64,6 @@ resource "null_resource" "publish_website" {
   triggers   = { always_run = "${timestamp()}" }
 
   provisioner "local-exec" {
-    command = "./deploy.bat"
+    command = "deploy.bat"
   }
 }
