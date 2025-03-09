@@ -18,7 +18,7 @@ app = func.FunctionApp()
 
 @app.blob_trigger(
     arg_name="myblob",
-    path="recordingcontainer/{name}",
+    path="%AZURE_STORAGE_RECORDINGS_CONTAINER%/{name}",
     connection="audio",
 )
 def blob_trigger(myblob: func.InputStream):
