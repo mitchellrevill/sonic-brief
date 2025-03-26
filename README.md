@@ -165,33 +165,20 @@ To deploy and run this project, you need:
 - **Node.js** (for frontend development, if applicable)
 - **Python** (backend implementation)
 
-## Deployment Steps
+## Deployment Options
 
-### 1. Set Up Azure Services
+There are two types of deployment guidance available for the Azure AI Transcription Accelerator solution:
 
-- Create an **Azure Static Web App** and deploy the frontend.
-- Set up an **Azure App Service** to handle voice file uploads.
-- Configure **Azure Blob Storage** with two containers: `recordings` and `results`.
-- Deploy an **Azure Function** with a Blob trigger to process new files.
-- Enable **Azure Speech-to-Text API** for transcription.
-- Enable **Azure OpenAI GPT-4o API** for text summarization.
-- Create a **CosmosDB (Document, Serverless)** instance to store logs.
+### Manual Deployment
 
-### 2. Configure Azure Function
+This option guides you through deploying all required resources step-by-step via the Azure Portal. Detailed instructions are available in the [manual deployment documentation](/manual-deployment/README.md).
 
-- Set up a function with a Blob trigger that listens for new recordings.
-- Integrate Azure Speech-to-Text and OpenAI GPT-4o APIs.
-- Store processed data in **Blob Storage (Results)**.
 
-### 3. Deploy the Web Application
+### Automatic Deployment Using Terraform
 
-- Host the frontend on **Azure Static Web Apps**.
-- Connect the web app to the backend **Azure App Service**.
-- Implement authentication (if required).
+For an automated approach, use Terraform to deploy all necessary resources. The complete Terraform configuration and instructions are provided in the [Terraform deployment documentation](infra/README.md).
 
-## Demo
 
-//insert demo here
 
 ## Technologies Used
 
@@ -212,6 +199,10 @@ We appreciate the efforts and contributions of the following individuals:
 |----------------------|-----------------|
 | **Moustafa Mahmoud** | [MoustafaAMahmoud](https://www.linkedin.com/in/moustafaamahmoud/)   |
 | **Wolfgang Knupp**   | [WolfgangKnupp](https://www.linkedin.com/in/wolfgangknupp/)               |
-| **Arthur Zrtur Zielinski** | [ArturZielinski](https://www.linkedin.com/in/arturzielinski/)         |
 
-If you’ve contributed and would like your contact info added, feel free to submit a PR! 🚀  
+
+> [!Note]
+> Special thanks to Chris Masuda, David Willis, and Joe Broughton from Leicestershire County Council for preparing the manual deployment guidance.
+> Special thanks to Simon Harris from Shared Regulatory Services (SRS) for helping with testing and sharing ideas to enhance the solution.
+
+If you’ve contributed, feel free to submit a PR! 🚀  
