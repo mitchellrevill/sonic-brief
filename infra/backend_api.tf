@@ -61,9 +61,9 @@ resource "azurerm_linux_web_app" "backend_webapp" {
 
 
   app_settings = {
-    AZURE_COSMOS_DB_PREFIX = "voice_"
-    AZURE_COSMOS_ENDPOINT  = azurerm_cosmosdb_account.voice_account.endpoint
-
+    AZURE_COSMOS_DB_PREFIX             = "voice_"
+    AZURE_COSMOS_ENDPOINT              = azurerm_cosmosdb_account.voice_account.endpoint
+    AZURE_COSMOS_DB                    = azurerm_cosmosdb_sql_database.voice_db.name
     AZURE_STORAGE_ACCOUNT_URL          = "https://${azurerm_storage_account.storage.name}.blob.core.windows.net"
     AZURE_STORAGE_RECORDINGS_CONTAINER = var.storage_container_name
 
