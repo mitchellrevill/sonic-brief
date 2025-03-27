@@ -78,10 +78,16 @@ class StorageService:
                 self.config.storage.recordings_container
             )
 
+            # Sanitize filename - replace spaces with underscores
+            sanitized_filename = original_filename.replace(" ", "_")
+            self.logger.debug(
+                f"Sanitized filename: {original_filename} -> {sanitized_filename}"
+            )
+
             # Generate blob name with date and nested structure
             current_date = datetime.now().strftime("%Y-%m-%d")
-            file_name_without_ext = os.path.splitext(original_filename)[0]
-            blob_name = f"{current_date}/{file_name_without_ext}/{original_filename}"
+            file_name_without_ext = os.path.splitext(sanitized_filename)[0]
+            blob_name = f"{current_date}/{file_name_without_ext}/{sanitized_filename}"
 
             blob_client = container_client.get_blob_client(blob_name)
 
