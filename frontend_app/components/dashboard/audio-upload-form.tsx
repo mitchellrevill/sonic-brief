@@ -17,9 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 
 // Define the form schema using Zod
 const formSchema = z.object({
-  audioFile: z.instanceof(File).refine((file) => file.size <= 10000000, {
-    message: "Audio file must be 5MB or less.",
-  }),
+  audioFile: z.instanceof(File), // Removed size restriction
   promptCategory: z.string({
     required_error: "Please select a prompt category.",
   }),
@@ -155,7 +153,7 @@ export function AudioUploadForm() {
                     }}
                   />
                 </FormControl>
-                <FormDescription>Upload an audio file (max 10MB)</FormDescription>
+                <FormDescription>Upload an audio file (no size limit)</FormDescription>
                 <FormMessage />
               </FormItem>
             )}
