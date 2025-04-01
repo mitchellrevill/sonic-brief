@@ -1,4 +1,4 @@
-﻿# Echo Brief Project
+﻿# Sonic Brief Project
 > [!WARNING]
 > This Solutions Accelerator is in early stages and is subjected to changes.
 
