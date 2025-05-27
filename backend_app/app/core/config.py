@@ -86,6 +86,21 @@ class DatabaseError(Exception):
 
 
 class CosmosDB:
+    async def get_all_users(self):
+        """Get all users from the auth container, regardless of type."""
+        try:
+            query = "SELECT * FROM c"
+            users = list(
+                self.auth_container.query_items(
+                    query=query,
+                    enable_cross_partition_query=True,
+                )
+            )
+            return users
+        except Exception as e:
+            self.logger.error(f"Error retrieving all users: {str(e)}")
+            raise
+    
     def __init__(self, config: AppConfig):
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.DEBUG)
@@ -149,6 +164,8 @@ class CosmosDB:
         except Exception as e:
             self.logger.error(f"Error initializing Cosmos DB: {str(e)}")
             raise
+
+
 
     async def get_user_by_email(self, email: str):
         try:

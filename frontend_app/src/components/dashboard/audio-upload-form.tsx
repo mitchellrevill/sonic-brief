@@ -34,16 +34,28 @@ import { useForm } from "react-hook-form";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
+import { useEffect } from "react";
 
-export function AudioUploadForm() {
+
+
+
+
+
+
+export function AudioUploadForm({ audioFile }: { audioFile?: File | null }) {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(
     null,
   );
-
   const form = useForm<AudioUploadValues>({
     resolver: zodResolver(audioUploadSchema),
   });
+
+  useEffect(() => {
+    if (audioFile) {
+      form.setValue("audioFile", audioFile);
+    }
+  }, [audioFile, form]);
 
   const {
     data: categories,
@@ -94,33 +106,47 @@ export function AudioUploadForm() {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-        <FormField
-          control={form.control}
-          name="audioFile"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Audio File</FormLabel>
-              <FormControl>
+            <FormField
+              control={form.control}
+              name="audioFile"
+              render={({ field }) => (
+              <FormItem>
+                <FormLabel>Audio File</FormLabel>
+                <FormControl>
                 <Input
                   type="file"
                   accept="audio/*"
                   onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    field.onChange(file);
+                  const file = e.target.files?.[0];
+                  field.onChange(file);
                   }}
+                  className="w-full"
+                  disabled={!!field.value}
                 />
-              </FormControl>
-              <FormDescription>
-                Upload an audio file (no size limit)
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="promptCategory"
-          render={({ field }) => (
+                </FormControl>
+                {field.value && typeof field.value !== "string" && (
+                <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
+                  Selected file: {field.value.name}
+                  <button
+                  type="button"
+                  className="ml-2 text-red-500 underline"
+                  onClick={() => field.onChange(undefined)}
+                  >
+                  Clear
+                  </button>
+                </div>
+                )}
+                <FormDescription>
+                Upload an audio file 
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="promptCategory"
+              render={({ field }) => (
             <FormItem>
               <FormLabel>Prompt Category</FormLabel>
               <div className="flex items-center space-x-2">
@@ -135,7 +161,7 @@ export function AudioUploadForm() {
                   disabled={isLoadingCategories}
                 >
                   <FormControl>
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue placeholder="Select a category" />
                     </SelectTrigger>
                   </FormControl>
@@ -155,9 +181,12 @@ export function AudioUploadForm() {
                   variant="outline"
                   onClick={() => refetchCategories()}
                   disabled={isLoadingCategories}
+                  className="flex items-center px-2"
                 >
-                  <RefreshCcw className="mr-2 h-4 w-4" />
+                  <RefreshCcw className="h-4 w-4" />
+                  <span className="ml-2 hidden sm:inline">
                   {isLoadingCategories ? "Refreshing..." : "Refresh"}
+                  </span>
                 </Button>
               </div>
               <FormMessage />
@@ -222,13 +251,17 @@ export function AudioUploadForm() {
             </CardContent>
           </Card>
         )}
-        <Button type="submit" disabled={isUploading || !form.formState.isValid}>
-          {isUploading ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            "Upload and Process"
-          )}
-        </Button>
+         <Button
+    type="submit"
+    disabled={isUploading || !form.formState.isValid}
+    className="w-full"
+  >
+    {isUploading ? (
+      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+    ) : (
+      "Upload and Process"
+    )}
+  </Button>
       </form>
     </Form>
   );

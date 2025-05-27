@@ -11,6 +11,7 @@ import {
   FileText,
   LogOut,
   Mic,
+  UserCog
 } from "lucide-react";
 
 interface MenuItem {
@@ -23,6 +24,7 @@ const menuItems: Array<MenuItem> = [
   { icon: Mic, label: "Audio Upload", to: "/audio-upload" },
   { icon: FileAudio, label: "Audio Recordings", to: "/audio-recordings" },
   { icon: FileText, label: "Prompt Management", to: "/prompt-management" },
+  { icon: UserCog, label: "User Management", to: "/user-management" }
 ];
 
 interface AppSidebarProps {
@@ -97,7 +99,7 @@ export function AppSidebar({ children }: AppSidebarProps) {
 
       <div
         className={cn(
-          "flex-1 p-6 transition-all duration-300 ease-in-out",
+          "flex-1  transition-all duration-300 ease-in-out",
           isOpen ? "ml-64" : "ml-16",
         )}
       >

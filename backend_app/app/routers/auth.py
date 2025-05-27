@@ -157,6 +157,19 @@ async def login_for_access_token(request: Request):
         logger.error(f"Unexpected error during login: {str(e)}", exc_info=True)
         return {"status": 500, "message": f"An unexpected error occurred: {str(e)}"}
 
+@router.get("/users")
+async def get_all_users():
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        users = await cosmos_db.get_all_users()
+        for user in users:
+            user.pop("hashed_password", None)
+        return {"status": 200, "users": users}
+    except Exception as e:
+        logger.error(f"Error fetching users: {str(e)}", exc_info=True)
+        return {"status": 500, "message": f"Error fetching users: {str(e)}"}
+
 
 @router.post("/register")
 async def register_user(request: Request):
