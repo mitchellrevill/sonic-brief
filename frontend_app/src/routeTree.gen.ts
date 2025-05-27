@@ -14,6 +14,7 @@ import { Route as rootRoute } from './routes/__root'
 import { Route as LoginImport } from './routes/login'
 import { Route as LayoutImport } from './routes/_layout'
 import { Route as IndexImport } from './routes/index'
+import { Route as LayoutUserManagementIndexImport } from './routes/_layout/user-management/index'
 import { Route as LayoutPromptManagementIndexImport } from './routes/_layout/prompt-management/index'
 import { Route as LayoutAudioUploadIndexImport } from './routes/_layout/audio-upload/index'
 import { Route as LayoutAudioRecordingsIndexImport } from './routes/_layout/audio-recordings/index'
@@ -36,6 +37,12 @@ const IndexRoute = IndexImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRoute,
+} as any)
+
+const LayoutUserManagementIndexRoute = LayoutUserManagementIndexImport.update({
+  id: '/user-management/',
+  path: '/user-management/',
+  getParentRoute: () => LayoutRoute,
 } as any)
 
 const LayoutPromptManagementIndexRoute =
@@ -118,6 +125,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutPromptManagementIndexImport
       parentRoute: typeof LayoutImport
     }
+    '/_layout/user-management/': {
+      id: '/_layout/user-management/'
+      path: '/user-management'
+      fullPath: '/user-management'
+      preLoaderRoute: typeof LayoutUserManagementIndexImport
+      parentRoute: typeof LayoutImport
+    }
   }
 }
 
@@ -128,6 +142,7 @@ interface LayoutRouteChildren {
   LayoutAudioRecordingsIndexRoute: typeof LayoutAudioRecordingsIndexRoute
   LayoutAudioUploadIndexRoute: typeof LayoutAudioUploadIndexRoute
   LayoutPromptManagementIndexRoute: typeof LayoutPromptManagementIndexRoute
+  LayoutUserManagementIndexRoute: typeof LayoutUserManagementIndexRoute
 }
 
 const LayoutRouteChildren: LayoutRouteChildren = {
@@ -135,6 +150,7 @@ const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutAudioRecordingsIndexRoute: LayoutAudioRecordingsIndexRoute,
   LayoutAudioUploadIndexRoute: LayoutAudioUploadIndexRoute,
   LayoutPromptManagementIndexRoute: LayoutPromptManagementIndexRoute,
+  LayoutUserManagementIndexRoute: LayoutUserManagementIndexRoute,
 }
 
 const LayoutRouteWithChildren =
@@ -148,6 +164,7 @@ export interface FileRoutesByFullPath {
   '/audio-recordings': typeof LayoutAudioRecordingsIndexRoute
   '/audio-upload': typeof LayoutAudioUploadIndexRoute
   '/prompt-management': typeof LayoutPromptManagementIndexRoute
+  '/user-management': typeof LayoutUserManagementIndexRoute
 }
 
 export interface FileRoutesByTo {
@@ -158,6 +175,7 @@ export interface FileRoutesByTo {
   '/audio-recordings': typeof LayoutAudioRecordingsIndexRoute
   '/audio-upload': typeof LayoutAudioUploadIndexRoute
   '/prompt-management': typeof LayoutPromptManagementIndexRoute
+  '/user-management': typeof LayoutUserManagementIndexRoute
 }
 
 export interface FileRoutesById {
@@ -169,6 +187,7 @@ export interface FileRoutesById {
   '/_layout/audio-recordings/': typeof LayoutAudioRecordingsIndexRoute
   '/_layout/audio-upload/': typeof LayoutAudioUploadIndexRoute
   '/_layout/prompt-management/': typeof LayoutPromptManagementIndexRoute
+  '/_layout/user-management/': typeof LayoutUserManagementIndexRoute
 }
 
 export interface FileRouteTypes {
@@ -181,6 +200,7 @@ export interface FileRouteTypes {
     | '/audio-recordings'
     | '/audio-upload'
     | '/prompt-management'
+    | '/user-management'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -190,6 +210,7 @@ export interface FileRouteTypes {
     | '/audio-recordings'
     | '/audio-upload'
     | '/prompt-management'
+    | '/user-management'
   id:
     | '__root__'
     | '/'
@@ -199,6 +220,7 @@ export interface FileRouteTypes {
     | '/_layout/audio-recordings/'
     | '/_layout/audio-upload/'
     | '/_layout/prompt-management/'
+    | '/_layout/user-management/'
   fileRoutesById: FileRoutesById
 }
 
@@ -238,7 +260,8 @@ export const routeTree = rootRoute
         "/_layout/audio-recordings/$id",
         "/_layout/audio-recordings/",
         "/_layout/audio-upload/",
-        "/_layout/prompt-management/"
+        "/_layout/prompt-management/",
+        "/_layout/user-management/"
       ]
     },
     "/login": {
@@ -258,6 +281,10 @@ export const routeTree = rootRoute
     },
     "/_layout/prompt-management/": {
       "filePath": "_layout/prompt-management/index.tsx",
+      "parent": "/_layout"
+    },
+    "/_layout/user-management/": {
+      "filePath": "_layout/user-management/index.tsx",
       "parent": "/_layout"
     }
   }
