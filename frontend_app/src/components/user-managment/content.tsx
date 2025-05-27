@@ -9,11 +9,12 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { fetchAllUsers } from "@/lib/api"; 
 
 type User = {
   id: number;
   name: string;
-  email: string;
+  email: string; 
   permission: "admin" | "editor" | "viewer";
 };
 
@@ -23,10 +24,25 @@ const initialUsers: User[] = [
   { id: 3, name: "Charlie Brown", email: "charlie@example.com", permission: "viewer" },
 ];
 
+// ...existing code...
 export function UserManagementTable() {
   const [users, setUsers] = useState<User[]>(initialUsers);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editPermission, setEditPermission] = useState<"admin" | "editor" | "viewer">("viewer");
+  const [loading, setLoading] = useState(false);
+
+  // Uncomment and implement fetchAllUsersApi if needed
+  const fetchAllUsersApi = async () => {
+    setLoading(true);
+    try {
+      const data = await fetchAllUsers();
+      setUsers(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const startEdit = (user: User) => {
     setEditingId(user.id);
@@ -45,7 +61,12 @@ export function UserManagementTable() {
   return (
     <Card className="w-full max-w-3xl ml-0">
       <CardHeader>
-        <CardTitle>User List</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle>User List</CardTitle>
+          <Button size="sm" onClick={fetchAllUsersApi} disabled={loading}>
+            {loading ? "Loading..." : "Test Fetch Users"}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         <Table>

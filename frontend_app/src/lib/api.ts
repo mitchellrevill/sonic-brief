@@ -5,6 +5,7 @@ import {
   REGISTER_API,
   SUBCATEGORIES_API,
   UPLOAD_API,
+  User_MANAGEMENT_API,
 } from "../lib/apiConstants"
 
 interface RegisterResponse {
@@ -99,6 +100,34 @@ export async function loginUser(email: string, password: string): Promise<LoginR
   }
 
   return data
+}
+
+export interface UserApi {
+  id: number;
+  name: string;
+  email: string;
+  permission: "admin" | "editor" | "viewer";
+}
+
+
+
+export async function fetchAllUsers(): Promise<UserApi[]> {
+  const token = localStorage.getItem("token");
+  if (!token) throw new Error("No authentication token found. Please log in again.");
+
+  const response = await fetch(User_MANAGEMENT_API, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  return await response.json();
 }
 
 export async function uploadFile(
