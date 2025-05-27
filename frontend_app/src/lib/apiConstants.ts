@@ -11,3 +11,4 @@ export const CATEGORIES_API = `${BASE_URL}/categories`;
 export const SUBCATEGORIES_API = `${BASE_URL}/subcategories`;
 export const PROMPTS_API = `${BASE_URL}/retrieve_prompts`;
 export const TRANSCRIPTION_API = `${BASE_URL}/jobs/transcription`;
+export const User_MANAGEMENT_API = `${BASE_URL}/users`;
