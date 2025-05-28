@@ -5,6 +5,10 @@ interface VoiceRecorderProps {
   onRecordingComplete?: (file: File) => void;
 }
 
+function getRandomString(length = 8) {
+  return Math.random().toString(36).substring(2, 2 + length);
+}
+
 export function VoiceRecorder({ onRecordingComplete }: VoiceRecorderProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [audioURL, setAudioURL] = useState<string | null>(null);
@@ -25,7 +29,8 @@ export function VoiceRecorder({ onRecordingComplete }: VoiceRecorderProps) {
       setAudioURL(url);
       audioChunks.current = [];
 
-      const file = new File([audioBlob], "recording.webm", { type: "audio/webm" });
+      const randomName = `recording-${getRandomString(8)}.webm`;
+      const file = new File([audioBlob], randomName, { type: "audio/webm" });
       if (onRecordingComplete) {
         onRecordingComplete(file);
       }
