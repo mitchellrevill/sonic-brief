@@ -102,16 +102,17 @@ export async function loginUser(email: string, password: string): Promise<LoginR
   return data
 }
 
-export interface UserApi {
+export type User = {
   id: number;
   name: string;
   email: string;
-  permission: "admin" | "editor" | "viewer";
-}
+  permission: "User" | "Admin" | "Viewer";
+  date?: string; 
+};
 
 
 
-export async function fetchAllUsers(): Promise<UserApi[]> {
+export async function fetchAllUsers(): Promise<User[]> {
   const token = localStorage.getItem("token");
   if (!token) throw new Error("No authentication token found. Please log in again.");
 
@@ -129,6 +130,9 @@ export async function fetchAllUsers(): Promise<UserApi[]> {
 
   return await response.json();
 }
+
+
+
 
 export async function uploadFile(
   file: File,
@@ -178,8 +182,28 @@ export async function fetchPrompts(): Promise<PromptsResponse> {
 
   return await response.json()
 }
+export async function updateUserPermission(userId: number | string, permission: "User" | "Admin" | "Viewer"): Promise<User> {
+  const token = localStorage.getItem("token");
+  if (!token) throw new Error("No authentication token found. Please log in again.");
 
-// New functions for category management
+  const response = await fetch(`${User_MANAGEMENT_API}/${userId}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ type: permission }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+  }
+
+  return await response.json();
+}
+
+
 export async function createCategory(name: string): Promise<CategoryResponse> {
   const token = localStorage.getItem("token")
   if (!token) {
