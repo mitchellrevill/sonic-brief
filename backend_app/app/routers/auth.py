@@ -170,7 +170,26 @@ async def get_all_users():
         logger.error(f"Error fetching users: {str(e)}", exc_info=True)
         return {"status": 500, "message": f"Error fetching users: {str(e)}"}
 
+@router.patch("/users/{user_id}")
+async def update_user_permission(
+    user_id: str = Path(..., description="The ID of the user to update"),
+    update_data: dict = Body(...)
+):
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        updated_user = await cosmos_db.update_user(user_id, update_data)
+        # Remove sensitive info if present
+        updated_user.pop("hashed_password", None)
+        return {"status": 200, "user": updated_user}
+    except ValueError as e:
+        logger.error(f"User not found: {str(e)}", exc_info=True)
+        return {"status": 404, "message": str(e)}
+    except Exception as e:
+        logger.error(f"Error updating user: {str(e)}", exc_info=True)
+        return {"status": 500, "message": f"Error updating user: {str(e)}"}
 
+        
 @router.post("/register")
 async def register_user(request: Request):
     try:
