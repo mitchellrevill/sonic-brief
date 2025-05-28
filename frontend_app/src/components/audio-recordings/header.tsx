@@ -10,9 +10,9 @@ import { Upload } from "lucide-react";
 
 export function AudioRecordingsHeader() {
   return (
-    <div className="flex items-center justify-between">
-      <div className="space-y-1">
-        <h2 className="text-2xl font-semibold tracking-tight">
+    <div className="flex items-center justify-between px-2 py-2 md:px-4 md:py-3">
+      <div className="space-y-0.5">
+        <h2 className="text-lg md:text-xl font-semibold tracking-tight">
           Audio Recordings
         </h2>
         <Breadcrumb>
@@ -23,15 +23,14 @@ export function AudioRecordingsHeader() {
             <BreadcrumbPage>Audio Recordings</BreadcrumbPage>
           </BreadcrumbItem>
         </Breadcrumb>
-        <p className="text-muted-foreground text-sm">
-          Manage and monitor all uploaded audio files and their processing
-          status.
+        <p className="text-muted-foreground text-xs md:text-sm">
+          Manage and monitor all uploaded audio files and their processing status.
         </p>
       </div>
       <Link to="/audio-upload">
-        <Button>
+        <Button size="sm" className="px-2 py-1">
           <Upload className="mr-2 h-4 w-4" />
-          Add New Audio Recording
+          <span className="hidden sm:inline">Add New Audio Recording</span>
         </Button>
       </Link>
     </div>
