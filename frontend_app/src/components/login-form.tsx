@@ -12,7 +12,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
-import { fetchUserByEmail } from "@/lib/api"; 
 export function LoginForm() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -30,18 +29,12 @@ export function LoginForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
-
+      
       if (response.ok) {
         const data = await response.json();
         localStorage.setItem("token", data.token);
 
-        // Fetch user by email and store permission
-        try {
-          const user = await fetchUserByEmail(username);
-          localStorage.setItem("permission", user.permission);
-        } catch (err) {
-          console.error("Failed to fetch user permission:", err);
-        }
+      
 
         toast({
           title: "Login Successful",

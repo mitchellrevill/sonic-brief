@@ -35,10 +35,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { useEffect } from "react";
-
-
-
-
+import { fetchFile } from "@ffmpeg/util"
+import { FFmpeg } from "@ffmpeg/ffmpeg";
+import { useRef } from "react";
 
 
 
@@ -47,10 +46,14 @@ export function AudioUploadForm({ audioFile }: { audioFile?: File | null }) {
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(
     null,
   );
+
+
+  
   const form = useForm<AudioUploadValues>({
     resolver: zodResolver(audioUploadSchema),
   });
-
+ const ffmpegRef = useRef<FFmpeg | null>(null);
+ 
   useEffect(() => {
     if (audioFile) {
       form.setValue("audioFile", audioFile);
@@ -66,6 +69,43 @@ export function AudioUploadForm({ audioFile }: { audioFile?: File | null }) {
     queryFn: fetchPrompts,
     select: (data) => data.data,
   });
+
+
+const loadFFmpeg = async () => {
+    if (!ffmpegRef.current) {
+      const ffmpeg = new FFmpeg();
+      await ffmpeg.load();
+      ffmpegRef.current = ffmpeg;
+    }
+    return ffmpegRef.current;
+  };
+
+const convertToMono = async (file: File): Promise<File> => {
+    const ffmpeg = await loadFFmpeg();
+    const inputName = file.name;
+    const baseName = inputName.replace(/\.[^/.]+$/, "");
+    const outputName = `${baseName}-mono.wav`;
+
+    // Write file to FFmpeg FS
+    await ffmpeg.writeFile(inputName, await fetchFile(file));
+    // Run FFmpeg to convert to mono
+    await ffmpeg.exec([
+      "-i", inputName,
+      "-ac", "1",
+      outputName,
+    ]);
+    // Read output file
+    const data = await ffmpeg.readFile(outputName);
+    // Clean up FS (optional)
+    await ffmpeg.deleteFile(inputName);
+    await ffmpeg.deleteFile(outputName);
+
+    return new File([data], outputName, { type: "audio/wav" });
+  };
+
+
+
+
 
   const { mutateAsync: uploadAudioMutation, isPending: isUploading } =
     useMutation({
@@ -86,7 +126,14 @@ export function AudioUploadForm({ audioFile }: { audioFile?: File | null }) {
 
   const onSubmit = useCallback(
     async (values: AudioUploadValues) => {
-      await uploadAudioMutation(values);
+      let processedFile = values.audioFile;
+      if (processedFile && typeof processedFile !== "string") {
+        processedFile = await convertToMono(processedFile);
+      }
+      await uploadAudioMutation({
+        ...values,
+        audioFile: processedFile,
+      });
       form.reset({
         audioFile: undefined,
         promptCategory: "",
