@@ -188,126 +188,103 @@ const convertToMono = async (file: File): Promise<File> => {
                 <FormMessage />
               </FormItem>
               )}
-            />
+            />            
             <FormField
               control={form.control}
               name="promptCategory"
               render={({ field }) => (
-            <FormItem>
-              <FormLabel>Prompt Category</FormLabel>
-              <div className="flex items-center space-x-2">
-                <Select
-                  value={selectedCategory || ""}
-                  onValueChange={(value) => {
-                    field.onChange(value);
-                    setSelectedCategory(value);
-                    setSelectedSubcategory(null);
-                    form.setValue("promptSubcategory", "");
-                  }}
-                  disabled={isLoadingCategories}
-                >
-                  <FormControl>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select a category" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {categories?.map((category) => (
-                      <SelectItem
-                        key={category.category_id}
-                        value={category.category_id}
-                      >
-                        {category.category_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => refetchCategories()}
-                  disabled={isLoadingCategories}
-                  className="flex items-center px-2"
-                >
-                  <RefreshCcw className="h-4 w-4" />
-                  <span className="ml-2 hidden sm:inline">
-                  {isLoadingCategories ? "Refreshing..." : "Refresh"}
-                  </span>
-                </Button>
-              </div>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="promptSubcategory"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Prompt Subcategory</FormLabel>
-              <Select
-                value={selectedSubcategory || ""}
-                onValueChange={(value) => {
-                  field.onChange(value);
-                  setSelectedSubcategory(value);
-                }}
-                disabled={!selectedCategory}
-              >
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a subcategory" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  {selectedCategoryData?.subcategories.map((subcategory) => (
-                    <SelectItem
-                      key={subcategory.subcategory_id}
-                      value={subcategory.subcategory_id}
+                <FormItem>
+                  <FormLabel>Prompt Category</FormLabel>
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-2 gap-2 sm:gap-0">
+                    <Select
+                      value={selectedCategory || ""}
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        setSelectedCategory(value);
+                        setSelectedSubcategory(null);
+                        form.setValue("promptSubcategory", "");
+                      }}
+                      disabled={isLoadingCategories}
                     >
-                      {subcategory.subcategory_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        {selectedSubcategoryData && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="font-bold">
-                {selectedSubcategoryData.subcategory_name}
-              </CardTitle>
-              <CardDescription>
-                Prompt details for the selected subcategory
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="max-h-60 overflow-auto p-4">
-              {Object.entries(selectedSubcategoryData.prompts).map(
-                ([key, value]) => (
-                  <div key={key} className="mb-4">
-                    <h4 className="text-lg font-semibold">{key}</h4>
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {value}
-                    </ReactMarkdown>
+                      <FormControl>
+                        <SelectTrigger className="w-full sm:w-64">
+                          <SelectValue placeholder="Select a category" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {categories?.map((category) => (
+                          <SelectItem
+                            key={category.category_id}
+                            value={category.category_id}
+                          >
+                            {category.category_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => refetchCategories()}
+                      disabled={isLoadingCategories}
+                      className="flex items-center w-full sm:w-auto px-2"
+                    >
+                      <RefreshCcw className="h-4 w-4" />
+                      <span className="ml-2 hidden sm:inline">
+                        {isLoadingCategories ? "Refreshing..." : "Refresh"}
+                      </span>
+                    </Button>
                   </div>
-                ),
+                  <FormMessage />
+                </FormItem>
               )}
-            </CardContent>
-          </Card>
-        )}
-         <Button
-    type="submit"
-    disabled={isUploading || !form.formState.isValid}
-    className="w-full"
-  >
-    {isUploading ? (
-      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-    ) : (
-      "Upload and Process"
-    )}
-  </Button>
+            />
+            <FormField
+              control={form.control}
+              name="promptSubcategory"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Prompt Subcategory</FormLabel>
+                  <Select
+                    value={selectedSubcategory || ""}
+                    onValueChange={(value) => {
+                      field.onChange(value);
+                      setSelectedSubcategory(value);
+                    }}
+                    disabled={!selectedCategory}
+                  >
+                    <FormControl>
+                      <SelectTrigger className="w-full sm:w-64">
+                        <SelectValue placeholder="Select a subcategory" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {selectedCategoryData?.subcategories.map((subcategory) => (
+                        <SelectItem
+                          key={subcategory.subcategory_id}
+                          value={subcategory.subcategory_id}
+                        >
+                          {subcategory.subcategory_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <Button
+              type="submit"
+              disabled={isUploading || !form.formState.isValid}
+              className="w-full mt-4"
+            >
+              {isUploading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                "Upload and Process"
+              )}
+            </Button>
+            
       </form>
     </Form>
   );
