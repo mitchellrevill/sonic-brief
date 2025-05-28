@@ -195,101 +195,103 @@ export function AudioRecordingsCombined({
 
           {isLoading && <Progress value={90} className="mt-4 mb-4" />}
 
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Job ID</TableHead>
-                <TableHead>File Name</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Upload Date</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            {isLoading ? (
-              <AudioTableSkeleton />
-            ) : (
-              <TableBody>
-                {paginatedData && paginatedData.length > 0 ? (
-                  paginatedData.map((row: any) => (
-                    <TableRow key={row.id}>
-                      <TableCell>{row.id}</TableCell>
-                      <TableCell className="max-w-[250px] truncate font-medium text-blue-500">
-                        {row.file_name ||
-                          row.file_path.split("/").pop() ||
-                          "Unnamed Recording"}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          className={cn(
-                            "flex min-w-[100px] items-center justify-center rounded-md px-4 py-1 text-xs",
-                            statusVariants[row.status] ||
-                              statusVariants.default,
-                          )}
-                        >
-                          {row.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {new Date(
-                          parseInt(row.created_at),
-                        ).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell>
-                        {/* Action Dropdown */}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              onClick={() => setSelectedRecording(row)}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          {selectedRecording &&
-                            selectedRecording.id === row.id && (
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    localStorage.setItem(
-                                      "current_recording_id",
-                                      row.id,
-                                    );
-                                    router.navigate({
-                                      to: `/audio-recordings/$id`,
-                                      params: { id: row.id },
-                                    });
-                                  }}
-                                >
-                                  <Eye className="mr-2 h-4 w-4" />
-                                  View Details
-                                </DropdownMenuItem>
-                                {row.status === "uploaded" && (
-                                  <DropdownMenuItem onClick={() => null}>
-                                    <RefreshCcw className="mr-2 h-4 w-4" />
-                                    Retry Processing
-                                  </DropdownMenuItem>
-                                )}
-                              </DropdownMenuContent>
+          <div className="w-full overflow-x-auto">
+            <Table className="w-full min-w-0 max-w-full">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Job ID</TableHead>
+                  <TableHead>File Name</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Upload Date</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              {isLoading ? (
+                <AudioTableSkeleton />
+              ) : (
+                <TableBody>
+                  {paginatedData && paginatedData.length > 0 ? (
+                    paginatedData.map((row: any) => (
+                      <TableRow key={row.id}>
+                        <TableCell>{row.id}</TableCell>
+                        <TableCell className="max-w-[250px] truncate font-medium text-blue-500">
+                          {row.file_name ||
+                            row.file_path.split("/").pop() ||
+                            "Unnamed Recording"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            className={cn(
+                              "flex min-w-[100px] items-center justify-center rounded-md px-4 py-1 text-xs",
+                              statusVariants[row.status] ||
+                                statusVariants.default,
                             )}
-                        </DropdownMenu>
+                          >
+                            {row.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {new Date(
+                            parseInt(row.created_at),
+                          ).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell>
+                          {/* Action Dropdown */}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => setSelectedRecording(row)}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            {selectedRecording &&
+                              selectedRecording.id === row.id && (
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      localStorage.setItem(
+                                        "current_recording_id",
+                                        row.id,
+                                      );
+                                      router.navigate({
+                                        to: `/audio-recordings/$id`,
+                                        params: { id: row.id },
+                                      });
+                                    }}
+                                  >
+                                    <Eye className="mr-2 h-4 w-4" />
+                                    View Details
+                                  </DropdownMenuItem>
+                                  {row.status === "uploaded" && (
+                                    <DropdownMenuItem onClick={() => null}>
+                                      <RefreshCcw className="mr-2 h-4 w-4" />
+                                      Retry Processing
+                                    </DropdownMenuItem>
+                                  )}
+                                </DropdownMenuContent>
+                              )}
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell
+                        colSpan={5}
+                        className="py-4 text-center text-gray-500"
+                      >
+                        No results found
                       </TableCell>
                     </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell
-                      colSpan={5}
-                      className="py-4 text-center text-gray-500"
-                    >
-                      No results found
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            )}
-          </Table>
+                  )}
+                </TableBody>
+              )}
+            </Table>
+          </div>
 
           {/* Pagination Controls*/}
           <div className="mt-4 flex justify-between">
