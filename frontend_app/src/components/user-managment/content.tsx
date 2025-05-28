@@ -88,76 +88,79 @@ const saveEdit = async (id: string) => {
   return (
     <Card className="w-full max-w-4xl ml-0">
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle>User List</CardTitle>
-          <Button size="sm" onClick={fetchAllUsersApi} disabled={loading}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <CardTitle className="text-base sm:text-lg">User List</CardTitle>
+          <Button size="sm" onClick={fetchAllUsersApi} disabled={loading} className="w-full sm:w-auto">
             {loading ? "Loading..." : "Refresh Users"}
           </Button>
         </div>
       </CardHeader>
       <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="text-left">Id</TableHead>
-              <TableHead className="text-left">Email</TableHead>
-              <TableHead className="text-left">User Level</TableHead>
-              <TableHead className="text-left">Date</TableHead>
-              <TableHead className="text-left w-40">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {users.map(user => (
-              <TableRow key={user.id}>
-                <TableCell className="text-left">{user.id}</TableCell>
-                <TableCell className="text-left">{user.email}</TableCell>
-                <TableCell className="text-left">
-                  {editingId === user.id ? (
-                  <select
-                          value={editPermission[user.id] ?? user.permission}
-                          onChange={e =>
-                            setEditPermission(prev => ({
-                              ...prev,
-                              [user.id]: e.target.value as User["permission"],
-                            }))
-                          }
-                          className="border rounded px-2 py-1"
-                        >
-                          <option value="Admin">Admin</option>
-                          <option value="User">User</option>
-                          <option value="Viewer">Viewer</option>
-                        </select>
-                  ) : (
-                    <span className="capitalize">{user.permission}</span>
-                  )}
-                </TableCell>
-                <TableCell className="text-left">{user.date || ""}</TableCell> {/* <-- Add this line */}
-                <TableCell className="text-left w-40">
-                <div className="flex gap-2 min-w-[120px]">
-                  {editingId === user.id ? (
-                    <>
-                      <Button size="sm" onClick={() => saveEdit(user.id)}>
-                        Save
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setEditingId(null)}
-                      >
-                        Cancel
-                      </Button>
-                    </>
-                  ) : (
-                    <Button size="sm" onClick={() => startEdit(user)}>
-                      Edit
-                    </Button>
-                  )}
-                </div>
-              </TableCell>
+        <div className="overflow-x-auto">
+          <Table className="min-w-[600px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="text-left whitespace-nowrap">Id</TableHead>
+                <TableHead className="text-left whitespace-nowrap">Email</TableHead>
+                <TableHead className="text-left whitespace-nowrap">User Level</TableHead>
+                <TableHead className="text-left whitespace-nowrap">Date</TableHead>
+                <TableHead className="text-left w-40 whitespace-nowrap">Actions</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {users.map(user => (
+                <TableRow key={user.id}>
+                  <TableCell className="text-left break-all max-w-[120px]">{user.id}</TableCell>
+                  <TableCell className="text-left break-all max-w-[180px]">{user.email}</TableCell>
+                  <TableCell className="text-left">
+                    {editingId === user.id ? (
+                      <select
+                        value={editPermission[user.id] ?? user.permission}
+                        onChange={e =>
+                          setEditPermission(prev => ({
+                            ...prev,
+                            [user.id]: e.target.value as User["permission"],
+                          }))
+                        }
+                        className="border rounded px-2 py-1 w-full sm:w-auto"
+                      >
+                        <option value="Admin">Admin</option>
+                        <option value="User">User</option>
+                        <option value="Viewer">Viewer</option>
+                      </select>
+                    ) : (
+                      <span className="capitalize">{user.permission}</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-left whitespace-nowrap">{user.date || ""}</TableCell>
+                  <TableCell className="text-left w-40">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:gap-2 min-w-[120px]">
+                      {editingId === user.id ? (
+                        <>
+                          <Button size="sm" onClick={() => saveEdit(user.id)} className="w-full sm:w-auto">
+                            Save
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setEditingId(null)}
+                            className="w-full sm:w-auto"
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button size="sm" onClick={() => startEdit(user)} className="w-full sm:w-auto">
+                          Edit
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       </CardContent>
     </Card>
   );

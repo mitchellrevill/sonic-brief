@@ -86,17 +86,16 @@ const convertToMono = async (file: File): Promise<File> => {
     const baseName = inputName.replace(/\.[^/.]+$/, "");
     const outputName = `${baseName}-mono.wav`;
 
-    // Write file to FFmpeg FS
+
     await ffmpeg.writeFile(inputName, await fetchFile(file));
-    // Run FFmpeg to convert to mono
+
     await ffmpeg.exec([
       "-i", inputName,
       "-ac", "1",
       outputName,
     ]);
-    // Read output file
     const data = await ffmpeg.readFile(outputName);
-    // Clean up FS (optional)
+
     await ffmpeg.deleteFile(inputName);
     await ffmpeg.deleteFile(outputName);
 
