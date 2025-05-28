@@ -182,7 +182,7 @@ export async function fetchPrompts(): Promise<PromptsResponse> {
 
   return await response.json()
 }
-export async function updateUserPermission(userId: number | string, permission: "User" | "Admin" | "Viewer"): Promise<User> {
+export async function updateUserPermission(userId: number, permission: "User" | "Admin" | "Viewer"): Promise<User> {
   const token = localStorage.getItem("token");
   if (!token) throw new Error("No authentication token found. Please log in again.");
 
@@ -192,7 +192,7 @@ export async function updateUserPermission(userId: number | string, permission: 
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ type: permission }),
+    body: JSON.stringify({ permission }),
   });
 
   if (!response.ok) {

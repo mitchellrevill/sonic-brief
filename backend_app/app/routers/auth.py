@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -171,10 +171,7 @@ async def get_all_users():
         return {"status": 500, "message": f"Error fetching users: {str(e)}"}
 
 @router.patch("/users/{user_id}")
-async def update_user_permission(
-    user_id: str = Path(..., description="The ID of the user to update"),
-    update_data: dict = Body(...)
-):
+async def update_user_permission(user_id: str, update_data: dict = Body(...)):
     try:
         config = AppConfig()
         cosmos_db = CosmosDB(config)
@@ -188,7 +185,6 @@ async def update_user_permission(
     except Exception as e:
         logger.error(f"Error updating user: {str(e)}", exc_info=True)
         return {"status": 500, "message": f"Error updating user: {str(e)}"}
-
         
 @router.post("/register")
 async def register_user(request: Request):
