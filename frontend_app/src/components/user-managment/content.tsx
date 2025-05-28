@@ -21,7 +21,7 @@ const initialUsers: User[] = [
 export function UserManagementTable() {
   const [users, setUsers] = useState<User[]>(initialUsers);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [editPermission, setEditPermission] = useState<User["permission"]>("Viewer");
+  const [editPermission, setEditPermission] = useState<Record<number, User["permission"]>>({});
   const [loading, setLoading] = useState(false);
 
 
@@ -65,18 +65,18 @@ export function UserManagementTable() {
 
   useEffect(() => {
     fetchAllUsersApi();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
+ 
   const startEdit = (user: User) => {
-    setEditingId(user.id);
-    setEditPermission(user.permission);
-  };
+  setEditingId(user.id);
+  setEditPermission(prev => ({ ...prev, [user.id]: user.permission }));
+};
 
-  const saveEdit = async (id: number) => {
+const saveEdit = async (id: number) => {
   try {
-    await updateUserPermission(id, editPermission);
-    await fetchAllUsersApi(); // Refresh the user list
+    const permission = editPermission[id];
+    await updateUserPermission(id, permission);
+    await fetchAllUsersApi();
   } catch (err) {
     console.error("Failed to update user permission:", err);
   } finally {
@@ -114,14 +114,19 @@ export function UserManagementTable() {
                 <TableCell className="text-left">
                   {editingId === user.id ? (
                     <select
-                      value={editPermission}
-                      onChange={e => setEditPermission(e.target.value as User["permission"])}
-                      className="border rounded px-2 py-1"
-                    >
-                      <option value="Admin">Admin</option>
-                      <option value="User">User</option>
-                      <option value="Viewer">Viewer</option>
-                    </select>
+                        value={editPermission[user.id] ?? user.permission}
+                        onChange={e =>
+                          setEditPermission(prev => ({
+                            ...prev,
+                            [user.id]: e.target.value as User["permission"],
+                          }))
+                        }
+                        className="border rounded px-2 py-1"
+                      >
+                        <option value="Admin">Admin</option>
+                        <option value="User">User</option>
+                        <option value="Viewer">Viewer</option>
+                      </select>
                   ) : (
                     <span className="capitalize">{user.permission}</span>
                   )}
