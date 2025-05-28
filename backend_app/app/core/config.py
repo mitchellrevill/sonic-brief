@@ -165,7 +165,31 @@ class CosmosDB:
             self.logger.error(f"Error initializing Cosmos DB: {str(e)}")
             raise
 
+    async def update_user(self, user_id: str, update_data: dict):
+        """
+        Update a user in the auth container by user_id.
+        """
+        try:
+            query = "SELECT * FROM c WHERE c.id = @id AND c.type = 'user'"
+            parameters = [{"name": "@id", "value": user_id}]
+            results = list(
+                self.auth_container.query_items(
+                    query=query,
+                    parameters=parameters,
+                    enable_cross_partition_query=True,
+                )
+            )
+            if not results:
+                self.logger.error(f"User with id {user_id} not found.")
+                raise ValueError(f"User with id {user_id} not found.")
 
+            user = results[0]
+            user.update(update_data)
+            updated_user = self.auth_container.upsert_item(body=user)
+            return updated_user
+        except Exception as e:
+            self.logger.error(f"Error updating user: {str(e)}")
+            raise
 
     async def get_user_by_email(self, email: str):
         try:
