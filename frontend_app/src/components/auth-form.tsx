@@ -23,7 +23,7 @@ import { loginSchema, registerSchema } from "@/schema/auth.schema";
 import { useMutation } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-
+import { fetchUserByEmail } from "@/lib/api";
 export function AuthForm() {
   const [activeTab, setActiveTab] = useState<"login" | "register">("login");
   const router = useRouter();
@@ -63,6 +63,13 @@ export function AuthForm() {
 
   async function onLoginSubmit(values: LoginValues) {
     await loginMutation(values);
+
+    try {
+      const user = await fetchUserByEmail(values.email);
+      localStorage.setItem("permission", user.permission);
+    } catch (err) {
+      console.error("Failed to fetch user permission:", err);
+    }
   }
 
   const { mutateAsync: registerMutation, isPending: isRegisterPending } =
