@@ -1,5 +1,3 @@
- 
-
 import { useState } from "react"
 import { PlusCircle } from "lucide-react"
 import { usePromptManagement } from "./prompt-management-context"
@@ -45,10 +43,10 @@ export function PromptManagementHeader() {
 
   return (
     <>
-      <div className="flex items-center justify-between">
-        <div className="space-y-1">
-          <h2 className="text-2xl font-semibold tracking-tight">Prompt Management</h2>
-          <Breadcrumb>
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between px-2 py-2 md:px-4 md:py-3">
+        <div className="space-y-1 text-center md:text-left">
+          <h2 className="text-lg md:text-2xl font-semibold tracking-tight">Prompt Management</h2>
+          <Breadcrumb className="justify-center md:justify-start flex flex-wrap">
             <BreadcrumbItem>
               <BreadcrumbLink href="/">Home</BreadcrumbLink>
             </BreadcrumbItem>
@@ -56,13 +54,13 @@ export function PromptManagementHeader() {
               <BreadcrumbPage>Prompt Management</BreadcrumbPage>
             </BreadcrumbItem>
           </Breadcrumb>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-xs md:text-sm">
             Manage categories, subcategories, and prompts for your AI system.
           </p>
         </div>
-        <Button onClick={() => setIsDialogOpen(true)}>
+        <Button onClick={() => setIsDialogOpen(true)} className="w-full md:w-auto" size="sm">
           <PlusCircle className="mr-2 h-4 w-4" />
-          Add Category
+          <span className="hidden sm:inline">Add Category</span>
         </Button>
       </div>
 
