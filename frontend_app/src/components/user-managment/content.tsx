@@ -14,14 +14,14 @@ import type { User } from "@/lib/api";
 import { updateUserPermission } from "@/lib/api";
 
 const initialUsers: User[] = [
-  { id: 1, name: "", email: "", permission: "Admin" },
+  { id: "1", name: "", email: "", permission: "Admin" },
 ];
 
 
 export function UserManagementTable() {
   const [users, setUsers] = useState<User[]>(initialUsers);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editPermission, setEditPermission] = useState<Record<number, User["permission"]>>({});
+const [editingId, setEditingId] = useState<string | null>(null);
+const [editPermission, setEditPermission] = useState<Record<string, User["permission"]>>({});
   const [loading, setLoading] = useState(false);
 
 
@@ -51,7 +51,7 @@ export function UserManagementTable() {
       id: u.id || idx,
       name: u.name || u.email || "",
       email: u.email,
-      permission: (u.type as "User" | "Admin" | "Viewer") || (u.permission as "User" | "Admin" | "Viewer") || "Viewer",
+      permission: (u.permission as "User" | "Admin" | "Viewer") || (u.permission as "User" | "Admin" | "Viewer") || "Viewer",
       date: dateStr,
       };
     });
@@ -67,12 +67,12 @@ export function UserManagementTable() {
     fetchAllUsersApi();
   }, []);
  
-  const startEdit = (user: User) => {
+const startEdit = (user: User) => {
   setEditingId(user.id);
   setEditPermission(prev => ({ ...prev, [user.id]: user.permission }));
 };
 
-const saveEdit = async (id: number) => {
+const saveEdit = async (id: string) => {
   try {
     const permission = editPermission[id];
     await updateUserPermission(id, permission);
@@ -113,20 +113,20 @@ const saveEdit = async (id: number) => {
                 <TableCell className="text-left">{user.email}</TableCell>
                 <TableCell className="text-left">
                   {editingId === user.id ? (
-                    <select
-                        value={editPermission[user.id] ?? user.permission}
-                        onChange={e =>
-                          setEditPermission(prev => ({
-                            ...prev,
-                            [user.id]: e.target.value as User["permission"],
-                          }))
-                        }
-                        className="border rounded px-2 py-1"
-                      >
-                        <option value="Admin">Admin</option>
-                        <option value="User">User</option>
-                        <option value="Viewer">Viewer</option>
-                      </select>
+                  <select
+                          value={editPermission[user.id] ?? user.permission}
+                          onChange={e =>
+                            setEditPermission(prev => ({
+                              ...prev,
+                              [user.id]: e.target.value as User["permission"],
+                            }))
+                          }
+                          className="border rounded px-2 py-1"
+                        >
+                          <option value="Admin">Admin</option>
+                          <option value="User">User</option>
+                          <option value="Viewer">Viewer</option>
+                        </select>
                   ) : (
                     <span className="capitalize">{user.permission}</span>
                   )}

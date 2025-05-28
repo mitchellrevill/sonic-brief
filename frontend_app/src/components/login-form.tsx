@@ -12,7 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
-
+import { fetchUserByEmail } from "@/lib/api"; 
 export function LoginForm() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -20,7 +20,7 @@ export function LoginForm() {
   const router = useRouter();
   const { toast } = useToast();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
@@ -33,8 +33,16 @@ export function LoginForm() {
 
       if (response.ok) {
         const data = await response.json();
-        // Store the token in localStorage or a secure cookie
         localStorage.setItem("token", data.token);
+
+        // Fetch user by email and store permission
+        try {
+          const user = await fetchUserByEmail(username);
+          localStorage.setItem("permission", user.permission);
+        } catch (err) {
+          console.error("Failed to fetch user permission:", err);
+        }
+
         toast({
           title: "Login Successful",
           description: "You have been successfully logged in.",

@@ -185,6 +185,22 @@ async def update_user_permission(user_id: str, update_data: dict = Body(...)):
     except Exception as e:
         logger.error(f"Error updating user: {str(e)}", exc_info=True)
         return {"status": 500, "message": f"Error updating user: {str(e)}"}
+        from fastapi import Query
+
+@router.get("/users/by-email")
+async def get_user_by_email(email: str = Query(..., description="User's email address")):
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        user = await cosmos_db.get_user_by_email(email)
+        if not user:
+            return {"status": 404, "message": f"User with email {email} not found"}
+        user.pop("hashed_password", None)
+        return {"status": 200, "user": user}
+    except Exception as e:
+        logger.error(f"Error fetching user by email: {str(e)}", exc_info=True)
+        return {"status": 500, "message": f"Error fetching user: {str(e)}"}
+
         
 @router.post("/register")
 async def register_user(request: Request):

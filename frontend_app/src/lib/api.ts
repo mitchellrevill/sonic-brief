@@ -103,11 +103,11 @@ export async function loginUser(email: string, password: string): Promise<LoginR
 }
 
 export type User = {
-  id: number;
+  id: string;
   name: string;
   email: string;
   permission: "User" | "Admin" | "Viewer";
-  date?: string; 
+  date?: string;
 };
 
 
@@ -131,7 +131,29 @@ export async function fetchAllUsers(): Promise<User[]> {
   return await response.json();
 }
 
+export async function fetchUserByEmail(email: string): Promise<User> {
+  const token = localStorage.getItem("token");
+  if (!token) throw new Error("No authentication token found. Please log in again.");
 
+  const response = await fetch(`${User_MANAGEMENT_API}/by-email?email=${encodeURIComponent(email)}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+  }
+
+  const data = await response.json();
+  if (data.status !== 200) {
+    throw new Error(data.message || "Failed to fetch user by email");
+  }
+  return data.user;
+}
 
 
 export async function uploadFile(
@@ -182,7 +204,7 @@ export async function fetchPrompts(): Promise<PromptsResponse> {
 
   return await response.json()
 }
-export async function updateUserPermission(userId: number, permission: "User" | "Admin" | "Viewer"): Promise<User> {
+export async function updateUserPermission(userId: string, permission: "User" | "Admin" | "Viewer"): Promise<User> {
   const token = localStorage.getItem("token");
   if (!token) throw new Error("No authentication token found. Please log in again.");
 
