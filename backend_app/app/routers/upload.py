@@ -35,16 +35,18 @@ router = APIRouter()
 
 @router.post("/upload")
 async def upload_file(
-    file: UploadFile = File(...),
+    file: UploadFile = File(None),
+    text_content: str = Form(None),
     prompt_category_id: str = Form(None),
     prompt_subcategory_id: str = Form(None),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """
-    Upload a file to Azure Blob Storage and create a job record.
+    Upload a file or process text content and create a job record.
 
     Args:
-        file: The file to upload
+        file: The file to upload (optional)
+        text_content: Direct text content for processing (optional)
         prompt_category_id: Category ID for the prompt
         prompt_subcategory_id: Subcategory ID for the prompt
         current_user: Authenticated user from token
@@ -54,10 +56,17 @@ async def upload_file(
     """
     print(f"Received prompt_category_id: {prompt_category_id}")
     print(f"Received prompt_subcategory_id: {prompt_subcategory_id}")
+    print(f"Received file: {file.filename if file else None}")
+    print(f"Received text_content: {'Yes' if text_content else 'No'}")
 
     if not prompt_category_id or not prompt_subcategory_id:
         raise HTTPException(
             status_code=400, detail="Category and Subcategory IDs cannot be null"
+        )
+    
+    if not file and not text_content:
+        raise HTTPException(
+            status_code=400, detail="Either a file or text content must be provided"
         )
 
     try:
@@ -108,35 +117,49 @@ async def upload_file(
                     return {
                         "status": 400,
                         "message": f"Invalid prompt_subcategory_id: {prompt_subcategory_id} for category: {prompt_category_id}",
-                    }
+                    }        blob_url = None
+        transcript_content = None
+        
+        # Handle file upload or text content
+        if file:
+            try:
+                # Save uploaded file to temporary location
+                with tempfile.NamedTemporaryFile(
+                    delete=False, suffix=os.path.splitext(file.filename)[1]
+                ) as temp_file:
+                    content = await file.read()
+                    temp_file.write(content)
+                    temp_file_path = temp_file.name
 
-        try:
-            # Save uploaded file to temporary location
-            with tempfile.NamedTemporaryFile(
-                delete=False, suffix=os.path.splitext(file.filename)[1]
-            ) as temp_file:
-                content = await file.read()
-                temp_file.write(content)
-                temp_file_path = temp_file.name
+                # Upload file to blob storage
+                storage_service = StorageService(config)
+                blob_url = storage_service.upload_file(temp_file_path, file.filename)
+                logger.debug(f"File uploaded to blob storage: {blob_url}")
 
-            # Upload file to blob storage
-            storage_service = StorageService(config)
-            blob_url = storage_service.upload_file(temp_file_path, file.filename)
-            logger.debug(f"File uploaded to blob storage: {blob_url}")
+                # Clean up temporary file
+                os.unlink(temp_file_path)
 
-            # Clean up temporary file
-            os.unlink(temp_file_path)
-
-        except AzureError as e:
-            logger.error(f"Storage error: {str(e)}")
-            return {"status": 504, "message": "Storage service unavailable"}
-        except Exception as e:
-            logger.error(f"Error uploading file: {str(e)}")
-            return {"status": 505, "message": f"Error uploading file: {str(e)}"}
+            except AzureError as e:
+                logger.error(f"Storage error: {str(e)}")
+                return {"status": 504, "message": "Storage service unavailable"}
+            except Exception as e:
+                logger.error(f"Error uploading file: {str(e)}")
+                return {"status": 505, "message": f"Error uploading file: {str(e)}"}
+        else:
+            # For text-only submissions, store the text content as transcript
+            transcript_content = text_content
+            logger.debug("Processing text-only submission")
 
         # Create job document
         timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
         job_id = f"job_{timestamp}"
+        
+        # Determine job status based on submission type
+        if file:
+            job_status = "uploaded"  # File needs transcription
+        else:
+            job_status = "transcribed"  # Text is already available for analysis
+        
         job_data = {
             "id": job_id,
             "type": "job",
@@ -146,19 +169,25 @@ async def upload_file(
             "analysis_file_path": None,
             "prompt_category_id": prompt_category_id,
             "prompt_subcategory_id": prompt_subcategory_id,
-            "status": "uploaded",
+            "status": job_status,
             "transcription_id": None,
+            "text_content": transcript_content,  # Store text content for text-only submissions
             "created_at": timestamp,
             "updated_at": timestamp,
         }
-        job = cosmos_db.create_job(job_data)
+        job = cosmos_db.create_job(job_data)        # Determine success message based on submission type
+        if file:
+            message = "File uploaded successfully"
+        else:
+            message = "Text content submitted successfully"
 
         return {
             "job_id": job_id,
-            "status": "uploaded",
-            "message": "File uploaded successfully",
+            "status": job_status,
+            "message": message,
             "prompt_category_id": prompt_category_id,
             "prompt_subcategory_id": prompt_subcategory_id,
+            "submission_type": "file" if file else "text",
         }
 
     except Exception as e:
@@ -401,20 +430,36 @@ async def get_job_transcription(
         }
         logger.debug(
             f"[{request_id}] Job metadata: {json.dumps(safe_job_metadata, default=str)}"
-        )
-
-        # Check if transcription exists
-        if not job.get("transcription_file_path"):
+        )        # Check if transcription exists (either as file or text content)
+        transcription_file_path = job.get("transcription_file_path")
+        text_content = job.get("text_content")
+        
+        if not transcription_file_path and not text_content:
             logger.warning(
-                f"[{request_id}] Transcription file path not found for job: {job_id}"
+                f"[{request_id}] Neither transcription file path nor text content found for job: {job_id}"
             )
             raise HTTPException(
                 status_code=404, detail="Transcription not available for this job"
             )
 
-        logger.info(
-            f"[{request_id}] Found transcription file path: {job.get('transcription_file_path')}"
-        )
+        if text_content:
+            logger.info(
+                f"[{request_id}] Found text content for text-only submission"
+            )
+            # For text-only submissions, return the text content directly
+            from io import StringIO
+            
+            def generate_text_content():
+                yield text_content.encode('utf-8')
+            
+            return StreamingResponse(
+                generate_text_content(),
+                media_type="text/plain",
+                headers={"Content-Disposition": "inline; filename=transcription.txt"},
+            )        else:
+            logger.info(
+                f"[{request_id}] Found transcription file path: {transcription_file_path}"
+            )
     except HTTPException:
         # Re-raise HTTP exceptions without additional logging (already logged above)
         raise
@@ -426,10 +471,10 @@ async def get_job_transcription(
         logger.error(f"[{request_id}] Stack trace: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Error retrieving job information")
 
-    # Stream the content
+    # Stream the file content (for file-based submissions)
     try:
         # Get the blob URL
-        transcription_url = job["transcription_file_path"]
+        transcription_url = transcription_file_path
         logger.info(
             f"[{request_id}] Preparing to stream transcription from: {transcription_url}"
         )
@@ -489,3 +534,45 @@ async def get_job_transcription(
         raise HTTPException(
             status_code=500, detail="Error streaming transcription file"
         )
+
+
+@router.post("/jobs/{job_id}/process-analysis")
+async def process_text_analysis(
+    job_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Trigger analysis processing for text-only submissions.
+    
+    Args:
+        job_id: The ID of the job to process
+        current_user: Authenticated user from token
+        
+    Returns:
+        Dict containing processing status
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        storage_service = StorageService(config)
+        
+        # Get the job
+        job = cosmos_db.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Verify user ownership
+        if job["user_id"] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Check if job has text content and is in transcribed status
+        if not job.get("text_content"):
+            raise HTTPException(
+                status_code=400, 
+                detail="Job does not have text content for processing"
+            )
+        
+        if job.get("status") != "transcribed":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Job is not ready for analysis. Current status: {job.get('status')}
