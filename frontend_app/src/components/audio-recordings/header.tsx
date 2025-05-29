@@ -27,10 +27,9 @@ export function AudioRecordingsHeader() {
           Manage and monitor all uploaded audio files and their processing status.
         </p>
       </div>
-      <Link to="/audio-upload">
-        <Button size="sm" className="px-2 py-1">
+      <Link to="/audio-upload">        <Button size="sm" className="px-2 py-1">
           <Upload className="mr-2 h-4 w-4" />
-          <span className="hidden sm:inline">Add New Audio Recording</span>
+          <span className="hidden sm:inline">Add New Media File</span>
         </Button>
       </Link>
     </div>
