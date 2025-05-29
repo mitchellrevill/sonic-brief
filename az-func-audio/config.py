@@ -29,9 +29,7 @@ class AppConfig:
             self.cosmos_endpoint: str = get_required_env_var("AZURE_COSMOS_ENDPOINT")
             self.cosmos_database: str = os.getenv("AZURE_COSMOS_DB_NAME", "VoiceDB")
             self.cosmos_jobs_container: str = f"{prefix}jobs"
-            self.cosmos_prompts_container: str = f"{prefix}prompts"
-
-            # Supported Audio Extensions List
+            self.cosmos_prompts_container: str = f"{prefix}prompts"            # Supported Audio Extensions List
             self.supported_audio_extensions = {
                 ".wav",  # Default audio streaming format
                 ".pcm",  # PCM (Pulse Code Modulation)
@@ -48,7 +46,44 @@ class AppConfig:
                 ".webm",  # WebM audio
                 ".m4a",  # MPEG-4 Audio
                 ".spx",  # Speex Codec
+            }            # Supported Text Extensions List
+            self.supported_text_extensions = {
+                ".txt",   # Plain text files
+                ".srt",   # SubRip subtitle files
+                ".vtt",   # WebVTT subtitle files
+                ".json",  # JSON files (for structured transcripts)
+                ".md",    # Markdown files
+                ".rtf",   # Rich Text Format
+                ".csv",   # Comma-separated values (for structured data)
             }
+
+            # Document Extensions (for future implementation)
+            self.supported_document_extensions = {
+                ".pdf",   # Portable Document Format
+                ".doc",   # Microsoft Word (legacy)
+                ".docx",  # Microsoft Word (modern)
+            }
+
+            # Image Extensions (for future OCR implementation)
+            self.supported_image_extensions = {
+                ".jpg", ".jpeg",  # JPEG images
+                ".png",           # PNG images
+                ".gif",           # GIF images
+                ".bmp",           # Bitmap images
+                ".tiff", ".tif",  # TIFF images
+                ".webp",          # WebP images
+            }
+
+            # All supported file extensions (currently processable)
+            self.supported_extensions = self.supported_audio_extensions | self.supported_text_extensions
+
+            # All known extensions (including future implementations)
+            self.all_known_extensions = (
+                self.supported_audio_extensions | 
+                self.supported_text_extensions | 
+                self.supported_document_extensions | 
+                self.supported_image_extensions
+            )
 
             # Storage settings
             self.storage_account_url: str = os.getenv("AZURE_STORAGE_ACCOUNT_URL")

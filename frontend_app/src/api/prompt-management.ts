@@ -50,14 +50,23 @@ export interface SubcategoryResponse {
 }
 
 export async function uploadFile(
-  file: File,
+  file: File | undefined,
   prompt_category_id: string,
   prompt_subcategory_id: string,
+  textContent?: string,
 ): Promise<UploadResponse> {
-  console.log({ file, prompt_category_id, prompt_subcategory_id });
+  console.log({ file, prompt_category_id, prompt_subcategory_id, textContent });
 
   const formData = new FormData();
-  formData.append("file", file);
+  
+  if (file) {
+    formData.append("file", file);
+  }
+  
+  if (textContent) {
+    formData.append("text_content", textContent);
+  }
+  
   formData.append("prompt_category_id", prompt_category_id);
   formData.append("prompt_subcategory_id", prompt_subcategory_id);
 

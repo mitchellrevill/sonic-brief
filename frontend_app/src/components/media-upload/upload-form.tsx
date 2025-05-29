@@ -124,6 +124,7 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [transcriptText, setTranscriptText] = useState("");
   const [showTranscriptInput, setShowTranscriptInput] = useState(false);
+  const [submissionMode, setSubmissionMode] = useState<"file" | "text">("file");
   const [isConverting, setIsConverting] = useState(false);
   const [conversionProgress, setConversionProgress] = useState(0);
   const [conversionStep, setConversionStep] = useState("");
@@ -307,18 +308,22 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
       throw error;
     }
   };
-
   const { mutateAsync: uploadMediaMutation, isPending: isUploading } =
     useMutation({
       mutationKey: ["sonic-brief/upload-media"],
       mutationFn: async (values: MediaUploadValues) =>
-        await uploadFile(values.mediaFile, values.promptCategory, values.promptSubcategory),
-      onSuccess: (data) => toast.success(`File uploaded successfully! Job ID: ${data.job_id}`),
+        await uploadFile(
+          values.mediaFile, 
+          values.promptCategory, 
+          values.promptSubcategory,
+          values.textContent
+        ),
+      onSuccess: (data) => toast.success(`${submissionMode === "text" ? "Text" : "File"} processed successfully! Job ID: ${data.job_id}`),
       onError: (error) =>
         toast.error(
-          error instanceof Error ? error.message : "There was an error uploading your file. Please try again."
+          error instanceof Error ? error.message : `There was an error processing your ${submissionMode === "text" ? "text" : "file"}. Please try again.`
         ),
-    });  const onSubmit = useCallback(
+    });const onSubmit = useCallback(
     async (values: MediaUploadValues) => {
       console.log("🚀 Form submission started");
       console.log("📋 Submission details:", { 
@@ -352,14 +357,13 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
           processedFile = await convertToWebm(processedFile);
           const conversionEndTime = performance.now();
           const conversionDuration = ((conversionEndTime - conversionStartTime) / 1000).toFixed(2);
-          
-          console.log("✅ Conversion completed successfully!");
+            console.log("✅ Conversion completed successfully!");
           console.log("⏱️ Conversion took:", conversionDuration, "seconds");
           console.log("📊 Conversion results:", {
-            originalSize: `${(values.mediaFile.size / 1024 / 1024).toFixed(2)} MB`,
+            originalSize: values.mediaFile ? `${(values.mediaFile.size / 1024 / 1024).toFixed(2)} MB` : 'unknown',
             convertedSize: `${(processedFile.size / 1024 / 1024).toFixed(2)} MB`,
-            compressionRatio: `${((values.mediaFile.size - processedFile.size) / values.mediaFile.size * 100).toFixed(1)}%`,
-            originalType: values.mediaFile.type,
+            compressionRatio: values.mediaFile ? `${((values.mediaFile.size - processedFile.size) / values.mediaFile.size * 100).toFixed(1)}%` : 'unknown',
+            originalType: values.mediaFile?.type || 'unknown',
             convertedType: processedFile.type
           });
           
@@ -431,25 +435,28 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
           timestamp: new Date().toISOString()
         });
         throw uploadError; // Re-throw to let the mutation handle it
-      }
-
-      console.log("🧹 Resetting form...");
+      }      console.log("🧹 Resetting form...");
       form.reset({
         mediaFile: undefined,
+        textContent: "",
         promptCategory: "",
         promptSubcategory: "",
       });
       setFileType(null);
       setTranscriptText("");
       setShowTranscriptInput(false);
+      setSubmissionMode("file");
       console.log("✨ Form reset completed successfully!");
     },
     [form, uploadMediaMutation, fileType]
   );
-
   const handleFileSelect = (file: File) => {
     form.setValue("mediaFile", file);
+    form.setValue("textContent", "");
     setFileType(getFileType(file));
+    setSubmissionMode("file");
+    setTranscriptText("");
+    setShowTranscriptInput(false);
     form.clearErrors("mediaFile");
   };
 
@@ -462,17 +469,19 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
       handleFileSelect(files[0]);
     }
   };
-
   const handleTranscriptUpload = () => {
     if (!transcriptText.trim()) {
       toast.error("Please enter transcript text");
       return;
     }
 
-    const blob = new Blob([transcriptText], { type: "text/plain" });
-    const file = new (File as any)([blob], "transcript.txt", { type: "text/plain" });
-    handleFileSelect(file);
+    // Set text content in form and switch to text mode
+    form.setValue("textContent", transcriptText);
+    form.setValue("mediaFile", undefined);
+    setSubmissionMode("text");
+    setFileType("transcript");
     setShowTranscriptInput(false);
+    form.clearErrors("mediaFile");
   };
 
   const selectedCategoryData = categories?.find((cat) => cat.category_id === selectedCategory);
@@ -525,19 +534,24 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                   <FormItem>
                     <FormLabel>Select File</FormLabel>
                     <FormControl>
-                      <div className="space-y-4">
-                        {/* File Input */}
+                      <div className="space-y-4">                        {/* File Input */}
                         <div
-                          className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer hover:bg-muted/50 ${
-                            isDragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25"
-                          } ${field.value ? "border-green-500 bg-green-50 dark:bg-green-950" : ""}`}
-                          onDrop={handleDrop}
-                          onDragOver={(e) => {
+                          className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                            submissionMode === "text" 
+                              ? "opacity-50 cursor-not-allowed border-muted-foreground/25" 
+                              : "cursor-pointer hover:bg-muted/50"
+                          } ${
+                            isDragOver && submissionMode !== "text" ? "border-primary bg-primary/5" : "border-muted-foreground/25"
+                          } ${field.value ? "border-green-500 bg-green-50 dark:bg-green-950" : ""} ${
+                            submissionMode === "text" && form.watch("textContent") ? "border-orange-500 bg-orange-50 dark:bg-orange-950" : ""
+                          }`}
+                          onDrop={submissionMode === "text" ? undefined : handleDrop}
+                          onDragOver={submissionMode === "text" ? undefined : (e) => {
                             e.preventDefault();
                             setIsDragOver(true);
                           }}
-                          onDragLeave={() => setIsDragOver(false)}
-                          onClick={() => fileInputRef.current?.click()}
+                          onDragLeave={submissionMode === "text" ? undefined : () => setIsDragOver(false)}
+                          onClick={submissionMode === "text" ? undefined : () => fileInputRef.current?.click()}
                         >
                           <input
                             ref={fileInputRef}
@@ -548,9 +562,7 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                               if (file) handleFileSelect(file);
                             }}
                             className="hidden"
-                          />
-
-                          {field.value ? (
+                          />                          {field.value ? (
                             <div className="space-y-2">
                               <div className="flex items-center justify-center">{renderFileIcon()}</div>
                               <div className="space-y-1">
@@ -567,12 +579,52 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   field.onChange(undefined);
+                                  form.setValue("textContent", "");
                                   setFileType(null);
+                                  setSubmissionMode("file");
+                                  setTranscriptText("");
+                                  setShowTranscriptInput(false);
                                 }}
                                 className="mt-2"
                               >
                                 <X className="h-4 w-4 mr-1" />
                                 Remove
+                              </Button>
+                            </div>
+                          ) : submissionMode === "text" && form.watch("textContent") ? (
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-center">
+                                <FileText className="h-8 w-8 text-primary" />
+                              </div>
+                              <div className="space-y-1">
+                                <p className="font-medium">Text Content Ready</p>
+                                <p className="text-sm text-muted-foreground">
+                                  {form.watch("textContent")?.length || 0} characters
+                                </p>
+                                <div className="flex items-center gap-2 text-sm">
+                                  <Badge variant="secondary" className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                                    <FileText className="h-3 w-3 mr-1" />
+                                    Text Only
+                                  </Badge>
+                                  <span className="text-muted-foreground">Direct text processing</span>
+                                </div>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  form.setValue("textContent", "");
+                                  setSubmissionMode("file");
+                                  setTranscriptText("");
+                                  setShowTranscriptInput(false);
+                                  setFileType(null);
+                                }}
+                                className="mt-2"
+                              >
+                                <X className="h-4 w-4 mr-1" />
+                                Remove Text
                               </Button>
                             </div>
                           ) : (
@@ -586,9 +638,7 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                               </div>
                             </div>
                           )}
-                        </div>
-
-                        {/* Transcript Input Option */}
+                        </div>                        {/* Transcript Input Option */}
                         <div className="flex items-center justify-center">
                           <span className="text-sm text-muted-foreground">or</span>
                         </div>
@@ -599,10 +649,11 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                               type="button"
                               variant="outline"
                               onClick={() => setShowTranscriptInput(true)}
+                              disabled={!!field.value}
                               className="w-full"
                             >
                               <FileText className="h-4 w-4 mr-2" />
-                              Paste Transcript Text
+                              {field.value ? "Remove file first to add text" : "Paste Transcript Text"}
                             </Button>
                           ) : (
                             <div className="space-y-3">
@@ -612,12 +663,13 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                                 onChange={(e) => setTranscriptText(e.target.value)}
                                 rows={6}
                                 className="resize-none"
+                                disabled={!!field.value}
                               />
                               <div className="flex gap-2">
                                 <Button
                                   type="button"
                                   onClick={handleTranscriptUpload}
-                                  disabled={!transcriptText.trim()}
+                                  disabled={!transcriptText.trim() || !!field.value}
                                   className="flex-1"
                                 >
                                   <CheckCircle2 className="h-4 w-4 mr-2" />
@@ -735,10 +787,8 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                 )}
               />
             </CardContent>
-          </Card>
-
-          {/* Processing Info */}
-          {fileType && (
+          </Card>          {/* Processing Info */}
+          {(fileType || submissionMode === "text") && (
             <Card>
               <CardContent className="pt-6">
                 <div className="flex items-start gap-3">
@@ -746,18 +796,19 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                   <div className="space-y-1">
                     <p className="font-medium text-sm">Processing Information</p>
                     <p className="text-sm text-muted-foreground">
+                      {submissionMode === "text" && !fileType && "Text content will be directly analyzed using AI prompts without transcription."}
                       {fileType === "audio" && "Audio will be transcribed and analyzed using AI prompts."}
                       {fileType === "video" && "Audio will be extracted from video, transcribed, and analyzed."}
                       {fileType === "document" && "Text content will be extracted and analyzed using AI prompts."}
-                      {fileType === "transcript" && "Transcript will be directly analyzed using AI prompts."}
+                      {fileType === "transcript" && submissionMode === "file" && "Transcript will be directly analyzed using AI prompts."}
+                      {fileType === "transcript" && submissionMode === "text" && "Text content will be directly analyzed using AI prompts without file processing."}
                       {fileType === "image" && "Text will be extracted using OCR and analyzed using AI prompts."}
                     </p>
                   </div>
                 </div>
               </CardContent>
             </Card>
-          )}          {/* Submit Button */}
-          <Button
+          )}{/* Submit Button */}          <Button
             type="submit"
             disabled={isUploading || !form.formState.isValid || isConverting}
             className="w-full"
@@ -766,12 +817,12 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
             {isUploading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Processing Upload...
+                Processing {submissionMode === "text" ? "Text" : "Upload"}...
               </>
             ) : (
               <>
                 <Upload className="mr-2 h-4 w-4" />
-                Upload and Process
+                {submissionMode === "text" ? "Process Text" : "Upload and Process"}
               </>
             )}
           </Button>
