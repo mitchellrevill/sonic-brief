@@ -121,7 +121,15 @@ const convertToWebm = async (file: File): Promise<File> => {
       await ffmpeg.deleteFile(inputName);
       await ffmpeg.deleteFile(outputName);
 
-      setConversionProgress(100);      const convertedFile = new (File as any)([data], outputName, { type: "audio/webm" });
+      setConversionProgress(100);
+      
+      // Create a proper File object from the converted data
+      const blob = new Blob([data], { type: "audio/webm" });
+      const convertedFile = Object.assign(blob, {
+        name: outputName,
+        lastModified: Date.now(),
+        webkitRelativePath: ''
+      }) as File;
       
       return convertedFile;    } catch (error: unknown) {
       // Reset conversion UI state
