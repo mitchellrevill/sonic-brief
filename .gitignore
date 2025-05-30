@@ -126,3 +126,6 @@ infra/terraform.rc
 infra/terraform.tfvars
 infra/terraform.tfvars.json
 infra/*_credentials.tfvars
+backend_app/run_server.py
+.gitignore
+backend_app/start_backend.bat
