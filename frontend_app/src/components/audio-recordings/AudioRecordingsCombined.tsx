@@ -63,7 +63,7 @@ const statusEnum = z.enum([
 
 const filterSchema = z.object({
   job_id: z.string().optional(),
-  status: statusEnum.default("all"),
+  status: statusEnum,
   created_at: z.string().optional(),
 });
 
@@ -98,11 +98,10 @@ export function AudioRecordingsCombined({
   const [selectedRecording, setSelectedRecording] = useState<any>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const router = useRouter();
-
   const form = useForm<FilterValues>({
     defaultValues: {
       job_id: initialFilters.job_id,
-      status: initialFilters.status,
+      status: initialFilters.status || "all",
       created_at: "",
     },
     resolver: zodResolver(filterSchema),
@@ -239,8 +238,7 @@ export function AudioRecordingsCombined({
                             </Button>
                           </FormControl>
                         </PopoverTrigger>
-                        <PopoverContent align="start" className="w-auto p-0">
-                          <Calendar
+                        <PopoverContent align="start" className="w-auto p-0">                          <Calendar
                             mode="single"
                             selected={
                               field.value ? new Date(field.value) : undefined
@@ -252,7 +250,6 @@ export function AudioRecordingsCombined({
                               field.onChange(formattedDate);
                               setIsDatePickerOpen(false);
                             }}
-                            autoFocus
                           />
                         </PopoverContent>
                       </Popover>

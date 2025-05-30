@@ -117,7 +117,9 @@ async def upload_file(
                     return {
                         "status": 400,
                         "message": f"Invalid prompt_subcategory_id: {prompt_subcategory_id} for category: {prompt_category_id}",
-                    }        blob_url = None
+                    }
+        # Initialize variables after validation
+        blob_url = None
         transcript_content = None
         
         # Handle file upload or text content
@@ -456,10 +458,10 @@ async def get_job_transcription(
                 generate_text_content(),
                 media_type="text/plain",
                 headers={"Content-Disposition": "inline; filename=transcription.txt"},
-            )        else:
-            logger.info(
-                f"[{request_id}] Found transcription file path: {transcription_file_path}"
             )
+        logger.info(
+            f"[{request_id}] Found transcription file path: {transcription_file_path}"
+        )
     except HTTPException:
         # Re-raise HTTP exceptions without additional logging (already logged above)
         raise
@@ -575,4 +577,33 @@ async def process_text_analysis(
         if job.get("status") != "transcribed":
             raise HTTPException(
                 status_code=400,
-                detail=f"Job is not ready for analysis. Current status: {job.get('status')}
+                detail=f"Job is not ready for analysis. Current status: {job.get('status')}"
+            )
+        
+        # Update job status to processing
+        update_fields = {
+            "status": "processing",
+            "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000),
+        }
+        cosmos_db.update_job(job_id, update_fields)
+        
+        # Perform analysis (stubbed as a synchronous call for illustration)
+        logger.info(f"Starting analysis for job_id: {job_id}")
+        import time
+        time.sleep(5)  # Simulate long-running analysis
+        
+        # Analysis complete - update job status and add analysis result
+        analysis_result = {"summary": "Analysis complete", "details": {}}
+        update_fields = {
+            "status": "completed",
+            "analysis_file_path": None,  # Set to actual file path if generated
+            "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000),
+            "analysis_result": analysis_result,
+        }
+        cosmos_db.update_job(job_id, update_fields)
+        
+        return {"status": "success", "message": "Analysis processing complete"}
+    
+    except Exception as e:
+        logger.error(f"Error processing text analysis for job_id {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error processing text analysis")
