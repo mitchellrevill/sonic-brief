@@ -5,6 +5,7 @@ from datetime import datetime
 from config import AppConfig
 from transcription_service import TranscriptionService
 from text_processing_service import TextProcessingService
+from document_processing_service import DocumentProcessingService
 from analysis_service import AnalysisService
 from storage_service import StorageService
 from cosmos_service import CosmosService
@@ -39,11 +40,10 @@ def blob_trigger(myblob: func.InputStream):
             logging.info(
                 f"Skipping file '{myblob.name}' (unsupported extension: {blob_extension})"
             )
-            return
-
-        # Initialize services
+            return        # Initialize services
         cosmos_service = CosmosService(config)
         text_processing_service = TextProcessingService(config)
+        document_processing_service = DocumentProcessingService(config)
         analysis_service = AnalysisService(config)
         storage_service = StorageService(config)
 
@@ -85,9 +85,7 @@ def blob_trigger(myblob: func.InputStream):
             raise ValueError(f"File document not found: {blob_path}")
 
         job_id = file_doc["id"]
-        logging.debug(f"File document retrieved successfully: Job ID = {job_id}")
-
-        # Process based on file type
+        logging.debug(f"File document retrieved successfully: Job ID = {job_id}")        # Process based on file type
         if file_type == "audio":
             formatted_text = process_audio_file(
                 config, blob_url, path_without_container, job_id, cosmos_service, storage_service
@@ -96,6 +94,11 @@ def blob_trigger(myblob: func.InputStream):
             formatted_text = process_text_file(
                 config, blob_url, blob_extension, path_without_container, job_id, 
                 cosmos_service, storage_service, text_processing_service
+            )
+        elif file_type == "document":
+            formatted_text = process_document_file(
+                config, blob_url, blob_extension, path_without_container, job_id, 
+                cosmos_service, storage_service, document_processing_service
             )
         else:
             raise ValueError(f"Unsupported file type: {file_type}")
@@ -211,5 +214,36 @@ def process_text_file(config, blob_url, blob_extension, path_without_container, 
         job_id, "text_processed", transcription_file_path=processed_text_blob_url
     )
     logging.debug(f"Job status updated to 'text_processed' for Job ID = {job_id}")
+    
+    return formatted_text
+
+
+def process_document_file(config, blob_url, blob_extension, path_without_container, job_id, cosmos_service, storage_service, document_processing_service):
+    """Process document files by extracting text and then analyzing"""
+    logging.info("Processing document file (extracting text)")
+    
+    # Update job status to processing
+    cosmos_service.update_job_status(job_id, "processing_document")
+    logging.debug(f"Job status updated to 'processing_document' for Job ID = {job_id}")
+
+    # Extract text from the document
+    logging.info("Extracting text from document...")
+    formatted_text = document_processing_service.process_document_file(blob_url, blob_extension)
+    logging.debug("Document text extraction completed successfully")
+
+    # Save extracted text (for consistency with other workflows)
+    logging.info("Uploading extracted text to storage...")
+    processed_text_blob_url = storage_service.upload_text(
+        container_name=config.storage_recordings_container,
+        blob_name=f"{path_without_container}_extracted_text.txt",
+        text_content=formatted_text,
+    )
+    logging.debug(f"Extracted text uploaded: {processed_text_blob_url}")
+
+    # Update job with document processing complete
+    cosmos_service.update_job_status(
+        job_id, "document_processed", transcription_file_path=processed_text_blob_url
+    )
+    logging.debug(f"Job status updated to 'document_processed' for Job ID = {job_id}")
     
     return formatted_text
