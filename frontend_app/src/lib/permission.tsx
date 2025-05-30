@@ -1,4 +1,5 @@
 import { useRouter } from "@tanstack/react-router";
+import { usePermissionGuard } from "@/hooks/usePermissions";
 
 interface PermissionGuardProps {
   required: Array<"Admin" | "User" | "Viewer">;
@@ -7,9 +8,15 @@ interface PermissionGuardProps {
 
 export function PermissionGuard({ required, children }: PermissionGuardProps) {
   const router = useRouter();
-  const permission = localStorage.getItem("permission");
+  const { currentPermission, isLoading, error } = usePermissionGuard();
 
-  if (!permission || !required.includes(permission as any)) {
+  // Show loading state while checking permissions
+  if (isLoading) {
+    return <div>Loading permissions...</div>;
+  }
+
+  // If there's an error or no permission, redirect to unauthorized
+  if (error || !currentPermission || !required.includes(currentPermission as any)) {
     router.navigate({ to: "/unauthorised" });
     return null;
   }
