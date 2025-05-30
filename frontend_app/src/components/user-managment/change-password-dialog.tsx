@@ -11,7 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { KeyRound, Eye, EyeOff, AlertCircle } from "lucide-react";
+import { KeyRound, Eye, EyeOff, AlertCircle, Loader2 } from "lucide-react";
+import { changeUserPassword } from "@/lib/api";
+import { useToast } from "@/components/ui/use-toast";
 
 interface ChangePasswordDialogProps {
   isOpen: boolean;
@@ -25,12 +27,13 @@ export function ChangePasswordDialog({
   onClose, 
   userEmail, 
   userId 
-}: ChangePasswordDialogProps) {
-  const [newPassword, setNewPassword] = useState("");
+}: ChangePasswordDialogProps) {  const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { toast } = useToast();
 
   const validatePassword = (password: string): string[] => {
     const validationErrors: string[] = [];
@@ -75,8 +78,7 @@ export function ChangePasswordDialog({
     
     setErrors(validationErrors);
   };
-
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const validationErrors = validatePassword(newPassword);
     
     if (newPassword !== confirmPassword) {
@@ -88,14 +90,31 @@ export function ChangePasswordDialog({
       return;
     }
     
-    // TODO: Implement actual password change API call
-    console.log("Change password for user:", userId, "New password:", newPassword);
-    
-    // Reset form and close dialog
-    setNewPassword("");
-    setConfirmPassword("");
-    setErrors([]);
-    onClose();
+    setIsSubmitting(true);
+    try {
+      await changeUserPassword(userId, newPassword);
+      
+      toast({
+        title: "Password Changed",
+        description: `Password for ${userEmail} has been successfully changed.`,
+        variant: "default",
+      });
+      
+      // Reset form and close dialog
+      setNewPassword("");
+      setConfirmPassword("");
+      setErrors([]);
+      onClose();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to change password",
+        variant: "destructive",
+      });
+      setErrors([error instanceof Error ? error.message : "Failed to change password"]);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleClose = () => {
@@ -200,17 +219,23 @@ export function ChangePasswordDialog({
             </ul>
           </div>
         </div>
-        
-        <DialogFooter>
+          <DialogFooter>
           <Button variant="outline" onClick={handleClose}>
             Cancel
           </Button>
           <Button 
             onClick={handleSubmit} 
-            disabled={!isValid}
+            disabled={!isValid || isSubmitting}
             className="min-w-[100px]"
           >
-            Change Password
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Changing...
+              </>
+            ) : (
+              "Change Password"
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -13,8 +13,8 @@ from app.core.config import AppConfig, CosmosDB, DatabaseError
 from app.middleware.permission_middleware import (
     PermissionLevel, 
     PermissionChecker,
-    require_admin_permission,
-    require_user_permission
+    require_admin_user,
+    require_user_user
 )
 from app.utils.permission_queries import PermissionQueryOptimizer
 
@@ -48,6 +48,10 @@ class User(UserBase):
     id: str
     created_at: str
     updated_at: str
+
+
+class ChangePasswordRequest(BaseModel):
+    new_password: str
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -279,7 +283,7 @@ async def register_user(request: Request):
 async def get_users_by_permission(
     permission_level: str,
     limit: int = Query(default=100, le=1000),
-    current_user: Dict[str, Any] = Depends(require_admin_permission)
+    current_user: Dict[str, Any] = Depends(require_admin_user)
 ):
     """
     Get users by permission level. Admin only.
@@ -308,7 +312,7 @@ async def get_users_by_permission(
 
 @router.get("/users/permission-stats")
 async def get_permission_statistics(
-    current_user: Dict[str, Any] = Depends(require_admin_permission)
+    current_user: Dict[str, Any] = Depends(require_admin_user)
 ):
     """
     Get permission distribution statistics. Admin only.
@@ -349,7 +353,7 @@ async def get_permission_statistics(
 async def update_user_permission(
     user_id: str,
     permission_data: Dict[str, str] = Body(...),
-    current_user: Dict[str, Any] = Depends(require_admin_permission)
+    current_user: Dict[str, Any] = Depends(require_admin_user)
 ):
     """
     Update user permission level. Admin only.
@@ -427,7 +431,7 @@ async def update_user_permission(
 @router.get("/users/elevated-permissions/{base_permission}")
 async def get_users_with_elevated_permissions(
     base_permission: str,
-    current_user: Dict[str, Any] = Depends(require_admin_permission)
+    current_user: Dict[str, Any] = Depends(require_admin_user)
 ):
     """
     Get users with permissions higher than the specified base permission. Admin only.
@@ -458,7 +462,7 @@ async def get_users_with_elevated_permissions(
 @router.get("/permissions/audit")
 async def get_permission_audit_trail(
     days_back: int = Query(default=30, le=365),
-    current_user: Dict[str, Any] = Depends(require_admin_permission)
+    current_user: Dict[str, Any] = Depends(require_admin_user)
 ):
     """
     Get recent permission changes for audit purposes. Admin only.
@@ -518,7 +522,7 @@ async def get_my_permissions(
 
 @router.get("/permissions/cache-stats")
 async def get_permission_cache_stats(
-    current_user: Dict[str, Any] = Depends(require_admin_permission)
+    current_user: Dict[str, Any] = Depends(require_admin_user)
 ):
     """
     Get permission cache statistics. Admin only.
@@ -542,4 +546,62 @@ async def get_permission_cache_stats(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching cache stats: {str(e)}"
+        )
+
+@router.patch("/users/{user_id}/password")
+async def change_user_password(
+    user_id: str,
+    password_data: ChangePasswordRequest = Body(...),
+    current_user: Dict[str, Any] = Depends(require_admin_user)
+):
+    """
+    Change user password. Admin only.
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        
+        # Get current user data to verify user exists
+        user_to_update = await cosmos_db.get_user_by_id(user_id)
+        if not user_to_update:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Hash the new password
+        hashed_password = get_password_hash(password_data.new_password)
+        
+        # Prepare update data
+        update_data = {
+            "hashed_password": hashed_password,
+            "password_changed_at": datetime.now(timezone.utc).isoformat(),
+            "password_changed_by": current_user.get("email", "unknown")
+        }
+        
+        # Update user password
+        updated_user = await cosmos_db.update_user(user_id, update_data)
+        
+        # Remove sensitive information from response
+        updated_user.pop("hashed_password", None)
+        
+        logger.info(f"Password changed for user {user_id} by {current_user.get('email')}")
+        
+        return {
+            "status": 200,
+            "message": "Password changed successfully",
+            "data": {
+                "user_id": user_id,
+                "email": updated_user.get("email"),
+                "updated_at": update_data["password_changed_at"]
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error changing password for user {user_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error changing password: {str(e)}"
         )

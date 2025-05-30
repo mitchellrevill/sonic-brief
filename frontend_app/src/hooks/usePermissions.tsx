@@ -2,6 +2,9 @@
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
+// Import the base URL from API constants
+const API_BASE_URL = import.meta.env.VITE_API_URL;
+
 export type PermissionLevel = 'Admin' | 'User' | 'Viewer';
 
 export interface UserPermissions {
@@ -57,9 +60,7 @@ export const useUserPermissions = () => {
       const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
-      }
-
-      const response = await fetch('/api/auth/users/me/permissions', {
+      }      const response = await fetch(`${API_BASE_URL}/api/auth/users/me/permissions`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -96,9 +97,7 @@ export const usePermissionStats = () => {
       const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
-      }
-
-      const response = await fetch('/api/auth/users/permission-stats', {
+      }      const response = await fetch(`${API_BASE_URL}/api/auth/users/permission-stats`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -135,9 +134,7 @@ export const useUsersByPermission = (permissionLevel: PermissionLevel, limit: nu
       const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
-      }
-
-      const response = await fetch(`/api/auth/users/by-permission/${permissionLevel}?limit=${limit}`, {
+      }      const response = await fetch(`${API_BASE_URL}/api/auth/users/by-permission/${permissionLevel}?limit=${limit}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -173,9 +170,7 @@ export const useUpdateUserPermission = () => {
       const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
-      }
-
-      const response = await fetch(`/api/auth/users/${userId}/permission`, {
+      }      const response = await fetch(`${API_BASE_URL}/api/auth/users/${userId}/permission`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
