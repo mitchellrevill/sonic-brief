@@ -48,7 +48,9 @@ class TextProcessingService:
                 "is_audio_file": is_audio,
             },
         )
-        return is_audio    def get_file_type(self, file_extension: str) -> str:
+        return is_audio
+
+    def get_file_type(self, file_extension: str) -> str:
         """Determine the file type based on extension"""
         if self.is_audio_file(file_extension):
             return "audio"
