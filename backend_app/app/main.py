@@ -33,10 +33,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-app.include_router(auth.router)
-app.include_router(upload.router)
-app.include_router(prompts.router)
-# # Configure CORS
+
+# Configure CORS first
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -44,6 +42,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include routers with proper prefixes
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(upload.router, prefix="/api", tags=["upload"])
+app.include_router(prompts.router, prefix="/api", tags=["prompts"])
 
 
 @app.get("/")

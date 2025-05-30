@@ -3,12 +3,12 @@
 
 const BASE_URL = import.meta.env.VITE_API_URL;
 
-export const REGISTER_API = `${BASE_URL}/register`;
-export const UPLOAD_API = `${BASE_URL}/upload`;
-export const JOBS_API = `${BASE_URL}/jobs`;
-export const LOGIN_API = `${BASE_URL}/login`;
-export const CATEGORIES_API = `${BASE_URL}/categories`;
-export const SUBCATEGORIES_API = `${BASE_URL}/subcategories`;
-export const PROMPTS_API = `${BASE_URL}/retrieve_prompts`;
-export const TRANSCRIPTION_API = `${BASE_URL}/jobs/transcription`;
-export const User_MANAGEMENT_API = `${BASE_URL}/users`;
+export const REGISTER_API = `${BASE_URL}/api/auth/register`;
+export const UPLOAD_API = `${BASE_URL}/api/upload`;
+export const JOBS_API = `${BASE_URL}/api/jobs`;
+export const LOGIN_API = `${BASE_URL}/api/auth/login`;
+export const CATEGORIES_API = `${BASE_URL}/api/categories`;
+export const SUBCATEGORIES_API = `${BASE_URL}/api/subcategories`;
+export const PROMPTS_API = `${BASE_URL}/api/retrieve_prompts`;
+export const TRANSCRIPTION_API = `${BASE_URL}/api/jobs/transcription`;
+export const User_MANAGEMENT_API = `${BASE_URL}/api/auth/users`;
