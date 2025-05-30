@@ -407,6 +407,57 @@ class CosmosDB:
             self.logger.error(f"Error getting user by email {email}: {str(e)}")
             raise
 
+    # JOB-RELATED METHODS
+
+    def create_job(self, job_data: dict) -> Dict[str, Any]:
+        """Create a new job document"""
+        try:
+            # Ensure the job has the correct type
+            job_data["type"] = "job"
+            
+            # Create the job in the jobs container
+            created_job = self.jobs_container.create_item(body=job_data)
+            self.logger.info(f"Job created successfully: {created_job['id']}")
+            return created_job
+            
+        except Exception as e:
+            self.logger.error(f"Error creating job: {str(e)}")
+            raise
+
+    def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Get job by ID"""
+        try:
+            job = self.jobs_container.read_item(item=job_id, partition_key=job_id)
+            return job if job else None
+        except CosmosHttpResponseError as e:
+            if e.status_code == 404:
+                return None
+            self.logger.error(f"Error getting job {job_id}: {str(e)}")
+            raise
+        except Exception as e:
+            self.logger.error(f"Error getting job {job_id}: {str(e)}")
+            raise
+
+    def update_job(self, job_id: str, update_fields: dict) -> Dict[str, Any]:
+        """Update job with new fields"""
+        try:
+            # Get the existing job
+            job = self.get_job(job_id)
+            if not job:
+                raise ValueError(f"Job with id {job_id} not found")
+
+            # Update job data
+            job.update(update_fields)
+            
+            # Upsert the job back to the container
+            updated_job = self.jobs_container.upsert_item(body=job)
+            self.logger.info(f"Job updated successfully: {job_id}")
+            return updated_job
+            
+        except Exception as e:
+            self.logger.error(f"Error updating job {job_id}: {str(e)}")
+            raise
+
     # PERMISSION-SPECIFIC QUERY METHODS
 
     async def get_users_by_permission_level(self, permission_level: str, limit: int = 100) -> List[Dict[str, Any]]:
