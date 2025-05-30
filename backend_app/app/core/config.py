@@ -238,7 +238,9 @@ class CosmosDB:
 
         # Initialize permission utilities
         self._permission_optimizer = None
-        self._permission_cache = None    @property
+        self._permission_cache = None
+
+    @property
     def permission_optimizer(self) -> PermissionQueryOptimizer:
         """Lazy initialization of permission query optimizer"""
         if self._permission_optimizer is None:
@@ -247,7 +249,9 @@ class CosmosDB:
                 self.config.cosmos["database"],
                 self.config.cosmos["containers"]["auth"],
             )
-        return self._permission_optimizer@property
+        return self._permission_optimizer
+
+    @property
     def permission_cache(self) -> SimplePermissionCache:
         """Lazy initialization of permission cache"""
         if self._permission_cache is None:
@@ -371,6 +375,36 @@ class CosmosDB:
 
         except Exception as e:
             self.logger.error(f"Error getting user by id {user_id}: {str(e)}")
+            raise
+
+    async def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """Get user by email address"""
+        try:
+            query = "SELECT * FROM c WHERE c.email = @email AND c.type = 'user'"
+            parameters = [{"name": "@email", "value": email}]
+            results = list(
+                self.auth_container.query_items(
+                    query=query,
+                    parameters=parameters,
+                    enable_cross_partition_query=True,
+                )
+            )
+            
+            if not results:
+                return None
+                
+            user = results[0]
+            
+            # Update cache with user's permission
+            user_id = user.get("id")
+            permission = user.get("permission", "Viewer")
+            if user_id:
+                await self.permission_cache.set_user_permission(user_id, permission)
+            
+            return user
+            
+        except Exception as e:
+            self.logger.error(f"Error getting user by email {email}: {str(e)}")
             raise
 
     # PERMISSION-SPECIFIC QUERY METHODS

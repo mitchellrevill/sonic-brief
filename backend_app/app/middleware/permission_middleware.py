@@ -1,7 +1,7 @@
 # Simple Permission Middleware (No Redis)
 from enum import Enum
 from functools import wraps
-from typing import Callable, Optional
+from typing import Callable, Optional, Dict, Any
 from fastapi import HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
@@ -164,6 +164,39 @@ async def require_viewer(current_user_id: str = Depends(get_current_user_id)) ->
             detail="Authentication required"
         )
     return current_user_id
+
+# FastAPI dependencies that return full user objects with permission checks
+async def require_admin_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:
+    """FastAPI dependency to require admin permission and return full user object"""
+    from app.routers.auth import get_current_user
+    
+    # Get the full user object
+    current_user = await get_current_user(token)
+    
+    # Check admin permission
+    has_permission = await permission_checker.check_permission(current_user["id"], PermissionLevel.ADMIN)
+    if not has_permission:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin permission required"
+        )
+    return current_user
+
+async def require_user_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:
+    """FastAPI dependency to require user permission and return full user object"""
+    from app.routers.auth import get_current_user
+    
+    # Get the full user object
+    current_user = await get_current_user(token)
+    
+    # Check user permission
+    has_permission = await permission_checker.check_permission(current_user["id"], PermissionLevel.USER)
+    if not has_permission:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User permission or higher required"
+        )
+    return current_user
 
 # Utility functions for permission checks
 def has_permission_level(user_permission: str, required_permission: PermissionLevel) -> bool:

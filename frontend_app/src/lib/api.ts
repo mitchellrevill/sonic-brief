@@ -225,6 +225,27 @@ export async function updateUserPermission(userId: string, permission: "User" | 
   return await response.json();
 }
 
+export async function changeUserPassword(userId: string, newPassword: string): Promise<{ status: number; message: string }> {
+  const token = localStorage.getItem("token");
+  if (!token) throw new Error("No authentication token found. Please log in again.");
+
+  const response = await fetch(`${User_MANAGEMENT_API}/${userId}/password`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ new_password: newPassword }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || `HTTP error! status: ${response.status}`);
+  }
+
+  return data;
+}
 
 export async function createCategory(name: string): Promise<CategoryResponse> {
   const token = localStorage.getItem("token")
