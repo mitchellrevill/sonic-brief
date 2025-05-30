@@ -175,7 +175,7 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
     }
     return ffmpegRef.current;
   };const convertToWebm = async (file: File): Promise<File> => {
-    console.log("🎵 Starting audio conversion to WebM...");
+    console.log("🎵 Starting audio/video conversion to WebM...");
     console.log("📁 File details:", {
       name: file.name,
       size: file.size,
@@ -183,8 +183,8 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
       lastModified: new Date(file.lastModified).toISOString()
     });
 
-    if (!file.type.startsWith("audio/")) {
-      console.log("⚠️ File is not audio type, skipping conversion");
+    if (!file.type.startsWith("audio/") && !file.type.startsWith("video/")) {
+      console.log("⚠️ File is not audio or video type, skipping conversion");
       return file;
     }
 
@@ -195,10 +195,9 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
       
       const ffmpeg = await loadFFmpeg();
       console.log("✅ FFmpeg loaded and ready for conversion");
-      
-      setConversionStep("Preparing audio file...");
+        setConversionStep("Preparing media file...");
       setConversionProgress(25);
-      console.log("🔄 Step 2/6: Preparing audio file...");
+      console.log("🔄 Step 2/6: Preparing media file...");
       
       const inputName = file.name;
       const baseName = inputName.replace(/\.[^/.]+$/, "");
@@ -255,12 +254,10 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
           throw new Error("Output file is empty");
         }        console.log("🔄 Step 5/6: Creating File object...");
         
-        // Create a proper File object from the converted data
-        const blob = new Blob([outputStat], { type: "audio/webm" });
-        const convertedFile = Object.assign(blob, {
-          name: outputName,
+        // Create a proper File object directly from the converted data
+        const convertedFile = new (window as any).File([outputStat], outputName, {
+          type: "audio/webm",
           lastModified: Date.now(),
-          webkitRelativePath: ''
         }) as File;
         
         console.log("✅ Converted file created:", {
@@ -280,7 +277,7 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
         console.log("🗑️ Deleted output file from FFmpeg filesystem");
 
         setConversionProgress(100);
-        console.log("🎉 Audio conversion completed successfully!");
+        console.log("🎉 Media conversion completed successfully!");
         
         return convertedFile;
         
@@ -338,10 +335,9 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
       });
       
       let processedFile = values.mediaFile;
-      
-      // Only convert audio files to webm
-      if (processedFile && fileType === "audio") {
-        console.log("🎵 Audio file detected, starting conversion process...");
+        // Convert audio and video files to webm (extract audio from video)
+      if (processedFile && (fileType === "audio" || fileType === "video")) {
+        console.log(`🎵 ${fileType === "audio" ? "Audio" : "Video"} file detected, starting conversion process...`);
         console.log("🎧 Audio file details:", {
           name: processedFile.name,
           size: `${(processedFile.size / 1024 / 1024).toFixed(2)} MB`,
@@ -369,9 +365,9 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
             convertedType: processedFile.type
           });
           
-          toast.success("Audio converted to WebM format successfully!");
+          toast.success("Media converted to WebM format successfully!");
         } catch (error: unknown) {
-          console.error("❌ Audio conversion failed:");
+          console.error("❌ Media conversion failed:");
           const errorDetails = {
             errorMessage: error instanceof Error ? error.message : 'Unknown error',
             errorStack: error instanceof Error ? error.stack : undefined,
@@ -383,7 +379,7 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
           };
           console.error("💥 Conversion error details:", errorDetails);
           
-          toast.error("Audio conversion failed. Uploading original file instead.");
+          toast.error("Media conversion failed. Uploading original file instead.");
           console.warn("⚠️ Falling back to original file due to conversion failure");
           // Use original file when conversion fails
           processedFile = values.mediaFile;
