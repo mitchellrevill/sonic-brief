@@ -1,7 +1,7 @@
-# Redis-based Permission Caching Strategy
-import redis
+
 import json
 import asyncio
+import time
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 import logging
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class PermissionCache:
     """
-    Redis-based caching system for user permissions and access control.
+    In-memory caching system for user permissions and access control.
     Provides efficient caching with TTL, batch operations, and cache invalidation.
     """
     
@@ -20,12 +20,43 @@ class PermissionCache:
         Initialize permission cache.
         
         Args:
-            redis_url: Redis connection URL
+            redis_url: Ignored - kept for compatibility
             default_ttl: Default time-to-live in seconds (5 minutes)
         """
-        self.redis_client = redis.from_url(redis_url, decode_responses=True)
+        self.cache: Dict[str, Dict[str, Any]] = {}
         self.default_ttl = default_ttl
         self.key_prefix = "permission:"
+        
+    def _is_expired(self, entry: Dict[str, Any]) -> bool:
+        """Check if cache entry has expired."""
+        return time.time() > entry.get('expires_at', 0)
+    
+    def _cleanup_expired(self):
+        """Remove expired entries from cache."""
+        current_time = time.time()
+        expired_keys = [key for key, entry in self.cache.items() if current_time > entry.get('expires_at', 0)]
+        for key in expired_keys:
+            del self.cache[key]
+    
+    def _set_with_ttl(self, key: str, value: Any, ttl: int):
+        """Set cache entry with TTL."""
+        expires_at = time.time() + ttl
+        self.cache[key] = {
+            'value': value,
+            'expires_at': expires_at
+        }
+    
+    def _get_if_valid(self, key: str) -> Optional[Any]:
+        """Get cache entry if not expired."""
+        if key not in self.cache:
+            return None
+        
+        entry = self.cache[key]
+        if self._is_expired(entry):
+            del self.cache[key]
+            return None
+        
+        return entry['value']
         
     # BASIC PERMISSION CACHING
     
@@ -33,7 +64,7 @@ class PermissionCache:
         """Get cached user permission."""
         try:
             key = f"{self.key_prefix}user:{user_id}"
-            permission = self.redis_client.get(key)
+            permission = self._get_if_valid(key)
             if permission:
                 logger.debug(f"Cache hit for user {user_id}: {permission}")
                 return permission
@@ -48,7 +79,7 @@ class PermissionCache:
         try:
             key = f"{self.key_prefix}user:{user_id}"
             ttl = ttl or self.default_ttl
-            self.redis_client.setex(key, ttl, permission)
+            self._set_with_ttl(key, permission, ttl)
             logger.debug(f"Cached permission for user {user_id}: {permission} (TTL: {ttl}s)")
             return True
         except Exception as e:
@@ -59,9 +90,11 @@ class PermissionCache:
         """Remove user permission from cache."""
         try:
             key = f"{self.key_prefix}user:{user_id}"
-            deleted = self.redis_client.delete(key)
-            logger.debug(f"Deleted cached permission for user {user_id}: {bool(deleted)}")
-            return bool(deleted)
+            deleted = key in self.cache
+            if deleted:
+                del self.cache[key]
+            logger.debug(f"Deleted cached permission for user {user_id}: {deleted}")
+            return deleted
         except Exception as e:
             logger.error(f"Error deleting cached permission for user {user_id}: {e}")
             return False
@@ -74,14 +107,18 @@ class PermissionCache:
             if not user_ids:
                 return {}
             
-            keys = [f"{self.key_prefix}user:{user_id}" for user_id in user_ids]
-            permissions = self.redis_client.mget(keys)
+            self._cleanup_expired()
             
             result = {}
-            for user_id, permission in zip(user_ids, permissions):
-                result[user_id] = permission
+            cache_hits = 0
             
-            cache_hits = sum(1 for p in permissions if p is not None)
+            for user_id in user_ids:
+                key = f"{self.key_prefix}user:{user_id}"
+                permission = self._get_if_valid(key)
+                result[user_id] = permission
+                if permission is not None:
+                    cache_hits += 1
+            
             logger.debug(f"Batch permission lookup: {cache_hits}/{len(user_ids)} cache hits")
             
             return result
@@ -96,13 +133,11 @@ class PermissionCache:
                 return True
             
             ttl = ttl or self.default_ttl
-            pipe = self.redis_client.pipeline()
             
             for user_id, permission in user_permissions.items():
                 key = f"{self.key_prefix}user:{user_id}"
-                pipe.setex(key, ttl, permission)
+                self._set_with_ttl(key, permission, ttl)
             
-            pipe.execute()
             logger.debug(f"Batch cached {len(user_permissions)} permissions (TTL: {ttl}s)")
             return True
         except Exception as e:
@@ -115,9 +150,9 @@ class PermissionCache:
         """Get cached permission statistics."""
         try:
             key = f"{self.key_prefix}stats"
-            stats_json = self.redis_client.get(key)
-            if stats_json:
-                return json.loads(stats_json)
+            stats = self._get_if_valid(key)
+            if stats:
+                return stats
             return None
         except Exception as e:
             logger.error(f"Error getting cached permission stats: {e}")
@@ -127,8 +162,7 @@ class PermissionCache:
         """Cache permission statistics (default 10 minutes TTL)."""
         try:
             key = f"{self.key_prefix}stats"
-            stats_json = json.dumps(stats)
-            self.redis_client.setex(key, ttl, stats_json)
+            self._set_with_ttl(key, stats, ttl)
             logger.debug(f"Cached permission stats (TTL: {ttl}s)")
             return True
         except Exception as e:
@@ -139,9 +173,9 @@ class PermissionCache:
         """Get cached list of users by permission level."""
         try:
             key = f"{self.key_prefix}users_by:{permission_level}"
-            users_json = self.redis_client.get(key)
-            if users_json:
-                return json.loads(users_json)
+            users = self._get_if_valid(key)
+            if users:
+                return users
             return None
         except Exception as e:
             logger.error(f"Error getting cached users by permission {permission_level}: {e}")
@@ -151,8 +185,7 @@ class PermissionCache:
         """Cache list of users by permission level."""
         try:
             key = f"{self.key_prefix}users_by:{permission_level}"
-            users_json = json.dumps(users)
-            self.redis_client.setex(key, ttl, users_json)
+            self._set_with_ttl(key, users, ttl)
             logger.debug(f"Cached {len(users)} users for permission {permission_level} (TTL: {ttl}s)")
             return True
         except Exception as e:
@@ -165,9 +198,9 @@ class PermissionCache:
         """Get cached list of resource IDs accessible to user."""
         try:
             key = f"{self.key_prefix}resources:{user_id}:{resource_type}"
-            resources_json = self.redis_client.get(key)
-            if resources_json:
-                return json.loads(resources_json)
+            resources = self._get_if_valid(key)
+            if resources:
+                return resources
             return None
         except Exception as e:
             logger.error(f"Error getting cached accessible resources for user {user_id}: {e}")
@@ -177,8 +210,7 @@ class PermissionCache:
         """Cache list of resource IDs accessible to user."""
         try:
             key = f"{self.key_prefix}resources:{user_id}:{resource_type}"
-            resources_json = json.dumps(resource_ids)
-            self.redis_client.setex(key, ttl, resources_json)
+            self._set_with_ttl(key, resource_ids, ttl)
             logger.debug(f"Cached {len(resource_ids)} accessible resources for user {user_id} (TTL: {ttl}s)")
             return True
         except Exception as e:
@@ -192,18 +224,25 @@ class PermissionCache:
         try:
             patterns = [
                 f"{self.key_prefix}user:{user_id}",
-                f"{self.key_prefix}resources:{user_id}:*",
+                f"{self.key_prefix}resources:{user_id}:",
             ]
             
             deleted_count = 0
+            keys_to_delete = []
+            
             for pattern in patterns:
-                if "*" in pattern:
-                    # Use scan for pattern matching
-                    keys = self.redis_client.keys(pattern)
-                    if keys:
-                        deleted_count += self.redis_client.delete(*keys)
+                if pattern.endswith(':'):
+                    # Find keys that start with the pattern
+                    keys_to_delete.extend([key for key in self.cache.keys() if key.startswith(pattern)])
                 else:
-                    deleted_count += self.redis_client.delete(pattern)
+                    # Exact match
+                    if pattern in self.cache:
+                        keys_to_delete.append(pattern)
+            
+            for key in keys_to_delete:
+                if key in self.cache:
+                    del self.cache[key]
+                    deleted_count += 1
             
             logger.debug(f"Invalidated {deleted_count} cache entries for user {user_id}")
             return True
@@ -219,7 +258,12 @@ class PermissionCache:
                 f"{self.key_prefix}stats",
             ]
             
-            deleted_count = self.redis_client.delete(*keys_to_delete)
+            deleted_count = 0
+            for key in keys_to_delete:
+                if key in self.cache:
+                    del self.cache[key]
+                    deleted_count += 1
+            
             logger.debug(f"Invalidated {deleted_count} cache entries for permission level {permission_level}")
             return True
         except Exception as e:
@@ -229,11 +273,13 @@ class PermissionCache:
     async def invalidate_all_permission_cache(self) -> bool:
         """Invalidate all permission-related cache."""
         try:
-            pattern = f"{self.key_prefix}*"
-            keys = self.redis_client.keys(pattern)
-            if keys:
-                deleted_count = self.redis_client.delete(*keys)
-                logger.info(f"Invalidated all permission cache: {deleted_count} entries deleted")
+            keys_to_delete = [key for key in self.cache.keys() if key.startswith(self.key_prefix)]
+            deleted_count = len(keys_to_delete)
+            
+            for key in keys_to_delete:
+                del self.cache[key]
+            
+            logger.info(f"Invalidated all permission cache: {deleted_count} entries deleted")
             return True
         except Exception as e:
             logger.error(f"Error invalidating all permission cache: {e}")
@@ -244,18 +290,22 @@ class PermissionCache:
     async def get_cache_info(self) -> Dict[str, Any]:
         """Get cache usage statistics."""
         try:
-            info = self.redis_client.info()
-            pattern = f"{self.key_prefix}*"
-            permission_keys = self.redis_client.keys(pattern)
+            self._cleanup_expired()
+            permission_keys = [key for key in self.cache.keys() if key.startswith(self.key_prefix)]
+            
+            # Calculate memory usage estimate
+            total_size = 0
+            for key, entry in self.cache.items():
+                if key.startswith(self.key_prefix):
+                    # Rough estimate of memory usage
+                    total_size += len(str(key)) + len(str(entry.get('value', '')))
             
             return {
                 "total_permission_keys": len(permission_keys),
-                "redis_memory_used": info.get("used_memory_human"),
-                "redis_memory_peak": info.get("used_memory_peak_human"),
-                "redis_connected_clients": info.get("connected_clients"),
-                "redis_total_commands_processed": info.get("total_commands_processed"),
+                "memory_usage_estimate_bytes": total_size,
                 "permission_key_prefix": self.key_prefix,
                 "default_ttl": self.default_ttl,
+                "cache_type": "in_memory",
             }
         except Exception as e:
             logger.error(f"Error getting cache info: {e}")
@@ -287,7 +337,7 @@ class PermissionCache:
 # USAGE EXAMPLES
 
 # Initialize cache
-permission_cache = PermissionCache("redis://localhost:6379")
+permission_cache = PermissionCache()
 
 # Decorator usage example
 @permission_cache.cache_permission_check(ttl=600)
@@ -347,16 +397,13 @@ async def maintain_permission_cache():
 # Configuration for different environments
 class CacheConfig:
     DEVELOPMENT = {
-        "redis_url": "redis://localhost:6379",
         "default_ttl": 300,  # 5 minutes
     }
     
     PRODUCTION = {
-        "redis_url": "redis://production-redis:6379",
         "default_ttl": 600,  # 10 minutes
     }
     
     TESTING = {
-        "redis_url": "redis://localhost:6380",
         "default_ttl": 60,   # 1 minute
     }
