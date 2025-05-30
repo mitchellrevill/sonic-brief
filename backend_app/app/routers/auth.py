@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Body, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
@@ -10,6 +10,13 @@ import logging
 import traceback
 from fastapi import Request
 from app.core.config import AppConfig, CosmosDB, DatabaseError
+from app.middleware.permission_middleware import (
+    PermissionLevel, 
+    PermissionChecker,
+    require_admin_permission,
+    require_user_permission
+)
+from app.utils.permission_queries import PermissionQueryOptimizer
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -265,3 +272,274 @@ async def register_user(request: Request):
     except Exception as e:
         logger.error(f"Unexpected error during registration: {str(e)}", exc_info=True)
         return {"status": 500, "message": f"An unexpected error occurred: {str(e)}"}
+
+# ENHANCED PERMISSION ENDPOINTS
+
+@router.get("/users/by-permission/{permission_level}")
+async def get_users_by_permission(
+    permission_level: str,
+    limit: int = Query(default=100, le=1000),
+    current_user: Dict[str, Any] = Depends(require_admin_permission)
+):
+    """
+    Get users by permission level. Admin only.
+    """
+    try:
+        cosmos_db = CosmosDB()
+        optimizer = PermissionQueryOptimizer(
+            cosmos_db.client, 
+            cosmos_db.database_name, 
+            cosmos_db.container_name
+        )
+        
+        users = await optimizer.get_users_by_permission(permission_level, limit)
+        return {
+            "status": 200,
+            "data": users,
+            "count": len(users),
+            "permission_level": permission_level
+        }
+    except Exception as e:
+        logger.error(f"Error fetching users by permission: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching users: {str(e)}"
+        )
+
+@router.get("/users/permission-stats")
+async def get_permission_statistics(
+    current_user: Dict[str, Any] = Depends(require_admin_permission)
+):
+    """
+    Get permission distribution statistics. Admin only.
+    """
+    try:
+        cosmos_db = CosmosDB()
+        optimizer = PermissionQueryOptimizer(
+            cosmos_db.client, 
+            cosmos_db.database_name, 
+            cosmos_db.container_name
+        )
+        
+        stats = await optimizer.get_permission_counts()
+        total_users = sum(stats.values())
+        
+        # Calculate percentages
+        percentages = {
+            perm: round((count / total_users) * 100, 2) if total_users > 0 else 0
+            for perm, count in stats.items()
+        }
+        
+        return {
+            "status": 200,
+            "data": {
+                "counts": stats,
+                "percentages": percentages,
+                "total_users": total_users
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error fetching permission stats: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching statistics: {str(e)}"
+        )
+
+@router.patch("/users/{user_id}/permission")
+async def update_user_permission(
+    user_id: str,
+    permission_data: Dict[str, str] = Body(...),
+    current_user: Dict[str, Any] = Depends(require_admin_permission)
+):
+    """
+    Update user permission level. Admin only.
+    Includes audit trail tracking.
+    """
+    try:
+        new_permission = permission_data.get("permission")
+        if new_permission not in [PermissionLevel.ADMIN, PermissionLevel.USER, PermissionLevel.VIEWER]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid permission level. Must be one of: {[PermissionLevel.ADMIN, PermissionLevel.USER, PermissionLevel.VIEWER]}"
+            )
+        
+        cosmos_db = CosmosDB()
+        
+        # Get current user data
+        current_user_data = await cosmos_db.get_user_by_id(user_id)
+        if not current_user_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        old_permission = current_user_data.get("permission", PermissionLevel.VIEWER)
+        
+        # Prepare update data with audit trail
+        update_data = {
+            "permission": new_permission,
+            "permission_changed_at": datetime.now(timezone.utc).isoformat(),
+            "permission_changed_by": current_user.get("email", "unknown"),
+            "permission_history": current_user_data.get("permission_history", [])
+        }
+        
+        # Add to permission history
+        update_data["permission_history"].append({
+            "old_permission": old_permission,
+            "new_permission": new_permission,
+            "changed_at": update_data["permission_changed_at"],
+            "changed_by": update_data["permission_changed_by"]
+        })
+        
+        # Update user
+        updated_user = await cosmos_db.update_user(user_id, update_data)
+        
+        # Clear permission cache
+        optimizer = PermissionQueryOptimizer(
+            cosmos_db.client, 
+            cosmos_db.database_name, 
+            cosmos_db.container_name
+        )
+        optimizer.clear_permission_cache(user_id)
+        
+        logger.info(f"Permission updated for user {user_id}: {old_permission} -> {new_permission} by {current_user.get('email')}")
+        
+        return {
+            "status": 200,
+            "message": f"Permission updated successfully from {old_permission} to {new_permission}",
+            "data": {
+                "user_id": user_id,
+                "old_permission": old_permission,
+                "new_permission": new_permission,
+                "updated_at": update_data["permission_changed_at"]
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating user permission: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating permission: {str(e)}"
+        )
+
+@router.get("/users/elevated-permissions/{base_permission}")
+async def get_users_with_elevated_permissions(
+    base_permission: str,
+    current_user: Dict[str, Any] = Depends(require_admin_permission)
+):
+    """
+    Get users with permissions higher than the specified base permission. Admin only.
+    """
+    try:
+        cosmos_db = CosmosDB()
+        optimizer = PermissionQueryOptimizer(
+            cosmos_db.client, 
+            cosmos_db.database_name, 
+            cosmos_db.container_name
+        )
+        
+        users = await optimizer.get_users_with_elevated_permissions(base_permission)
+        
+        return {
+            "status": 200,
+            "data": users,
+            "count": len(users),
+            "base_permission": base_permission
+        }
+    except Exception as e:
+        logger.error(f"Error fetching users with elevated permissions: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching users: {str(e)}"
+        )
+
+@router.get("/permissions/audit")
+async def get_permission_audit_trail(
+    days_back: int = Query(default=30, le=365),
+    current_user: Dict[str, Any] = Depends(require_admin_permission)
+):
+    """
+    Get recent permission changes for audit purposes. Admin only.
+    """
+    try:
+        cosmos_db = CosmosDB()
+        optimizer = PermissionQueryOptimizer(
+            cosmos_db.client, 
+            cosmos_db.database_name, 
+            cosmos_db.container_name
+        )
+        
+        audit_data = await optimizer.audit_permission_changes(days_back)
+        
+        return {
+            "status": 200,
+            "data": audit_data,
+            "count": len(audit_data),
+            "days_back": days_back
+        }
+    except Exception as e:
+        logger.error(f"Error fetching permission audit trail: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching audit trail: {str(e)}"
+        )
+
+@router.get("/users/me/permissions")
+async def get_my_permissions(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Get current user's permission information.
+    """
+    try:
+        permission = current_user.get("permission", PermissionLevel.VIEWER)
+          # Get permission capabilities using the utility function
+        from app.middleware.permission_middleware import get_user_capabilities
+        capabilities = get_user_capabilities(permission)
+        
+        return {
+            "status": 200,
+            "data": {
+                "user_id": current_user.get("id"),
+                "email": current_user.get("email"),
+                "permission": permission,
+                "capabilities": capabilities
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching user permissions: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching permissions: {str(e)}"
+        )
+
+@router.get("/permissions/cache-stats")
+async def get_permission_cache_stats(
+    current_user: Dict[str, Any] = Depends(require_admin_permission)
+):
+    """
+    Get permission cache statistics. Admin only.
+    """
+    try:
+        cosmos_db = CosmosDB()
+        optimizer = PermissionQueryOptimizer(
+            cosmos_db.client, 
+            cosmos_db.database_name, 
+            cosmos_db.container_name
+        )
+        
+        cache_stats = optimizer.get_cache_stats()
+        
+        return {
+            "status": 200,
+            "data": cache_stats
+        }
+    except Exception as e:
+        logger.error(f"Error fetching cache stats: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching cache stats: {str(e)}"
+        )
