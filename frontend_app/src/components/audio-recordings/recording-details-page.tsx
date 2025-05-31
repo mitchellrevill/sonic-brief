@@ -1,5 +1,5 @@
 import type { AudioRecording } from "@/api/audio-recordings";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -12,14 +12,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Separator } from "@/components/ui/separator";
 import { useAudioPlayer } from "@/hooks/use-audio-player";
-import { cn } from "@/lib/utils";
 import { getAudioTranscriptionQuery } from "@/queries/audio-recordings.query";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { toast } from "sonner";
 import {
   ArrowLeft,
-  Calendar,
   Download,
   FileAudio,
   FileText,
@@ -30,6 +30,12 @@ import {
   User,
   Volume2,
   VolumeX,
+  Copy,
+  Clock,
+  Hash,
+  Loader2,
+  AlertCircle,
+  CheckCircle,
 } from "lucide-react";
 
 interface ExtendedAudioRecording extends AudioRecording {
@@ -41,25 +47,38 @@ interface RecordingDetailsPageProps {
   recording: ExtendedAudioRecording;
 }
 
-const statusStyles: Record<string, string> = {
-  completed:
-    "bg-green-500 text-white border border-green-700 shadow-md px-4 py-1 rounded-full",
-  processing:
-    "bg-yellow-500 text-black border border-yellow-600 shadow-md px-4 py-1 rounded-full",
-  uploaded:
-    "bg-blue-500 text-white border border-blue-700 shadow-md px-4 py-1 rounded-full",
-  failed:
-    "bg-red-500 text-white border border-red-700 shadow-md px-4 py-1 rounded-full",
-  error:
-    "bg-red-500 text-white border border-red-700 shadow-md px-4 py-1 rounded-full",
-  default:
-    "bg-gray-500 text-white border border-gray-600 shadow-md px-4 py-1 rounded-full",
+// Helper function to copy text to clipboard
+const copyToClipboard = async (text: string, label: string = "Text") => {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success(`${label} copied to clipboard!`);
+  } catch (err) {
+    console.error('Failed to copy text: ', err);
+    toast.error(`Failed to copy ${label.toLowerCase()}`);
+  }
 };
 
 export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
-  const { data: transcriptionText, refetch: refetchTranscription } = useQuery(
+  const { 
+    data: transcriptionText, 
+    refetch: refetchTranscription,
+    isLoading: isLoadingTranscription,
+    isError: isTranscriptionError,
+    error: transcriptionError,
+    isFetching: isFetchingTranscription
+  } = useQuery(
     getAudioTranscriptionQuery(recording.id),
   );
+
+  // Handle download with feedback
+  const handleDownload = (url: string, fileName: string) => {
+    try {
+      window.open(url, "_blank");
+      toast.success(`${fileName} download started`);
+    } catch (error) {
+      toast.error(`Failed to download ${fileName}`);
+    }
+  };
 
   const {
     audioRef,
@@ -76,328 +95,471 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
     formattedDuration,
   } = useAudioPlayer(recording.file_path);
 
+  const fileName = recording.file_name || 
+    recording.file_path.split("/").pop() || 
+    "Unnamed Recording";
+
   return (
-    <div className="relative container mx-auto px-4 py-6">
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Link to="/audio-recordings">
-            <Button
-              variant="outline"
-              size="icon"
-              className="hover:cursor-pointer"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-3xl font-bold">Audio Recording Details</h1>
-            <Breadcrumb className="text-muted-foreground text-sm">
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink asChild>
-                    <Link to="/audio-recordings">Recordings</Link>
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>{recording.id}</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
+    <div className="min-h-screen bg-gradient-to-br from-background to-muted/20">
+      {/* Header Section */}
+      <div className="border-b border-border/50 bg-card/50 backdrop-blur-sm">
+        <div className="container mx-auto px-4 py-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <Link to="/audio-recordings">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="hover:bg-muted"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+              </Link>
+              <div className="min-w-0">
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
+                  {fileName}
+                </h1>
+                <Breadcrumb className="text-muted-foreground text-sm">
+                  <BreadcrumbList>
+                    <BreadcrumbItem>
+                      <BreadcrumbLink asChild>
+                        <Link to="/audio-recordings">Recordings</Link>
+                      </BreadcrumbLink>
+                    </BreadcrumbItem>
+                    <BreadcrumbSeparator />
+                    <BreadcrumbItem>
+                      <BreadcrumbPage className="max-w-[200px] truncate">
+                        {recording.id}
+                      </BreadcrumbPage>
+                    </BreadcrumbItem>
+                  </BreadcrumbList>
+                </Breadcrumb>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <StatusBadge 
+                status={recording.status as any}
+                size="md"
+                showIcon={true}
+                animate={recording.status === "processing"}
+              />
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-3">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2">
-                <span className="bg-primary/10 rounded-full p-2">
-                  <FileAudio className="text-primary h-5 w-5" />
-                </span>
-                Recording
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <audio
-                ref={audioRef}
-                src={recording.file_path}
-                preload="metadata"
-                className="hidden"
-              />
+      {/* Main Content */}
+      <div className="container mx-auto px-4 py-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          {/* Audio Player & Metadata */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Enhanced Audio Player Card */}
+            <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+              <CardHeader className="pb-4">
+                <CardTitle className="flex items-center gap-2">
+                  <span className="bg-primary/10 rounded-full p-2">
+                    <FileAudio className="text-primary h-5 w-5" />
+                  </span>
+                  Audio Player
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <audio
+                  ref={audioRef}
+                  src={recording.file_path}
+                  preload="metadata"
+                  className="hidden"
+                />
 
-              <div className="bg-secondary/30 mb-4 rounded-lg p-4">
-                <div className="mb-3 flex items-center gap-4">
-                  <Button
-                    size="icon"
-                    className="bg-primary text-primary-foreground hover:bg-primary/80 h-10 w-10 rounded-full"
-                    onClick={togglePlayPause}
-                  >
-                    {isPlaying ? (
-                      <Pause className="size-5" />
-                    ) : (
-                      <Play className="size-5" />
-                    )}
-                  </Button>
-
-                  <div className="flex flex-1 items-center gap-3">
-                    <span className="text-sm">{formattedCurrentTime}</span>
-                    <Slider
-                      value={[currentTime]}
-                      max={duration || 100}
-                      step={1}
-                      className="flex-1 cursor-pointer"
-                      onValueChange={handleTimeSliderChange}
-                    />
-                    <span className="text-sm">{formattedDuration}</span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="icon" onClick={toggleMute}>
-                      {isMuted ? (
-                        <VolumeX className="size-5" />
+                {/* Enhanced Audio Player Interface */}
+                <div className="bg-gradient-to-r from-muted/50 to-muted/30 rounded-xl p-6 space-y-4">
+                  {/* Main Controls Row */}
+                  <div className="flex items-center gap-4">
+                    <Button
+                      size="icon"
+                      className="bg-primary text-primary-foreground hover:bg-primary/90 h-12 w-12 rounded-full shadow-lg transition-all duration-200 hover:scale-105"
+                      onClick={togglePlayPause}
+                    >
+                      {isPlaying ? (
+                        <Pause className="h-5 w-5" />
                       ) : (
-                        <Volume2 className="size-5" />
+                        <Play className="h-5 w-5 ml-0.5" />
                       )}
                     </Button>
-                    <Slider
-                      value={[displayVolume]}
-                      max={100}
-                      step={1}
-                      className="w-20 cursor-pointer"
-                      onValueChange={handleVolumeSliderChange}
-                    />
-                  </div>
-                </div>
 
-                <div className="flex justify-center">
-                  <Button
-                    className="w-full sm:w-auto"
-                    onClick={() => window.open(recording.file_path, "_blank")}
-                  >
-                    <Download className="mr-2 h-4 w-4" />
-                    Download Audio
-                  </Button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Tag className="text-muted-foreground h-4 w-4 flex-shrink-0" />
-                    <span className="flex-shrink-0 text-sm font-medium">
-                      Job ID:
-                    </span>
-                    <code className="bg-secondary/50 rounded px-1.5 py-0.5 text-sm">
-                      {recording.id}
-                    </code>
+                    <div className="flex-1 space-y-2">
+                      <Slider
+                        value={[currentTime]}
+                        max={duration || 100}
+                        step={1}
+                        className="cursor-pointer"
+                        onValueChange={handleTimeSliderChange}
+                      />
+                      <div className="flex justify-between text-sm text-muted-foreground">
+                        <span className="font-mono">{formattedCurrentTime}</span>
+                        <span className="font-mono">{formattedDuration}</span>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <User className="text-muted-foreground h-4 w-4 flex-shrink-0" />
-                    <span className="flex-shrink-0 text-sm font-medium">
-                      User ID:
-                    </span>
-                    <code className="bg-secondary/50 rounded px-1.5 py-0.5 text-sm">
-                      {recording.user_id}
-                    </code>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <RefreshCw className="text-muted-foreground h-4 w-4 flex-shrink-0" />
-                    <span className="flex-shrink-0 text-sm font-medium">
-                      Status:
-                    </span>
-                    <Badge
-                      className={cn(
-                        "flex min-w-[100px] items-center justify-center rounded-md px-4 py-1 text-xs",
-                        statusStyles[recording.status] || statusStyles.default,
-                      )}
-                    >
-                      {recording.status.charAt(0).toUpperCase() +
-                        recording.status.slice(1)}
-                    </Badge>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="text-muted-foreground h-4 w-4 flex-shrink-0" />
-                    <span className="flex-shrink-0 text-sm font-medium">
-                      Created:
-                    </span>
-                    <span className="text-sm">
-                      {new Date(recording.created_at).toLocaleString()}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Calendar className="text-muted-foreground h-4 w-4 flex-shrink-0" />
-                    <span className="flex-shrink-0 text-sm font-medium">
-                      Updated:
-                    </span>
-                    <span className="text-sm">
-                      {new Date(recording.updated_at).toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 space-y-3">
-                <div className="flex items-start gap-2">
-                  <Tag className="text-muted-foreground mt-1 h-4 w-4 flex-shrink-0" />
-                  <div>
-                    <div className="flex items-center">
-                      <span className="mr-1 flex-shrink-0 text-sm font-medium">
-                        Category:
+                  {/* Volume Controls */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={toggleMute}
+                        className="h-8 w-8"
+                      >
+                        {isMuted ? (
+                          <VolumeX className="h-4 w-4" />
+                        ) : (
+                          <Volume2 className="h-4 w-4" />
+                        )}
+                      </Button>
+                      <Slider
+                        value={[displayVolume]}
+                        max={100}
+                        step={1}
+                        className="w-24 cursor-pointer"
+                        onValueChange={handleVolumeSliderChange}
+                      />
+                      <span className="text-sm text-muted-foreground w-8">
+                        {Math.round(displayVolume)}%
                       </span>
-                      <code className="bg-secondary/50 rounded px-2 py-1 text-sm break-all">
-                        {recording.prompt_category_id || "N/A"}
-                      </code>
+                    </div>                    <Button
+                      variant="outline"
+                      onClick={() => handleDownload(recording.file_path, "Audio file")}
+                      className="hover:bg-muted"
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Download
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Tabs for Transcription and Analysis */}
+            <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+              <Tabs defaultValue="transcription" className="w-full">                <CardHeader className="pb-4">
+                  <div className="flex items-center justify-between">
+                    <TabsList className="grid grid-cols-2 w-full max-w-md">
+                      <TabsTrigger value="transcription" className="flex items-center gap-2">
+                        <FileText className="h-4 w-4" />
+                        Transcription
+                      </TabsTrigger>
+                      <TabsTrigger value="analysis" className="flex items-center gap-2">
+                        <FileText className="h-4 w-4" />
+                        Analysis
+                      </TabsTrigger>
+                    </TabsList>
+                    {transcriptionText && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => refetchTranscription()}
+                        disabled={isFetchingTranscription}
+                        className="ml-2"
+                      >
+                        {isFetchingTranscription ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-4 w-4" />
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                </CardHeader><CardContent>                  <TabsContent value="transcription" className="mt-0 space-y-4">
+                    {isLoadingTranscription || isFetchingTranscription ? (
+                      <div className="flex flex-col items-center justify-center py-12 space-y-4 animate-in fade-in duration-500">
+                        <div className="rounded-full bg-primary/10 p-3 animate-pulse">
+                          <Loader2 className="h-6 w-6 text-primary animate-spin" />
+                        </div>
+                        <div className="text-center space-y-2">
+                          <h3 className="font-medium">Loading transcription...</h3>
+                          <p className="text-sm text-muted-foreground">
+                            Please wait while we fetch the transcription data
+                          </p>
+                        </div>
+                      </div>                    ) : isTranscriptionError ? (
+                      <div className="flex flex-col items-center justify-center py-12 space-y-4 animate-in fade-in duration-500">
+                        <div className="rounded-full bg-destructive/10 p-3 animate-pulse">
+                          <AlertCircle className="h-6 w-6 text-destructive" />
+                        </div>
+                        <div className="text-center space-y-2">
+                          <h3 className="font-medium">Failed to load transcription</h3>
+                          <p className="text-sm text-muted-foreground">
+                            {transcriptionError instanceof Error 
+                              ? transcriptionError.message 
+                              : "There was an error loading the transcription"
+                            }
+                          </p>
+                        </div>
+                        <Button 
+                          onClick={() => refetchTranscription()}
+                          variant="outline"
+                          disabled={isFetchingTranscription}
+                          className="transition-all duration-200 hover:scale-105"
+                        >
+                          {isFetchingTranscription ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Retrying...
+                            </>
+                          ) : (
+                            <>
+                              <RefreshCw className="mr-2 h-4 w-4" />
+                              Try Again
+                            </>
+                          )}
+                        </Button>
+                      </div>                    ) : transcriptionText ? (
+                      <div className="animate-in slide-in-from-bottom duration-700">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground animate-in fade-in duration-500 delay-200">
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                            <span>Transcription loaded successfully</span>
+                          </div>
+                          <div className="rounded-lg bg-muted/50 p-4 max-h-96 overflow-y-auto border border-border/50 animate-in fade-in duration-500 delay-300">
+                            <pre className="text-sm whitespace-pre-wrap font-sans leading-relaxed">
+                              {transcriptionText}
+                            </pre>
+                          </div>
+                        </div>                        {recording.transcription_file_path && (
+                          <Button
+                            onClick={() => handleDownload(recording.transcription_file_path!, "Transcription")}
+                            variant="outline"
+                            className="w-full transition-all duration-200 hover:scale-105 animate-in fade-in duration-500 delay-400"
+                          >
+                            <Download className="mr-2 h-4 w-4" />
+                            Download Transcription
+                          </Button>
+                        )}
+                      </div>                    ) : (
+                      <div className="flex flex-col items-center justify-center py-12 space-y-4 animate-in fade-in duration-500">
+                        <div className="rounded-full bg-muted p-3">
+                          <FileText className="h-6 w-6 text-muted-foreground" />
+                        </div>
+                        <div className="text-center space-y-2">
+                          <h3 className="font-medium">No transcription available</h3>
+                          <p className="text-sm text-muted-foreground">
+                            Click below to load the transcription data
+                          </p>
+                        </div>
+                        <Button 
+                          onClick={() => refetchTranscription()}
+                          disabled={isFetchingTranscription}
+                          className="min-w-[120px] transition-all duration-200 hover:scale-105 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70"
+                        >
+                          {isFetchingTranscription ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Loading...
+                            </>
+                          ) : (
+                            <>
+                              <FileText className="mr-2 h-4 w-4" />
+                              Load Transcription
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    )}
+                  </TabsContent>                  <TabsContent value="analysis" className="mt-0 space-y-4">
+                    {recording.analysis_text ? (
+                      <div className="animate-in slide-in-from-bottom duration-700">
+                        <div className="rounded-lg bg-muted/50 p-4 max-h-96 overflow-y-auto space-y-4 border border-border/50">
+                          {recording.analysis_text
+                            .split("\n\n")
+                            .map((section: string, index: number) => {
+                              const lines = section.split("\n");
+                              const title = lines[0];
+                              const content = lines.slice(1);
+
+                              return (
+                                <div key={index} className="space-y-2 animate-in fade-in duration-500" style={{ animationDelay: `${index * 100}ms` }}>
+                                  <h4 className="font-semibold text-foreground">
+                                    {title}
+                                  </h4>
+                                  <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1 ml-4">
+                                    {content.map((point: string, subIndex: number) => (
+                                      <li key={subIndex}>{point}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              );
+                            })}
+                        </div>                        {recording.analysis_file_path && (
+                          <Button
+                            onClick={() => handleDownload(recording.analysis_file_path!, "Analysis PDF")}
+                            variant="outline"
+                            className="w-full transition-all duration-200 hover:scale-105 animate-in fade-in duration-500 delay-300"
+                          >
+                            <Download className="mr-2 h-4 w-4" />
+                            Download Analysis PDF
+                          </Button>
+                        )}
+                      </div>                    ) : (
+                      <div className="flex flex-col items-center justify-center py-12 space-y-4 animate-in fade-in duration-500">
+                        <div className="rounded-full bg-muted p-3">
+                          <FileText className="h-6 w-6 text-muted-foreground" />
+                        </div>
+                        <div className="text-center space-y-2">
+                          <h3 className="font-medium">No analysis available</h3>
+                          <p className="text-sm text-muted-foreground">
+                            Analysis will appear here once processing is complete
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </TabsContent>
+                </CardContent>
+              </Tabs>
+            </Card>
+          </div>          {/* Sidebar with Recording Details */}
+          <div className="space-y-6">
+            {/* Recording Information Card */}
+            <Card className="border-border/50 bg-card/50 backdrop-blur-sm animate-in slide-in-from-right duration-700">
+              <CardHeader className="pb-4">
+                <CardTitle className="flex items-center gap-2">
+                  <span className="bg-primary/10 rounded-full p-2">
+                    <Tag className="text-primary h-4 w-4" />
+                  </span>
+                  Recording Details
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Job ID */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Hash className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-medium">Job ID</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <code className="bg-muted/50 rounded px-2 py-1 text-sm font-mono flex-1 truncate">
+                      {recording.id}
+                    </code>                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-7 w-7 transition-all duration-200 hover:scale-110"
+                      onClick={() => copyToClipboard(recording.id, "Job ID")}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+
+                <Separator />                {/* User ID */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    <User className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-medium">User ID</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <code className="bg-muted/50 rounded px-2 py-1 text-sm font-mono flex-1 truncate">
+                      {recording.user_id}
+                    </code>                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-7 w-7 transition-all duration-200 hover:scale-110"
+                      onClick={() => copyToClipboard(recording.user_id, "User ID")}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Timestamps */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-medium">Timestamps</span>
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Created:</span>
+                      <span className="font-mono">
+                        {new Date(recording.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Updated:</span>
+                      <span className="font-mono">
+                        {new Date(recording.updated_at).toLocaleDateString()}
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-start gap-2">
-                  <Tag className="text-muted-foreground mt-1 h-4 w-4 flex-shrink-0" />
-                  <div>
-                    <div className="flex items-center">
-                      <span className="mr-1 flex-shrink-0 text-sm font-medium">
-                        Subcategory:
-                      </span>
-                      <code className="bg-secondary/50 rounded px-2 py-1 text-sm break-all">
+                <Separator />
+
+                {/* Categories */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Tag className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-medium">Categories</span>
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <div>
+                      <span className="text-muted-foreground block mb-1">Category:</span>
+                      <code className="bg-muted/50 rounded px-2 py-1 text-xs break-all">
+                        {recording.prompt_category_id || "N/A"}
+                      </code>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground block mb-1">Subcategory:</span>
+                      <code className="bg-muted/50 rounded px-2 py-1 text-xs break-all">
                         {recording.prompt_subcategory_id || "N/A"}
                       </code>
                     </div>
                   </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Tabs defaultValue="transcription" className="w-full">
-            <TabsList className="mb-4 grid grid-cols-2">
-              <TabsTrigger value="transcription">Transcription</TabsTrigger>
-              <TabsTrigger value="analysis">Analysis</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="transcription" className="mt-0">
-              <Card className="border-0 bg-transparent shadow-none">
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2">
-                    <span className="bg-primary/10 rounded-full p-2">
-                      <FileText className="text-primary h-5 w-5" />
-                    </span>
-                    Transcription
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {transcriptionText ? (
-                    <div className="mb-4 rounded-lg bg-gray-100 p-4 shadow-md dark:bg-gray-800">
-                      <pre className="text-sm whitespace-pre-wrap">
-                        {transcriptionText}
-                      </pre>
-                    </div>
-                  ) : (
-                    <div className="mb-4">
-                      <div className="flex flex-col items-center justify-center rounded-lg bg-gray-100 p-4 py-8 shadow-md dark:bg-gray-800">
-                        <p className="text-muted-foreground mb-6 text-center">
-                          Transcription data is not loaded. Click the button
-                          below to load the transcription.
-                        </p>
-                        <Button
-                          onClick={() => refetchTranscription()}
-                          className="px-8"
-                        >
-                          Load Transcription
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {recording.transcription_file_path && (
-                    <div className="flex justify-center">
-                      <Button
-                        onClick={() =>
-                          recording.transcription_file_path &&
-                          window.open(
-                            recording.transcription_file_path,
-                            "_blank",
-                          )
-                        }
-                        variant="outline"
-                        className="w-full max-w-md rounded-lg font-semibold shadow-md"
-                        disabled={!recording.transcription_file_path}
-                      >
-                        <Download className="me-2 h-4 w-4" />
-                        Download Transcription TXT
-                      </Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="analysis" className="mt-0">
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2">
-                    <span className="bg-primary/10 rounded-full p-2">
-                      <FileText className="text-primary h-5 w-5" />
-                    </span>
-                    Analysis Summary
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {recording.analysis_text ? (
-                    <>
-                      <div className="mb-4 rounded-lg bg-gray-100 p-4 shadow-md dark:bg-gray-800">
-                        {recording.analysis_text
-                          .split("\n\n")
-                          .map((section: string, index: number) => {
-                            const lines = section.split("\n");
-                            const title = lines[0];
-                            const content = lines.slice(1);
-
-                            return (
-                              <div key={index} className="mt-4">
-                                <h4 className="text-md font-semibold">
-                                  {title}
-                                </h4>
-                                <ul className="mt-2 list-inside list-disc text-sm text-gray-700 dark:text-gray-300">
-                                  {content.map(
-                                    (point: string, subIndex: number) => (
-                                      <li key={subIndex}>{point}</li>
-                                    ),
-                                  )}
-                                </ul>
-                              </div>
-                            );
-                          })}
-                      </div>
-                      <Button
-                        onClick={() =>
-                          recording.analysis_file_path &&
-                          window.open(recording.analysis_file_path, "_blank")
-                        }
-                        variant="outline"
-                        className="mt-2 w-full rounded-lg font-semibold shadow-md"
-                        disabled={!recording.analysis_file_path}
-                      >
-                        <Download className="me-2 h-4 w-4" />
-                        Download Analysis PDF
-                      </Button>
-                    </>
-                  ) : (
-                    <p className="text-muted-foreground">
-                      No analysis available for this recording.
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+              </CardContent>
+            </Card>            {/* Actions Card */}
+            <Card className="border-border/50 bg-card/50 backdrop-blur-sm animate-in slide-in-from-right duration-700 delay-200">
+              <CardHeader className="pb-4">
+                <CardTitle className="flex items-center gap-2">
+                  <span className="bg-primary/10 rounded-full p-2">
+                    <RefreshCw className="text-primary h-4 w-4" />
+                  </span>
+                  Actions
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">                <Button
+                  variant="outline"
+                  className="w-full justify-start transition-all duration-200 hover:scale-105 hover:bg-muted"
+                  onClick={() => handleDownload(recording.file_path, "Audio file")}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Download Audio File
+                </Button>
+                
+                {recording.transcription_file_path && (
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start transition-all duration-200 hover:scale-105 hover:bg-muted"
+                    onClick={() => handleDownload(recording.transcription_file_path!, "Transcription")}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Download Transcription
+                  </Button>
+                )}
+                
+                {recording.analysis_file_path && (
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start transition-all duration-200 hover:scale-105 hover:bg-muted"
+                    onClick={() => handleDownload(recording.analysis_file_path!, "Analysis PDF")}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Download Analysis
+                  </Button>
+                )}</CardContent>
+            </Card>
+          </div>
         </div>
       </div>
     </div>
