@@ -1,10 +1,5 @@
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbPage,
-} from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
+import { SmartBreadcrumb } from "@/components/ui/smart-breadcrumb";
 import { Users, UserPlus, RefreshCw } from "lucide-react";
 
 interface UserManagementHeaderProps {
@@ -26,15 +21,10 @@ export function UserManagementHeader({
           <h2 className="text-lg md:text-2xl font-semibold tracking-tight">
             User Management
           </h2>
-        </div>
-        <Breadcrumb className="justify-center md:justify-start flex flex-wrap">
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbItem>
-            <BreadcrumbPage>User Management</BreadcrumbPage>
-          </BreadcrumbItem>
-        </Breadcrumb>
+        </div>        <SmartBreadcrumb
+          items={[{ label: "User Management", isCurrentPage: true }]}
+          className="justify-center md:justify-start"
+        />
         <p className="text-muted-foreground text-xs md:text-sm max-w-2xl">
           Manage user accounts, permissions, and access controls. Monitor user activity and maintain system security.
         </p>

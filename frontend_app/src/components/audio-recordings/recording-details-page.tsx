@@ -1,13 +1,6 @@
 import type { AudioRecording } from "@/api/audio-recordings";
 import { StatusBadge } from "@/components/ui/status-badge";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
+import { SmartBreadcrumb } from "@/components/ui/smart-breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
@@ -147,25 +140,17 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
               </Link>
-              <div className="min-w-0">
-                <h1 className="text-2xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
+              <div className="min-w-0">                <h1 className="text-2xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
                   {fileName}
                 </h1>
-                <Breadcrumb className="text-muted-foreground text-sm">
-                  <BreadcrumbList>
-                    <BreadcrumbItem>
-                      <BreadcrumbLink asChild>
-                        <Link to="/audio-recordings">Recordings</Link>
-                      </BreadcrumbLink>
-                    </BreadcrumbItem>
-                    <BreadcrumbSeparator />
-                    <BreadcrumbItem>
-                      <BreadcrumbPage className="max-w-[200px] truncate">
-                        {recording.id}
-                      </BreadcrumbPage>
-                    </BreadcrumbItem>
-                  </BreadcrumbList>
-                </Breadcrumb>
+                <SmartBreadcrumb
+                  items={[
+                    { label: "Audio Recordings", to: "/audio-recordings" },
+                    { label: recording.id, isCurrentPage: true }
+                  ]}
+                  className="text-muted-foreground text-sm"
+                  maxItems={4}
+                />
               </div>
             </div>
             <div className="flex items-center gap-2">

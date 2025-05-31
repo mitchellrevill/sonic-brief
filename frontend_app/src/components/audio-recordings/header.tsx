@@ -1,10 +1,5 @@
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbPage,
-} from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
+import { SmartBreadcrumb } from "@/components/ui/smart-breadcrumb";
 import { Link } from "@tanstack/react-router";
 import { Upload } from "lucide-react";
 
@@ -14,15 +9,9 @@ export function AudioRecordingsHeader() {
       <div className="space-y-0.5">
         <h2 className="text-lg md:text-xl font-semibold tracking-tight">
           Audio Recordings
-        </h2>
-        <Breadcrumb>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbItem>
-            <BreadcrumbPage>Audio Recordings</BreadcrumbPage>
-          </BreadcrumbItem>
-        </Breadcrumb>
+        </h2>        <SmartBreadcrumb
+          items={[{ label: "Audio Recordings", isCurrentPage: true }]}
+        />
         <p className="text-muted-foreground text-xs md:text-sm">
           Manage and monitor all uploaded audio files and their processing status.
         </p>
