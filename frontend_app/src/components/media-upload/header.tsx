@@ -1,9 +1,4 @@
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbPage,
-} from "@/components/ui/breadcrumb";
+import { SmartBreadcrumb } from "@/components/ui/smart-breadcrumb";
 import { Button } from "@/components/ui/button";
 import { 
   Upload, 
@@ -41,15 +36,10 @@ export function MediaUploadHeader({
                 Media Upload
               </h1>
             </div>
-            
-            <Breadcrumb className="justify-center md:justify-start">
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/">Home</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbItem>
-                <BreadcrumbPage>Media Upload</BreadcrumbPage>
-              </BreadcrumbItem>
-            </Breadcrumb>
+              <SmartBreadcrumb
+              items={[{ label: "Media Upload", isCurrentPage: true }]}
+              className="justify-center md:justify-start"
+            />
             
             <div className="space-y-2">
               <p className="text-muted-foreground text-sm md:text-base max-w-2xl">

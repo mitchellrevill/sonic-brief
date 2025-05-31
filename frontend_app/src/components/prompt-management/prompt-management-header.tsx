@@ -1,12 +1,7 @@
 import type { AddCategoryFormValues } from "@/schema/prompt-management.schema";
 import { useState } from "react";
 import { createCategory } from "@/api/prompt-management";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbPage,
-} from "@/components/ui/breadcrumb";
+import { SmartBreadcrumb } from "@/components/ui/smart-breadcrumb";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -97,15 +92,10 @@ export function PromptManagementHeader() {
         <div className="space-y-1 text-center md:text-left">
           <h2 className="text-lg md:text-2xl font-semibold tracking-tight">
             Prompt Management
-          </h2>
-          <Breadcrumb className="justify-center md:justify-start flex flex-wrap">
-            <BreadcrumbItem>
-              <BreadcrumbLink href="/">Home</BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbItem>
-              <BreadcrumbPage>Prompt Management</BreadcrumbPage>
-            </BreadcrumbItem>
-          </Breadcrumb>
+          </h2>          <SmartBreadcrumb
+            items={[{ label: "Prompt Management", isCurrentPage: true }]}
+            className="justify-center md:justify-start"
+          />
           <p className="text-muted-foreground text-xs md:text-sm">
             Manage categories, subcategories, and prompts for your AI system.
           </p>
