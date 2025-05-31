@@ -18,7 +18,9 @@ import { getAudioTranscriptionQuery } from "@/queries/audio-recordings.query";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { useIsMobile } from "@/components/ui/use-mobile";
 import { AnalysisRefinementChat } from "@/components/analysis-refinement/analysis-refinement-chat";
+import { fetchCategories, fetchSubcategories } from "@/api/prompt-management";
 import {
   ArrowLeft,
   Download,
@@ -61,6 +63,8 @@ const copyToClipboard = async (text: string, label: string = "Text") => {
 };
 
 export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
+  const isMobile = useIsMobile();
+  
   const { 
     data: transcriptionText, 
     refetch: refetchTranscription,
@@ -71,6 +75,32 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
   } = useQuery(
     getAudioTranscriptionQuery(recording.id),
   );
+
+  // Fetch categories and subcategories for friendly name lookup
+  const { data: categories = [] } = useQuery({
+    queryKey: ['categories'],
+    queryFn: fetchCategories,
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
+
+  const { data: subcategories = [] } = useQuery({
+    queryKey: ['subcategories'],
+    queryFn: () => fetchSubcategories(),
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
+
+  // Helper functions to get friendly names
+  const getCategoryName = (categoryId: string | null | undefined): string => {
+    if (!categoryId) return "N/A";
+    const category = categories.find(cat => cat.id === categoryId);
+    return category?.name || categoryId;
+  };
+
+  const getSubcategoryName = (subcategoryId: string | null | undefined): string => {
+    if (!subcategoryId) return "N/A";
+    const subcategory = subcategories.find(sub => sub.id === subcategoryId);
+    return subcategory?.name || subcategoryId;
+  };
 
   // Handle download with feedback
   const handleDownload = (url: string, fileName: string) => {
@@ -202,10 +232,8 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                         <span className="font-mono">{formattedDuration}</span>
                       </div>
                     </div>
-                  </div>
-
-                  {/* Volume Controls */}
-                  <div className="flex items-center justify-between">
+                  </div>                  {/* Volume Controls */}
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-2">
                       <Button 
                         variant="ghost" 
@@ -229,10 +257,11 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                       <span className="text-sm text-muted-foreground w-8">
                         {Math.round(displayVolume)}%
                       </span>
-                    </div>                    <Button
+                    </div>
+                    <Button
                       variant="outline"
                       onClick={() => handleDownload(recording.file_path, "Audio file")}
-                      className="hover:bg-muted"
+                      className="hover:bg-muted w-full sm:w-auto"
                     >
                       <Download className="mr-2 h-4 w-4" />
                       Download
@@ -406,29 +435,32 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                               Download Analysis PDF
                             </Button>
                           )}
-                        </div>
-
-                        {/* Analysis Refinement Chat */}
-                        <Separator />
-                        <div className="animate-in slide-in-from-bottom duration-700 delay-200">
-                          <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
-                            <CardHeader className="pb-4">
-                              <CardTitle className="flex items-center gap-2">
-                                <span className="bg-primary/10 rounded-full p-2">
-                                  <MessageSquare className="text-primary h-4 w-4" />
-                                </span>
-                                Refine Analysis
-                              </CardTitle>
-                              <p className="text-sm text-muted-foreground">
-                                Chat with AI to refine and explore your analysis results
-                              </p>
-                            </CardHeader>                            <CardContent>
-                              <AnalysisRefinementChat 
-                                jobId={recording.id}
-                              />
-                            </CardContent>
-                          </Card>
-                        </div>
+                        </div>                        {/* Analysis Refinement Chat - Hidden on mobile */}
+                        {!isMobile && (
+                          <>
+                            <Separator />
+                            <div className="animate-in slide-in-from-bottom duration-700 delay-200">
+                              <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+                                <CardHeader className="pb-4">
+                                  <CardTitle className="flex items-center gap-2">
+                                    <span className="bg-primary/10 rounded-full p-2">
+                                      <MessageSquare className="text-primary h-4 w-4" />
+                                    </span>
+                                    Refine Analysis
+                                  </CardTitle>
+                                  <p className="text-sm text-muted-foreground">
+                                    Chat with AI to refine and explore your analysis results
+                                  </p>
+                                </CardHeader>
+                                <CardContent>
+                                  <AnalysisRefinementChat 
+                                    jobId={recording.id}
+                                  />
+                                </CardContent>
+                              </Card>
+                            </div>
+                          </>
+                        )}
                       </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center py-12 space-y-4 animate-in fade-in duration-500">
@@ -524,9 +556,7 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                   </div>
                 </div>
 
-                <Separator />
-
-                {/* Categories */}
+                <Separator />                {/* Categories */}
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-sm">
                     <Tag className="h-4 w-4 text-muted-foreground" />
@@ -535,15 +565,21 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                   <div className="space-y-2 text-sm">
                     <div>
                       <span className="text-muted-foreground block mb-1">Category:</span>
-                      <code className="bg-muted/50 rounded px-2 py-1 text-xs break-all">
-                        {recording.prompt_category_id || "N/A"}
-                      </code>
+                      <div className="bg-muted/50 rounded px-2 py-1 text-xs break-all">
+                        {getCategoryName(recording.prompt_category_id)}
+                        {recording.prompt_category_id && getCategoryName(recording.prompt_category_id) !== recording.prompt_category_id && (
+                          <span className="text-muted-foreground ml-2">({recording.prompt_category_id})</span>
+                        )}
+                      </div>
                     </div>
                     <div>
                       <span className="text-muted-foreground block mb-1">Subcategory:</span>
-                      <code className="bg-muted/50 rounded px-2 py-1 text-xs break-all">
-                        {recording.prompt_subcategory_id || "N/A"}
-                      </code>
+                      <div className="bg-muted/50 rounded px-2 py-1 text-xs break-all">
+                        {getSubcategoryName(recording.prompt_subcategory_id)}
+                        {recording.prompt_subcategory_id && getSubcategoryName(recording.prompt_subcategory_id) !== recording.prompt_subcategory_id && (
+                          <span className="text-muted-foreground ml-2">({recording.prompt_subcategory_id})</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
