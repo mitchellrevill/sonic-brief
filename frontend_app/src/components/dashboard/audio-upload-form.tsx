@@ -27,10 +27,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { mediaUploadSchema } from "@/schema/audio-upload.schema";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Loader2, RefreshCcw, Music } from "lucide-react";
+import { Loader2, RefreshCcw, Music, FileText } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { useEffect } from "react";
@@ -44,7 +46,9 @@ export function AudioUploadForm({ audioFile }: { audioFile?: File | null }) {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(
     null,
-  );
+  );  const [selectedPrompts, setSelectedPrompts] = useState<Record<string, string>>({});
+  const [currentPromptKey, setCurrentPromptKey] = useState<string>("");
+  const [currentPromptValue, setCurrentPromptValue] = useState<string>("");
   const [isConverting, setIsConverting] = useState(false);
   const [conversionProgress, setConversionProgress] = useState(0);
   const [conversionStep, setConversionStep] = useState("");
@@ -193,10 +197,44 @@ const convertToWebm = async (file: File): Promise<File> => {
       });
     },
     [form, uploadAudioMutation],
-  );
-  const selectedCategoryData = categories?.find(
+  );  const selectedCategoryData = categories?.find(
     (cat) => cat.category_id === selectedCategory,
   );
+
+  const selectedSubcategoryData = selectedCategoryData?.subcategories.find(
+    (subcat) => subcat.subcategory_id === selectedSubcategory,
+  );  // Update selected prompts when subcategory changes
+  useEffect(() => {
+    if (selectedSubcategoryData?.prompts) {
+      console.log("Setting prompts:", selectedSubcategoryData.prompts);
+      setSelectedPrompts(selectedSubcategoryData.prompts);
+      // Set the first prompt as default if available
+      const promptKeys = Object.keys(selectedSubcategoryData.prompts);
+      const firstPromptKey = promptKeys[0];
+      if (firstPromptKey) {
+        console.log("Setting first prompt key:", firstPromptKey);
+        setCurrentPromptKey(firstPromptKey);
+        setCurrentPromptValue(selectedSubcategoryData.prompts[firstPromptKey]);
+      }
+    } else {
+      console.log("No prompts found, clearing");
+      setSelectedPrompts({});
+      setCurrentPromptKey("");
+      setCurrentPromptValue("");
+    }
+  }, [selectedSubcategoryData]);
+
+  // Update current prompt value when prompt key changes
+  useEffect(() => {
+    if (currentPromptKey && selectedPrompts[currentPromptKey]) {
+      console.log("Updating current prompt value for key:", currentPromptKey);
+      setCurrentPromptValue(selectedPrompts[currentPromptKey]);
+    }
+  }, [currentPromptKey, selectedPrompts]);
+
+  // Debug logging
+  console.log("selectedPrompts:", selectedPrompts);
+  console.log("selectedPrompts keys length:", Object.keys(selectedPrompts).length);
   return (
     <>
       <Form {...form}>
@@ -286,8 +324,7 @@ const convertToWebm = async (file: File): Promise<File> => {
                   <FormMessage />
                 </FormItem>
               )}
-            />
-            <FormField
+            />            <FormField
               control={form.control}
               name="promptSubcategory"
               render={({ field }) => (
@@ -320,7 +357,143 @@ const convertToWebm = async (file: File): Promise<File> => {
                   <FormMessage />
                 </FormItem>
               )}
-            />            <Button
+            />            {/* Editable Prompt Section */}
+            {Object.keys(selectedPrompts).length > 0 && (
+              <div className="space-y-4 border-2 border-blue-300 p-4 rounded-lg bg-blue-50">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-primary" />
+                  <h3 className="text-lg font-semibold">Edit Selected Prompt</h3>
+                </div>
+                
+                {/* Debug info */}
+                <div className="text-xs text-blue-600 bg-white p-2 rounded border">
+                  <p>Debug - Current prompt key: "{currentPromptKey}"</p>
+                  <p>Debug - Current prompt value length: {currentPromptValue.length}</p>
+                  <p>Debug - Available prompt keys: {Object.keys(selectedPrompts).join(", ")}</p>
+                </div>
+                
+                <div className="grid gap-4">
+                  {/* Prompt Selector */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Select Prompt to Edit:</label>
+                    <Select
+                      value={currentPromptKey}
+                      onValueChange={(value) => {
+                        console.log("Prompt selector changed to:", value);
+                        setCurrentPromptKey(value);
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Choose a prompt to edit" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.keys(selectedPrompts).map((promptKey) => (
+                          <SelectItem key={promptKey} value={promptKey}>
+                            {promptKey.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  {/* Show if currentPromptKey exists */}
+                  <div className="text-xs text-blue-600">
+                    {currentPromptKey ? `✅ Current prompt key exists: ${currentPromptKey}` : "❌ No current prompt key set"}
+                  </div>
+                  
+                  {/* Editable Text Area - Always show for debugging */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Edit {currentPromptKey ? currentPromptKey.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()) : "No Prompt Selected"} Prompt:
+                    </label>
+                    <Textarea
+                      value={currentPromptValue}
+                      onChange={(e) => {
+                        console.log("Textarea changed, new value length:", e.target.value.length);
+                        setCurrentPromptValue(e.target.value);
+                        // Update the selectedPrompts state with the new value
+                        if (currentPromptKey) {
+                          setSelectedPrompts(prev => ({
+                            ...prev,
+                            [currentPromptKey]: e.target.value
+                          }));
+                        }
+                      }}
+                      className="min-h-[200px] resize-vertical border-2 border-green-300"
+                      placeholder={currentPromptKey ? "Enter your custom prompt here..." : "Select a prompt above to edit"}
+                      disabled={!currentPromptKey}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      This prompt will be used for analysis. You can modify it to better suit your needs.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Prompt Display Area */}
+            {Object.keys(selectedPrompts).length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-primary" />
+                  <h3 className="text-lg font-semibold">All Analysis Configuration Prompts</h3>
+                </div>                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-1">
+                  {Object.entries(selectedPrompts).map(([promptKey, promptValue]) => (
+                    <Card key={promptKey} className={`w-full ${currentPromptKey === promptKey ? 'ring-2 ring-primary' : ''}`}>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wide flex justify-between items-center">
+                          {promptKey.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
+                          {currentPromptKey === promptKey && (
+                            <span className="text-xs bg-primary text-primary-foreground px-2 py-1 rounded">
+                              Currently Editing
+                            </span>
+                          )}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="pt-0">
+                        <Textarea
+                          value={promptValue}
+                          readOnly
+                          className="min-h-[120px] resize-none bg-muted/50 text-sm leading-relaxed"
+                          placeholder="No prompt content available"
+                        />
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}            {/* Debug: Always visible test area */}
+            <div className="space-y-4 border-2 border-dashed border-orange-300 p-4 rounded-lg bg-orange-50">
+              <div className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-orange-600" />
+                <h3 className="text-lg font-semibold text-orange-800">DEBUG: Prompt Display Test</h3>
+              </div>
+              <p className="text-sm text-orange-700">
+                Selected prompts count: {Object.keys(selectedPrompts).length}
+              </p>
+              <p className="text-sm text-orange-700">
+                Selected category: {selectedCategory || "None"}
+              </p>
+              <p className="text-sm text-orange-700">
+                Selected subcategory: {selectedSubcategory || "None"}
+              </p>
+              <p className="text-sm text-orange-700">
+                Current prompt key: {currentPromptKey || "None"}
+              </p>
+              <p className="text-sm text-orange-700">
+                Current prompt length: {currentPromptValue.length} characters
+              </p>
+              {Object.keys(selectedPrompts).length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-orange-800">Available prompts:</p>
+                  {Object.entries(selectedPrompts).map(([key, value]) => (
+                    <div key={key} className="text-xs text-orange-600 bg-white p-2 rounded border">
+                      <strong>{key}:</strong> {value.substring(0, 100)}...
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div><Button
               type="submit"
               disabled={isUploading || !form.formState.isValid || isConverting}
               className="w-full mt-4"

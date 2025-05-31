@@ -20,6 +20,7 @@ import { Progress } from "@/components/ui/progress";
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -120,7 +121,8 @@ const getFileType = (file: File): keyof typeof FILE_TYPES | "other" => {
 export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
-  const [fileType, setFileType] = useState<keyof typeof FILE_TYPES | "other" | null>(null);  const [isDragOver, setIsDragOver] = useState(false);
+  const [fileType, setFileType] = useState<keyof typeof FILE_TYPES | "other" | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
   const [transcriptText, setTranscriptText] = useState("");
   const [showTranscriptInput, setShowTranscriptInput] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
@@ -669,9 +671,7 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                 )}
               />
             </CardContent>
-          </Card>
-
-          {/* Category Selection */}
+          </Card>          {/* Category Selection */}
           <Card>
             <CardHeader>
               <CardTitle>Analysis Configuration</CardTitle>
@@ -679,88 +679,124 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                 Select the category and subcategory for AI analysis prompts
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <FormField
-                control={form.control}
-                name="promptCategory"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Prompt Category</FormLabel>
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-2 gap-2 sm:gap-0">
-                      <Select
-                        value={selectedCategory || ""}
-                        onValueChange={(value) => {
-                          field.onChange(value);
-                          setSelectedCategory(value);
-                          setSelectedSubcategory(null);
-                          form.setValue("promptSubcategory", "");
-                        }}
-                        disabled={isLoadingCategories}
-                      >
-                        <FormControl>
-                          <SelectTrigger className="w-full sm:w-64">
-                            <SelectValue placeholder="Select a category" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {categories?.map((category) => (
-                            <SelectItem key={category.category_id} value={category.category_id}>
-                              {category.category_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => refetchCategories()}
-                        disabled={isLoadingCategories}
-                        className="flex items-center w-full sm:w-auto px-2"
-                      >
-                        <RefreshCcw className="h-4 w-4" />
-                        <span className="ml-2 hidden sm:inline">
-                          {isLoadingCategories ? "Refreshing..." : "Refresh"}
-                        </span>
-                      </Button>
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <CardContent>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Left Column - Category Selection */}
+                <div className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="promptCategory"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Prompt Category</FormLabel>
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-2 gap-2 sm:gap-0">
+                          <Select
+                            value={selectedCategory || ""}
+                            onValueChange={(value) => {
+                              field.onChange(value);
+                              setSelectedCategory(value);
+                              setSelectedSubcategory(null);
+                              form.setValue("promptSubcategory", "");
+                            }}
+                            disabled={isLoadingCategories}
+                          >
+                            <FormControl>
+                              <SelectTrigger className="w-full sm:w-64">
+                                <SelectValue placeholder="Select a category" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {categories?.map((category) => (
+                                <SelectItem key={category.category_id} value={category.category_id}>
+                                  {category.category_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => refetchCategories()}
+                            disabled={isLoadingCategories}
+                            className="flex items-center w-full sm:w-auto px-2"
+                          >
+                            <RefreshCcw className="h-4 w-4" />
+                            <span className="ml-2 hidden sm:inline">
+                              {isLoadingCategories ? "Refreshing..." : "Refresh"}
+                            </span>
+                          </Button>
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  
+                  <FormField
+                    control={form.control}
+                    name="promptSubcategory"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Prompt Subcategory</FormLabel>
+                        <Select
+                          value={selectedSubcategory || ""}
+                          onValueChange={(value) => {
+                            field.onChange(value);
+                            setSelectedSubcategory(value);
+                          }}
+                          disabled={!selectedCategory}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="w-full sm:w-64">
+                              <SelectValue placeholder="Select a subcategory" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {selectedCategoryData?.subcategories.map((subcategory) => (
+                              <SelectItem key={subcategory.subcategory_id} value={subcategory.subcategory_id}>
+                                {subcategory.subcategory_name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
-              <FormField
-                control={form.control}
-                name="promptSubcategory"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Prompt Subcategory</FormLabel>
-                    <Select
-                      value={selectedSubcategory || ""}
-                      onValueChange={(value) => {
-                        field.onChange(value);
-                        setSelectedSubcategory(value);
-                      }}
-                      disabled={!selectedCategory}
-                    >
-                      <FormControl>
-                        <SelectTrigger className="w-full sm:w-64">
-                          <SelectValue placeholder="Select a subcategory" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {selectedCategoryData?.subcategories.map((subcategory) => (
-                          <SelectItem key={subcategory.subcategory_id} value={subcategory.subcategory_id}>
-                            {subcategory.subcategory_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                {/* Right Column - Prompt Preview */}
+                <div className="space-y-2">
+                  <FormLabel htmlFor="prompt-preview">Selected Prompt Preview</FormLabel>
+                  <div className="h-[200px] border rounded-md bg-muted/50">
+                    <Textarea
+                      id="prompt-preview"
+                      value={(() => {
+                        if (!selectedSubcategory || !selectedCategoryData) {
+                          return "";
+                        }
+                        const subcategory = selectedCategoryData.subcategories.find(
+                          sub => sub.subcategory_id === selectedSubcategory
+                        );
+                        if (!subcategory?.prompts) {
+                          return "No prompts found for this subcategory.";
+                        }
+                        // Format prompts for display
+                        return Object.entries(subcategory.prompts)
+                          .map(([key, value]) => `${key}:\n${value}`)
+                          .join('\n\n---\n\n');
+                      })()}
+                      placeholder="Select a category and subcategory to view the associated prompts..."
+                      readOnly
+                      className="h-full resize-none bg-transparent border-none focus:ring-0 text-sm"
+                    />
+                  </div>
+                  <FormDescription>
+                    This displays the prompts that will be used for AI analysis when you select a subcategory.
+                  </FormDescription>
+                </div>
+              </div>
             </CardContent>
-          </Card>          {/* Processing Info */}
+          </Card>{/* Processing Info */}
           {fileType && (
             <Card>
               <CardContent className="pt-6">
