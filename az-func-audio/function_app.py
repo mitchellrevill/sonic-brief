@@ -1,6 +1,7 @@
 import os
 import azure.functions as func
 import logging
+import json
 from datetime import datetime
 from config import AppConfig
 from transcription_service import TranscriptionService
@@ -15,6 +16,105 @@ logging.basicConfig(
 )
 
 app = func.FunctionApp()
+
+
+@app.route(route="refine-analysis", auth_level=func.AuthLevel.ANONYMOUS, methods=["POST"])
+def refine_analysis_http(req: func.HttpRequest) -> func.HttpResponse:
+    """HTTP trigger function for analysis refinement using Azure OpenAI."""
+    logging.info('Analysis refinement HTTP trigger function processed a request.')
+    
+    try:
+        # Parse request body
+        req_body = req.get_json()
+        if not req_body:
+            return func.HttpResponse(
+                json.dumps({"error": "Request body is required"}),
+                status_code=400,
+                headers={"Content-Type": "application/json"}
+            )
+        
+        # Extract required parameters
+        original_text = req_body.get('original_text', '')
+        current_analysis = req_body.get('current_analysis', '')
+        user_request = req_body.get('user_request', '')
+        conversation_history = req_body.get('conversation_history', [])
+        
+        if not user_request:
+            return func.HttpResponse(
+                json.dumps({"error": "user_request is required"}),
+                status_code=400,
+                headers={"Content-Type": "application/json"}
+            )
+        
+        # Initialize services
+        config = AppConfig()
+        analysis_service = AnalysisService(config)
+        
+        # Create refinement prompt
+        refinement_prompt = f"""
+Original Content:
+{original_text}
+
+Current Analysis:
+{current_analysis}
+
+User Request: {user_request}
+
+Please provide a refined response that addresses the user's specific request. You can either:
+1. Modify the existing analysis to better meet their needs
+2. Provide additional insights they're looking for
+3. Focus on specific aspects they've highlighted
+4. Answer specific questions about the content
+
+Respond in a helpful, conversational manner as if you're assisting them in understanding the content better.
+"""
+          # Add conversation history context if available
+        if conversation_history:
+            context_history = "\n\nPrevious Conversation:\n"
+            for entry in conversation_history[-3:]:  # Last 3 exchanges for context
+                if 'user_message' in entry and 'ai_response' in entry:
+                    context_history += f"User: {entry['user_message']}\n"
+                    context_history += f"Assistant: {entry['ai_response']}\n\n"
+            refinement_prompt = context_history + refinement_prompt
+        
+        # Call the analysis service with refinement prompt
+        logging.info("Processing analysis refinement request")
+        
+        # Prepare context and conversation for the analysis service
+        system_context = "You are an AI assistant helping to refine and improve analysis of conversations. Provide helpful, accurate refinements based on user requests."
+        result = analysis_service.analyze_conversation(refinement_prompt, system_context)
+        
+        if result.get('status') == 'success':
+            response_data = {
+                "refined_analysis": result.get('analysis_text', ''),
+                "status": "success",
+                "usage": result.get('usage', {})
+            }
+        else:
+            response_data = {
+                "refined_analysis": f"I apologize, but I encountered an error while processing your refinement request: {result.get('error', 'Unknown error')}",
+                "status": "error",
+                "error": result.get('error', 'Unknown error')
+            }
+        
+        return func.HttpResponse(
+            json.dumps(response_data),
+            status_code=200,
+            headers={"Content-Type": "application/json"}
+        )
+        
+    except Exception as e:
+        logging.error(f"Analysis refinement failed: {str(e)}")
+        error_response = {
+            "refined_analysis": f"I apologize, but I encountered an error while processing your refinement request: {str(e)}",
+            "status": "error",
+            "error": str(e)
+        }
+        return func.HttpResponse(
+            json.dumps(error_response),
+            status_code=500,
+            headers={"Content-Type": "application/json"}
+        )
 
 
 @app.blob_trigger(

@@ -129,3 +129,4 @@ infra/*_credentials.tfvars
 backend_app/run_server.py
 .gitignore
 backend_app/start_backend.bat
+backend_app/.env

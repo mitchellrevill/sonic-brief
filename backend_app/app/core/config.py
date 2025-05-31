@@ -149,15 +149,19 @@ class AppConfig:
                 "jwt_access_token_expire_minutes": int(
                     os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "30")
                 ),
-            }
-
-            # Initialize storage configuration
+            }            # Initialize storage configuration
             self.storage = StorageConfig(
                 account_url=get_required_env_var("AZURE_STORAGE_ACCOUNT_URL"),
                 recordings_container=get_required_env_var(
                     "AZURE_STORAGE_RECORDINGS_CONTAINER"
                 ),
             )
+
+            # Initialize Azure Functions configuration
+            self.azure_functions = {
+                "base_url": os.getenv("AZURE_FUNCTIONS_BASE_URL", "http://localhost:7071"),
+                "key": os.getenv("AZURE_FUNCTIONS_KEY", "")
+            }
 
             logger.debug("AppConfig initialization completed successfully")
         except Exception as e:

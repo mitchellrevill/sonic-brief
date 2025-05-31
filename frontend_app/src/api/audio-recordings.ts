@@ -32,6 +32,64 @@ export async function getAudioRecordings(filters?: AudioListValues) {
 
 export async function getAudioTranscription(id: string) {
   const response = await httpClient.get(`${TRANSCRIPTION_API}/${id}`);
+  return response.data;
+}
 
-  return response.data as string;
+// Analysis refinement API functions
+export interface AnalysisRefinementRequest {
+  message: string;
+}
+
+export interface AnalysisRefinementResponse {
+  status: string;
+  message: string;
+  response: string;
+  refinement_id: string;
+  timestamp: number;
+}
+
+export interface RefinementHistoryEntry {
+  id: string;
+  user_message: string;
+  ai_response: string;
+  timestamp: number;
+  user_id: string;
+}
+
+export interface RefinementHistoryResponse {
+  status: string;
+  job_id: string;
+  history: RefinementHistoryEntry[];
+  count: number;
+}
+
+export async function refineAnalysis(
+  jobId: string,
+  request: AnalysisRefinementRequest
+): Promise<AnalysisRefinementResponse> {
+  const response = await httpClient.post(
+    `/api/jobs/${jobId}/refine-analysis`,
+    request
+  );
+  return response.data;
+}
+
+export async function getRefinementHistory(
+  jobId: string
+): Promise<RefinementHistoryResponse> {
+  const response = await httpClient.get(
+    `/api/jobs/${jobId}/refinement-history`
+  );
+  return response.data;
+}
+
+export async function getRefinementSuggestions(jobId: string): Promise<{
+  status: string;
+  job_id: string;
+  suggestions: string[];
+}> {
+  const response = await httpClient.get(
+    `/api/jobs/${jobId}/refinement-suggestions`
+  );
+  return response.data;
 }

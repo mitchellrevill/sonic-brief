@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 
 from app.core.config import AppConfig, CosmosDB, DatabaseError
 from app.services.storage_service import StorageService
+from app.services.analysis_refinement_service import AnalysisRefinementService
 from app.routers.auth import get_current_user
 import logging
 import traceback
@@ -31,6 +32,17 @@ from azure.core.exceptions import AzureError
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 router = APIRouter()
+
+# Pydantic models for request/response
+class AnalysisRefinementRequest(BaseModel):
+    message: str
+    
+class AnalysisRefinementResponse(BaseModel):
+    status: str
+    message: str
+    response: str
+    refinement_id: str
+    timestamp: int
 
 
 @router.post("/upload")
@@ -607,3 +619,220 @@ async def process_text_analysis(
     except Exception as e:
         logger.error(f"Error processing text analysis for job_id {job_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error processing text analysis")
+
+
+@router.post("/jobs/{job_id}/refine-analysis")
+async def refine_analysis(
+    job_id: str,
+    request: AnalysisRefinementRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> AnalysisRefinementResponse:
+    """
+    Refine the analysis for a job using AI chat interaction.
+    
+    Args:
+        job_id: The ID of the job to refine
+        request: The refinement request containing the user message
+        current_user: Authenticated user from token
+        
+    Returns:
+        AnalysisRefinementResponse containing the AI response and metadata
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        
+        # Get the job
+        job = cosmos_db.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Verify user ownership
+        if job["user_id"] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Check if job has analysis available
+        if not job.get("analysis_text") and not job.get("analysis_result"):
+            raise HTTPException(
+                status_code=400, 
+                detail="No analysis available for refinement. Please complete analysis first."
+            )
+        
+        # Get the current analysis text
+        current_analysis = job.get("analysis_text", "")
+        if not current_analysis and job.get("analysis_result"):
+            current_analysis = str(job.get("analysis_result"))
+        
+        # Get the original text content
+        original_text = job.get("text_content", "")
+        
+        # Prepare refinement context
+        refinement_context = f"""
+Original Content:
+{original_text}
+
+Current Analysis:
+{current_analysis}
+
+User Request:
+{request.message}
+
+Please provide a refined analysis based on the user's request. Focus on their specific question or request for modification.
+"""
+        
+        # Initialize refinement history if it doesn't exist
+        if "refinement_history" not in job:
+            job["refinement_history"] = []
+        
+        # Create refinement entry
+        timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        refinement_id = f"refinement_{timestamp}"        # Here we would call the AI service to get refined analysis
+        analysis_service = AnalysisRefinementService(config)
+        refinement_result = await analysis_service.refine_analysis(
+            original_text=original_text,
+            current_analysis=current_analysis,
+            user_request=request.message,
+            conversation_history=job.get("refinement_history", [])
+        )
+        
+        if refinement_result["status"] == "error":
+            raise HTTPException(status_code=500, detail=f"AI refinement failed: {refinement_result.get('error', 'Unknown error')}")
+        
+        ai_response = refinement_result["refined_analysis"]
+        
+        # Add to refinement history
+        refinement_entry = {
+            "id": refinement_id,
+            "user_message": request.message,
+            "ai_response": ai_response,
+            "timestamp": timestamp,
+            "user_id": current_user["id"]
+        }
+        
+        job["refinement_history"].append(refinement_entry)
+        
+        # Update the job with new refinement history
+        update_fields = {
+            "refinement_history": job["refinement_history"],
+            "updated_at": timestamp,
+        }
+        cosmos_db.update_job(job_id, update_fields)
+        
+        logger.info(f"Analysis refinement completed for job_id: {job_id}, refinement_id: {refinement_id}")
+        
+        return AnalysisRefinementResponse(
+            status="success",
+            message="Analysis refinement completed",
+            response=ai_response,
+            refinement_id=refinement_id,
+            timestamp=timestamp
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error refining analysis for job_id {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error processing analysis refinement")
+
+
+@router.get("/jobs/{job_id}/refinement-history")
+async def get_refinement_history(
+    job_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Get the refinement history for a job.
+    
+    Args:
+        job_id: The ID of the job
+        current_user: Authenticated user from token
+        
+    Returns:
+        Dict containing refinement history
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        
+        # Get the job
+        job = cosmos_db.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Verify user ownership
+        if job["user_id"] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Get refinement history
+        refinement_history = job.get("refinement_history", [])
+        
+        return {
+            "status": "success",
+            "job_id": job_id,
+            "history": refinement_history,
+            "count": len(refinement_history)
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting refinement history for job_id {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error retrieving refinement history")
+
+
+@router.get("/jobs/{job_id}/refinement-suggestions")
+async def get_refinement_suggestions(
+    job_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Get suggested refinement questions for a job's analysis.
+    
+    Args:
+        job_id: The ID of the job
+        current_user: Authenticated user from token
+        
+    Returns:
+        Dict containing refinement suggestions
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        
+        # Get the job
+        job = cosmos_db.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Verify user ownership
+        if job["user_id"] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Check if job has analysis available
+        if not job.get("analysis_text") and not job.get("analysis_result"):
+            return {
+                "status": "success",
+                "suggestions": [],
+                "message": "No analysis available yet"
+            }
+        
+        # Get analysis text
+        analysis_text = job.get("analysis_text", "")
+        if not analysis_text and job.get("analysis_result"):
+            analysis_text = str(job.get("analysis_result"))
+        
+        # Get suggestions from the service
+        analysis_service = AnalysisRefinementService(config)
+        suggestions = analysis_service.generate_refinement_suggestions(analysis_text)
+        
+        return {
+            "status": "success",
+            "job_id": job_id,
+            "suggestions": suggestions
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting refinement suggestions for job_id {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error retrieving refinement suggestions")
