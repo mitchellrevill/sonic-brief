@@ -18,6 +18,7 @@ import { getAudioTranscriptionQuery } from "@/queries/audio-recordings.query";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { AnalysisRefinementChat } from "@/components/analysis-refinement/analysis-refinement-chat";
 import {
   ArrowLeft,
   Download,
@@ -36,6 +37,7 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle,
+  MessageSquare,
 } from "lucide-react";
 
 interface ExtendedAudioRecording extends AudioRecording {
@@ -368,39 +370,67 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                     )}
                   </TabsContent>                  <TabsContent value="analysis" className="mt-0 space-y-4">
                     {recording.analysis_text ? (
-                      <div className="animate-in slide-in-from-bottom duration-700">
-                        <div className="rounded-lg bg-muted/50 p-4 max-h-96 overflow-y-auto space-y-4 border border-border/50">
-                          {recording.analysis_text
-                            .split("\n\n")
-                            .map((section: string, index: number) => {
-                              const lines = section.split("\n");
-                              const title = lines[0];
-                              const content = lines.slice(1);
+                      <div className="space-y-6">
+                        {/* Original Analysis */}
+                        <div className="animate-in slide-in-from-bottom duration-700">
+                          <div className="rounded-lg bg-muted/50 p-4 max-h-96 overflow-y-auto space-y-4 border border-border/50">
+                            {recording.analysis_text
+                              .split("\n\n")
+                              .map((section: string, index: number) => {
+                                const lines = section.split("\n");
+                                const title = lines[0];
+                                const content = lines.slice(1);
 
-                              return (
-                                <div key={index} className="space-y-2 animate-in fade-in duration-500" style={{ animationDelay: `${index * 100}ms` }}>
-                                  <h4 className="font-semibold text-foreground">
-                                    {title}
-                                  </h4>
-                                  <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1 ml-4">
-                                    {content.map((point: string, subIndex: number) => (
-                                      <li key={subIndex}>{point}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              );
-                            })}
-                        </div>                        {recording.analysis_file_path && (
-                          <Button
-                            onClick={() => handleDownload(recording.analysis_file_path!, "Analysis PDF")}
-                            variant="outline"
-                            className="w-full transition-all duration-200 hover:scale-105 animate-in fade-in duration-500 delay-300"
-                          >
-                            <Download className="mr-2 h-4 w-4" />
-                            Download Analysis PDF
-                          </Button>
-                        )}
-                      </div>                    ) : (
+                                return (
+                                  <div key={index} className="space-y-2 animate-in fade-in duration-500" style={{ animationDelay: `${index * 100}ms` }}>
+                                    <h4 className="font-semibold text-foreground">
+                                      {title}
+                                    </h4>
+                                    <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1 ml-4">
+                                      {content.map((point: string, subIndex: number) => (
+                                        <li key={subIndex}>{point}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                );
+                              })}
+                          </div>
+
+                          {recording.analysis_file_path && (
+                            <Button
+                              onClick={() => handleDownload(recording.analysis_file_path!, "Analysis PDF")}
+                              variant="outline"
+                              className="w-full transition-all duration-200 hover:scale-105 animate-in fade-in duration-500 delay-300"
+                            >
+                              <Download className="mr-2 h-4 w-4" />
+                              Download Analysis PDF
+                            </Button>
+                          )}
+                        </div>
+
+                        {/* Analysis Refinement Chat */}
+                        <Separator />
+                        <div className="animate-in slide-in-from-bottom duration-700 delay-200">
+                          <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+                            <CardHeader className="pb-4">
+                              <CardTitle className="flex items-center gap-2">
+                                <span className="bg-primary/10 rounded-full p-2">
+                                  <MessageSquare className="text-primary h-4 w-4" />
+                                </span>
+                                Refine Analysis
+                              </CardTitle>
+                              <p className="text-sm text-muted-foreground">
+                                Chat with AI to refine and explore your analysis results
+                              </p>
+                            </CardHeader>                            <CardContent>
+                              <AnalysisRefinementChat 
+                                jobId={recording.id}
+                              />
+                            </CardContent>
+                          </Card>
+                        </div>
+                      </div>
+                    ) : (
                       <div className="flex flex-col items-center justify-center py-12 space-y-4 animate-in fade-in duration-500">
                         <div className="rounded-full bg-muted p-3">
                           <FileText className="h-6 w-6 text-muted-foreground" />
