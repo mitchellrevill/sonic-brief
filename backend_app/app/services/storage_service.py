@@ -76,18 +76,18 @@ class StorageService:
         try:
             container_client = self.blob_service_client.get_container_client(
                 self.config.storage.recordings_container
-            )
-
-            # Sanitize filename - replace spaces with underscores
+            )            # Sanitize filename - replace spaces with underscores
             sanitized_filename = original_filename.replace(" ", "_")
             self.logger.debug(
                 f"Sanitized filename: {original_filename} -> {sanitized_filename}"
             )
-
-            # Generate blob name with date and nested structure
+            
+            # Generate blob name with date and nested structure including timestamp for uniqueness
             current_date = datetime.now().strftime("%Y-%m-%d")
+            timestamp = datetime.now().strftime("%H%M%S_%f")[:-3]  # HHMMSS_milliseconds
             file_name_without_ext = os.path.splitext(sanitized_filename)[0]
-            blob_name = f"{current_date}/{file_name_without_ext}/{sanitized_filename}"
+            # Include timestamp in both folder and filename to ensure uniqueness
+            blob_name = f"{current_date}/{file_name_without_ext}_{timestamp}/{sanitized_filename}"
 
             blob_client = container_client.get_blob_client(blob_name)
 
