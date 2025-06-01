@@ -122,25 +122,22 @@ export function AppSidebar({ children }: AppSidebarProps) {
                 isOpen ? "md:w-64" : "md:w-16"
               )
         )}
-      >
-        {/* Toggle button - responsive positioning */}
-        <Button
-          variant="ghost"
-          className={cn(
-            "absolute z-50 h-8 w-8 rounded-full bg-gray-800 p-0 hover:bg-gray-700",
-            // Mobile: always top-right
-            "top-4 right-4",
-            // Desktop: depends on layout
-            sidebarLayout === "left" && isOpen ? "md:-right-4" : "md:right-2"
-          )}
-          onClick={toggleSidebar}
-        >
-          {sidebarLayout === "left" ? (
-            isOpen ? <ChevronLeft /> : <ChevronRight />
-          ) : (
-            isOpen ? <ChevronLeft /> : <ChevronRight />
-          )}
-        </Button>
+      >        {/* Toggle button - only show in left sidebar layout */}
+        {sidebarLayout === "left" && (
+          <Button
+            variant="ghost"
+            className={cn(
+              "absolute z-50 h-8 w-8 rounded-full bg-gray-800 p-0 hover:bg-gray-700",
+              // Mobile: always top-right
+              "top-4 right-4",
+              // Desktop: depends on layout
+              isOpen ? "md:-right-4" : "md:right-2"
+            )}
+            onClick={toggleSidebar}
+          >
+            {isOpen ? <ChevronLeft /> : <ChevronRight />}
+          </Button>
+        )}
 
         <div
           className={cn(
@@ -270,14 +267,12 @@ export function AppSidebar({ children }: AppSidebarProps) {
                     {getUserInitials(userPermissions.email)}
                   </AvatarFallback>
                 </Avatar>
-              </div>
-
-              {/* User Details - show when expanded or in top layout */}
+              </div>              {/* User Details - hide on mobile, show on desktop when expanded or in top layout */}
               <div
                 className={cn(
                   "min-w-0 flex-1",
-                  // Mobile: always visible but compact
-                  "block",
+                  // Hide on mobile
+                  "hidden",
                   // Desktop: show based on layout and expansion state
                   sidebarLayout === "top" 
                     ? "md:block" 
@@ -296,8 +291,6 @@ export function AppSidebar({ children }: AppSidebarProps) {
                   <div 
                     className={cn(
                       "mt-1",
-                      // Hide on mobile, show on desktop when expanded or in top layout
-                      "hidden",
                       sidebarLayout === "top" 
                         ? "md:block" 
                         : isOpen 
@@ -340,14 +333,15 @@ export function AppSidebar({ children }: AppSidebarProps) {
                     <User className="h-4 w-4 text-gray-400" />
                   </AvatarFallback>
                 </Avatar>
+              </div>              
+              <div className="hidden md:block">
+                {(sidebarLayout === "top" || isOpen) && (
+                  <>
+                    <div className="h-4 bg-gray-700 rounded animate-pulse mb-1 w-32"></div>
+                    <div className="h-3 bg-gray-600 rounded animate-pulse w-16"></div>
+                  </>
+                )}
               </div>
-              
-              {(sidebarLayout === "top" || isOpen) && (
-                <div className="hidden md:block">
-                  <div className="h-4 bg-gray-700 rounded animate-pulse mb-1 w-32"></div>
-                  <div className="h-3 bg-gray-600 rounded animate-pulse w-16"></div>
-                </div>
-              )}
             </div>
           )}
 
