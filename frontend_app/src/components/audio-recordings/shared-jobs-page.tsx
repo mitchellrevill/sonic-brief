@@ -164,8 +164,11 @@ function SharedJobCard({ job, isOwner }: SharedJobCardProps) {
   const fileName = job.file_name || job.file_path?.split("/").pop() || "Unnamed Recording";
   
   // Get user's permission for this job
-  const userPermission = isOwner ? "owner" : 
-    job.shared_with?.find((share: any) => share.user_id === job.current_user_id)?.permission_level || "unknown";
+  const userShare = !isOwner && job.shared_with?.[0];
+  const userPermission = isOwner ? "owner" : userShare?.permission_level || "unknown";
+  
+  // Get the sharing message for this user (when shared with them)
+  const sharingMessage = !isOwner ? userShare?.message : null;
 
   return (
     <Card className="hover:shadow-md transition-shadow duration-200">
@@ -203,8 +206,7 @@ function SharedJobCard({ job, isOwner }: SharedJobCardProps) {
               }`}
             >
               {userPermission}
-            </Badge>
-            {isOwner && job.shared_with && (
+            </Badge>            {isOwner && job.shared_with && (
               <Badge variant="secondary" className="text-xs">
                 {job.shared_with.length} {job.shared_with.length === 1 ? "user" : "users"}
               </Badge>
@@ -227,6 +229,14 @@ function SharedJobCard({ job, isOwner }: SharedJobCardProps) {
               </div>
             )}
           </div>
+
+          {/* Sharing Message */}
+          {sharingMessage && (
+            <div className="p-3 bg-muted/50 rounded-md border">
+              <p className="text-xs text-muted-foreground mb-1 font-medium">Message:</p>
+              <p className="text-sm text-foreground">{sharingMessage}</p>
+            </div>
+          )}
 
           {/* Actions */}
           <div className="pt-2 border-t">
