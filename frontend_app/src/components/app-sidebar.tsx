@@ -1,5 +1,5 @@
+import React, { useState } from "react";
 import type { LinkOptions } from "@tanstack/react-router";
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -7,7 +7,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { getStorageItem, setStorageItem } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 import { Link, useRouter } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
@@ -18,11 +17,14 @@ import {
   FileText,
   LogOut,
   Mic,
-  Moon,
   Settings,
   Sun,
-  UserCog
+  Moon,
+  Monitor,
+  UserCog,
+  Users,
 } from "lucide-react";
+import { getStorageItem, setStorageItem } from "@/lib/storage";
 
 interface MenuItem {
   icon: React.ElementType;
@@ -33,8 +35,9 @@ interface MenuItem {
 const menuItems: Array<MenuItem> = [
   { icon: Mic, label: "Media Upload", to: "/audio-upload" },
   { icon: FileAudio, label: "Audio Recordings", to: "/audio-recordings" },
+  { icon: UserCog, label: "User Management", to: "/user-management" },
   { icon: FileText, label: "Prompt Management", to: "/prompt-management" },
-  { icon: UserCog, label: "User Management", to: "/user-management" }
+  { icon: Users, label: "Shared Recordings", to: "/audio-recordings/shared" },
 ];
 
 interface AppSidebarProps {
@@ -68,7 +71,8 @@ export function AppSidebar({ children }: AppSidebarProps) {
   const handleLogout = () => {
     localStorage.removeItem("token");
     router.navigate({ to: "/login" });
-  };return (
+  };
+  return (
     <div className="flex min-h-screen flex-col">
       {/* Sidebar - responsive: top bar on mobile, user preference on desktop */}
       <div
@@ -78,7 +82,7 @@ export function AppSidebar({ children }: AppSidebarProps) {
           "top-0 left-0 w-full h-16 flex-row",
           // Desktop: user preference
           "md:top-0 md:left-0",
-          sidebarLayout === "top" 
+          sidebarLayout === "top"
             ? "md:w-full md:h-16 md:flex-row" // Desktop top bar
             : cn(
                 "md:h-full md:flex-col", // Desktop vertical sidebar
@@ -105,39 +109,45 @@ export function AppSidebar({ children }: AppSidebarProps) {
           )}
         </Button>
 
-        <div className={cn(
-          "flex h-full w-full",
-          // Mobile: always row
-          "flex-row",
-          // Desktop: depends on layout
-          sidebarLayout === "top" ? "md:flex-row" : "md:flex-col"
-        )}>
-          {/* Logo */}
-          <div className={cn(
-            "flex items-center justify-center flex-shrink-0",
-            // Mobile: compact
-            "w-16 h-full",
+        <div
+          className={cn(
+            "flex h-full w-full",
+            // Mobile: always row
+            "flex-row",
             // Desktop: depends on layout
-            sidebarLayout === "top" ? "md:w-16 md:h-full" : "md:h-16 md:w-full"
-          )}>
+            sidebarLayout === "top" ? "md:flex-row" : "md:flex-col"
+          )}
+        >
+          {/* Logo */}
+          <div
+            className={cn(
+              "flex items-center justify-center flex-shrink-0",
+              // Mobile: compact
+              "w-16 h-full",
+              // Desktop: depends on layout
+              sidebarLayout === "top" ? "md:w-16 md:h-full" : "md:h-16 md:w-full"
+            )}
+          >
             <div className="rounded-full bg-white p-2">
               <Mic className="h-6 w-6 md:h-8 md:w-8 text-gray-900" />
             </div>
           </div>
 
           {/* Navigation */}
-          <nav className={cn(
-            "flex-1 p-2 md:p-4",
-            // Mobile: always horizontal, no text
-            "flex flex-row space-x-1 items-center",
-            // Desktop: depends on layout and sidebar state
-            sidebarLayout === "top" 
-              ? "md:flex-row md:space-x-2 md:space-y-0" 
-              : cn(
-                  "md:flex-col md:space-x-0 md:space-y-2",
-                  !isOpen && "md:items-center"
-                )
-          )}>
+          <nav
+            className={cn(
+              "flex-1 p-2 md:p-4",
+              // Mobile: always horizontal, no text
+              "flex flex-row space-x-1 items-center",
+              // Desktop: depends on layout and sidebar state
+              sidebarLayout === "top"
+                ? "md:flex-row md:space-x-2 md:space-y-0"
+                : cn(
+                    "md:flex-col md:space-x-0 md:space-y-2",
+                    !isOpen && "md:items-center"
+                  )
+            )}
+          >
             {menuItems.map((item) => (
               <Link
                 key={item.to}
@@ -153,10 +163,12 @@ export function AppSidebar({ children }: AppSidebarProps) {
               >
                 <item.icon className="h-5 w-5" />
                 {/* Text only on desktop when expanded or in top layout */}
-                <span className={cn(
-                  "ml-3 hidden",
-                  sidebarLayout === "top" ? "md:inline" : isOpen && "md:inline"
-                )}>
+                <span
+                  className={cn(
+                    "ml-3 hidden",
+                    sidebarLayout === "top" ? "md:inline" : isOpen && "md:inline"
+                  )}
+                >
                   {item.label}
                 </span>
               </Link>
@@ -164,23 +176,22 @@ export function AppSidebar({ children }: AppSidebarProps) {
           </nav>
 
           {/* Settings and Logout - ensure both are visible */}
-          <div className={cn(
-            "flex-shrink-0 p-2 md:p-4",
-            // Mobile: horizontal row
-            "flex flex-row space-x-1 items-center",
-            // Desktop: depends on layout
-            sidebarLayout === "top" 
-              ? "md:flex-row md:space-x-2 md:space-y-0" 
-              : "md:flex-col md:space-x-0 md:space-y-2"
-          )}>
+          <div
+            className={cn(
+              "flex-shrink-0 p-2 md:p-4",
+              // Mobile: horizontal row
+              "flex flex-row space-x-1 items-center",
+              // Desktop: depends on layout
+              sidebarLayout === "top"
+                ? "md:flex-row md:space-x-2 md:space-y-0"
+                : "md:flex-col md:space-x-0 md:space-y-2"
+            )}
+          >
             {/* Settings - hidden on mobile, visible on desktop */}
             <div className="hidden md:block">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    className="w-full justify-start"
-                  >
+                  <Button variant="ghost" className="w-full justify-start">
                     <Settings className="h-5 w-5" />
                     {(sidebarLayout === "top" || isOpen) && (
                       <span className="ml-3">Settings</span>
@@ -197,12 +208,17 @@ export function AppSidebar({ children }: AppSidebarProps) {
                     <span>Dark Theme</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setTheme("system")}>
-                    <Settings className="mr-2 h-4 w-4" />
+                    <Monitor className="mr-2 h-4 w-4" />
                     <span>System Theme</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={toggleSidebarLayout}>
                     <ChevronLeft className="mr-2 h-4 w-4" />
-                    <span>Switch to {sidebarLayout === "left" ? "Top Bar" : "Left Sidebar"}</span>
+                    <span>
+                      Switch to{" "}
+                      {sidebarLayout === "left"
+                        ? "Top Bar"
+                        : "Left Sidebar"}
+                    </span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -216,10 +232,12 @@ export function AppSidebar({ children }: AppSidebarProps) {
             >
               <LogOut className="h-5 w-5" />
               {/* Text only on desktop when expanded or in top layout */}
-              <span className={cn(
-                "ml-3 hidden",
-                sidebarLayout === "top" ? "md:inline" : isOpen && "md:inline"
-              )}>
+              <span
+                className={cn(
+                  "ml-3 hidden",
+                  sidebarLayout === "top" ? "md:inline" : isOpen && "md:inline"
+                )}
+              >
                 Logout
               </span>
             </Button>
@@ -234,11 +252,11 @@ export function AppSidebar({ children }: AppSidebarProps) {
           // Mobile: always top margin
           "mt-16",
           // Desktop: depends on layout
-          sidebarLayout === "top" 
+          sidebarLayout === "top"
             ? "md:mt-16" // Top margin for horizontal layout
-            : isOpen 
-              ? "md:mt-0 md:ml-64" // Left margin for expanded vertical sidebar
-              : "md:mt-0 md:ml-16" // Left margin for collapsed vertical sidebar
+            : isOpen
+            ? "md:mt-0 md:ml-64" // Left margin for expanded vertical sidebar
+            : "md:mt-0 md:ml-16" // Left margin for collapsed vertical sidebar
         )}
       >
         {children}

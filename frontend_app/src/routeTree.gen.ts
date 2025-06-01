@@ -20,6 +20,7 @@ import { Route as LayoutPromptManagementIndexImport } from './routes/_layout/pro
 import { Route as LayoutAudioUploadIndexImport } from './routes/_layout/audio-upload/index'
 import { Route as LayoutAudioRecordingsIndexImport } from './routes/_layout/audio-recordings/index'
 import { Route as LayoutAudioRecordingsIdImport } from './routes/_layout/audio-recordings/$id'
+import { Route as LayoutAudioRecordingsSharedIndexImport } from './routes/_layout/audio-recordings/shared/index'
 
 // Create/Update Routes
 
@@ -78,6 +79,13 @@ const LayoutAudioRecordingsIdRoute = LayoutAudioRecordingsIdImport.update({
   path: '/audio-recordings/$id',
   getParentRoute: () => LayoutRoute,
 } as any)
+
+const LayoutAudioRecordingsSharedIndexRoute =
+  LayoutAudioRecordingsSharedIndexImport.update({
+    id: '/audio-recordings/shared/',
+    path: '/audio-recordings/shared/',
+    getParentRoute: () => LayoutRoute,
+  } as any)
 
 // Populate the FileRoutesByPath interface
 
@@ -146,6 +154,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutUserManagementIndexImport
       parentRoute: typeof LayoutImport
     }
+    '/_layout/audio-recordings/shared/': {
+      id: '/_layout/audio-recordings/shared/'
+      path: '/audio-recordings/shared'
+      fullPath: '/audio-recordings/shared'
+      preLoaderRoute: typeof LayoutAudioRecordingsSharedIndexImport
+      parentRoute: typeof LayoutImport
+    }
   }
 }
 
@@ -158,6 +173,7 @@ interface LayoutRouteChildren {
   LayoutPromptManagementIndexRoute: typeof LayoutPromptManagementIndexRoute
   LayoutUnauthorisedIndexRoute: typeof LayoutUnauthorisedIndexRoute
   LayoutUserManagementIndexRoute: typeof LayoutUserManagementIndexRoute
+  LayoutAudioRecordingsSharedIndexRoute: typeof LayoutAudioRecordingsSharedIndexRoute
 }
 
 const LayoutRouteChildren: LayoutRouteChildren = {
@@ -167,6 +183,7 @@ const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutPromptManagementIndexRoute: LayoutPromptManagementIndexRoute,
   LayoutUnauthorisedIndexRoute: LayoutUnauthorisedIndexRoute,
   LayoutUserManagementIndexRoute: LayoutUserManagementIndexRoute,
+  LayoutAudioRecordingsSharedIndexRoute: LayoutAudioRecordingsSharedIndexRoute,
 }
 
 const LayoutRouteWithChildren =
@@ -182,6 +199,7 @@ export interface FileRoutesByFullPath {
   '/prompt-management': typeof LayoutPromptManagementIndexRoute
   '/unauthorised': typeof LayoutUnauthorisedIndexRoute
   '/user-management': typeof LayoutUserManagementIndexRoute
+  '/audio-recordings/shared': typeof LayoutAudioRecordingsSharedIndexRoute
 }
 
 export interface FileRoutesByTo {
@@ -194,6 +212,7 @@ export interface FileRoutesByTo {
   '/prompt-management': typeof LayoutPromptManagementIndexRoute
   '/unauthorised': typeof LayoutUnauthorisedIndexRoute
   '/user-management': typeof LayoutUserManagementIndexRoute
+  '/audio-recordings/shared': typeof LayoutAudioRecordingsSharedIndexRoute
 }
 
 export interface FileRoutesById {
@@ -207,6 +226,7 @@ export interface FileRoutesById {
   '/_layout/prompt-management/': typeof LayoutPromptManagementIndexRoute
   '/_layout/unauthorised/': typeof LayoutUnauthorisedIndexRoute
   '/_layout/user-management/': typeof LayoutUserManagementIndexRoute
+  '/_layout/audio-recordings/shared/': typeof LayoutAudioRecordingsSharedIndexRoute
 }
 
 export interface FileRouteTypes {
@@ -221,6 +241,7 @@ export interface FileRouteTypes {
     | '/prompt-management'
     | '/unauthorised'
     | '/user-management'
+    | '/audio-recordings/shared'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -232,6 +253,7 @@ export interface FileRouteTypes {
     | '/prompt-management'
     | '/unauthorised'
     | '/user-management'
+    | '/audio-recordings/shared'
   id:
     | '__root__'
     | '/'
@@ -243,6 +265,7 @@ export interface FileRouteTypes {
     | '/_layout/prompt-management/'
     | '/_layout/unauthorised/'
     | '/_layout/user-management/'
+    | '/_layout/audio-recordings/shared/'
   fileRoutesById: FileRoutesById
 }
 
@@ -284,7 +307,8 @@ export const routeTree = rootRoute
         "/_layout/audio-upload/",
         "/_layout/prompt-management/",
         "/_layout/unauthorised/",
-        "/_layout/user-management/"
+        "/_layout/user-management/",
+        "/_layout/audio-recordings/shared/"
       ]
     },
     "/login": {
@@ -312,6 +336,10 @@ export const routeTree = rootRoute
     },
     "/_layout/user-management/": {
       "filePath": "_layout/user-management/index.tsx",
+      "parent": "/_layout"
+    },
+    "/_layout/audio-recordings/shared/": {
+      "filePath": "_layout/audio-recordings/shared/index.tsx",
       "parent": "/_layout"
     }
   }

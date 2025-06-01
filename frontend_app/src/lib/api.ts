@@ -1,8 +1,10 @@
 import {
   CATEGORIES_API,
+  JOB_SHARE_API,
   LOGIN_API,
   PROMPTS_API,
   REGISTER_API,
+  SHARED_JOBS_API,
   SUBCATEGORIES_API,
   UPLOAD_API,
   User_MANAGEMENT_API,
@@ -512,6 +514,159 @@ export async function deleteSubcategory(subcategoryId: string): Promise<void> {
     }
   } catch (error) {
     console.error("Error deleting subcategory:", error);
+    throw error;
+  }
+}
+
+// Job Sharing APIs
+
+interface JobShareRequest {
+  target_user_email: string;
+  permission_level: "view" | "edit" | "admin";
+  message?: string;
+}
+
+interface JobShareResponse {
+  status: string;
+  message: string;
+  shared_job_id: string;
+  target_user_id: string;
+  permission_level: string;
+}
+
+interface SharedJobsResponse {
+  status: string;
+  message: string;
+  shared_jobs: Array<any>;
+  owned_jobs_shared_with_others: Array<any>;
+}
+
+interface JobSharingInfo {
+  status: string;
+  job_id: string;
+  is_owner: boolean;
+  user_permission: string;
+  shared_with: Array<{
+    user_id: string;
+    user_email: string;
+    permission_level: string;
+    shared_at: number;
+    shared_by: string;
+    message?: string;
+  }>;
+  total_shares: number;
+}
+
+export async function shareJob(jobId: string, shareRequest: JobShareRequest): Promise<JobShareResponse> {
+  try {
+    const token = localStorage.getItem("token");
+    
+    const response = await fetch(`${JOB_SHARE_API}/${jobId}/share`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(shareRequest),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Authentication failed. Please log in again.");
+      }
+      
+      const errorData = await response.json();
+      throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error sharing job:", error);
+    throw error;
+  }
+}
+
+export async function unshareJob(jobId: string, targetUserEmail: string): Promise<{ status: string; message: string }> {
+  try {
+    const token = localStorage.getItem("token");
+    
+    const response = await fetch(`${JOB_SHARE_API}/${jobId}/share`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ target_user_email: targetUserEmail }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Authentication failed. Please log in again.");
+      }
+      
+      const errorData = await response.json();
+      throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error unsharing job:", error);
+    throw error;
+  }
+}
+
+export async function getSharedJobs(): Promise<SharedJobsResponse> {
+  try {
+    const token = localStorage.getItem("token");
+    
+    const response = await fetch(SHARED_JOBS_API, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Authentication failed. Please log in again.");
+      }
+      
+      const errorData = await response.json();
+      throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error getting shared jobs:", error);
+    throw error;
+  }
+}
+
+export async function getJobSharingInfo(jobId: string): Promise<JobSharingInfo> {
+  try {
+    const token = localStorage.getItem("token");
+    
+    const response = await fetch(`${JOB_SHARE_API}/${jobId}/sharing-info`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Authentication failed. Please log in again.");
+      }
+      
+      const errorData = await response.json();
+      throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error getting job sharing info:", error);
     throw error;
   }
 }

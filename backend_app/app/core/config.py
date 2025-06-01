@@ -582,6 +582,126 @@ class CosmosDB:
             self.logger.error(f"Error getting user permission {user_id}: {str(e)}")
             return "Viewer"  # Safe default
 
+    # JOB SHARING METHODS
+    
+    def share_job(self, job_id: str, target_user_id: str, permission_level: str, shared_by: str, message: str = None) -> Dict[str, Any]:
+        """Share a job with another user"""
+        try:
+            job = self.get_job(job_id)
+            if not job:
+                raise ValueError(f"Job with id {job_id} not found")
+            
+            # Initialize shared_with array if it doesn't exist
+            if "shared_with" not in job:
+                job["shared_with"] = []
+            
+            # Check if already shared with this user
+            existing_share = next((s for s in job["shared_with"] if s["user_id"] == target_user_id), None)
+            
+            if existing_share:
+                # Update existing share
+                existing_share["permission_level"] = permission_level
+                existing_share["shared_at"] = int(datetime.now(timezone.utc).timestamp() * 1000)
+                existing_share["shared_by"] = shared_by
+                if message:
+                    existing_share["message"] = message
+            else:
+                # Add new share
+                share_entry = {
+                    "user_id": target_user_id,
+                    "permission_level": permission_level,
+                    "shared_at": int(datetime.now(timezone.utc).timestamp() * 1000),
+                    "shared_by": shared_by,
+                }
+                if message:
+                    share_entry["message"] = message
+                job["shared_with"].append(share_entry)
+            
+            # Update the job
+            update_fields = {
+                "shared_with": job["shared_with"],
+                "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000),
+            }
+            return self.update_job(job_id, update_fields)
+            
+        except Exception as e:
+            self.logger.error(f"Error sharing job {job_id}: {str(e)}")
+            raise
+    
+    def unshare_job(self, job_id: str, target_user_id: str) -> Dict[str, Any]:
+        """Remove job sharing with a specific user"""
+        try:
+            job = self.get_job(job_id)
+            if not job:
+                raise ValueError(f"Job with id {job_id} not found")
+            
+            # Remove from shared_with array
+            if "shared_with" in job:
+                job["shared_with"] = [s for s in job["shared_with"] if s["user_id"] != target_user_id]
+                
+                # Update the job
+                update_fields = {
+                    "shared_with": job["shared_with"],
+                    "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000),
+                }
+                return self.update_job(job_id, update_fields)
+            
+            return job
+            
+        except Exception as e:
+            self.logger.error(f"Error unsharing job {job_id}: {str(e)}")
+            raise
+    
+    def get_jobs_shared_with_user(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get all jobs shared with a specific user"""
+        try:
+            query = """
+            SELECT * FROM c 
+            WHERE c.type = 'job' 
+            AND ARRAY_CONTAINS(c.shared_with, {'user_id': @user_id}, true)
+            """
+            parameters = [{"name": "@user_id", "value": user_id}]
+            
+            jobs = list(
+                self.jobs_container.query_items(
+                    query=query,
+                    parameters=parameters,
+                    enable_cross_partition_query=True,
+                )
+            )
+            
+            return jobs
+            
+        except Exception as e:
+            self.logger.error(f"Error getting shared jobs for user {user_id}: {str(e)}")
+            raise
+    
+    def get_user_shared_jobs(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get all jobs owned by user that are shared with others"""
+        try:
+            query = """
+            SELECT * FROM c 
+            WHERE c.type = 'job' 
+            AND c.user_id = @user_id 
+            AND IS_DEFINED(c.shared_with) 
+            AND ARRAY_LENGTH(c.shared_with) > 0
+            """
+            parameters = [{"name": "@user_id", "value": user_id}]
+            
+            jobs = list(
+                self.jobs_container.query_items(
+                    query=query,
+                    parameters=parameters,
+                    enable_cross_partition_query=True,
+                )
+            )
+            
+            return jobs
+            
+        except Exception as e:
+            self.logger.error(f"Error getting user's shared jobs for user {user_id}: {str(e)}")
+            raise
+
 
 # Create the config instance
 config = AppConfig()
