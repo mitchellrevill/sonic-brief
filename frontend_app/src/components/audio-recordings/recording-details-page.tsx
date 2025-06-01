@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { useAudioPlayer } from "@/hooks/use-audio-player";
 import { getAudioTranscriptionQuery } from "@/queries/audio-recordings.query";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { useIsMobile } from "@/components/ui/use-mobile";
 import { AnalysisRefinementChat } from "@/components/analysis-refinement/analysis-refinement-chat";
@@ -33,9 +33,11 @@ import {
   AlertCircle,
   CheckCircle,
   MessageSquare,
+  Trash2,
 } from "lucide-react";
 import { JobShareDialog } from "./job-share-dialog";
 import { JobSharingInfo } from "./job-sharing-info";
+import { JobDeleteDialog } from "./job-delete-dialog";
 import { useState } from "react";
 
 interface ExtendedAudioRecording extends AudioRecording {
@@ -61,6 +63,7 @@ const copyToClipboard = async (text: string, label: string = "Text") => {
 export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
   const isMobile = useIsMobile();
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   
   const { 
     data: transcriptionText, 
@@ -612,12 +615,20 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                     <Download className="mr-2 h-4 w-4" />
                     Download Analysis
                   </Button>
-                )}
-
-                {/* Share Button - New Addition */}
+                )}                {/* Share Button - New Addition */}
                 <Button variant="outline" onClick={() => setShareDialogOpen(true)} className="w-full justify-start transition-all duration-200 hover:scale-105 hover:bg-muted">
                   <User className="mr-2 h-4 w-4" />
                   Share
+                </Button>
+
+                {/* Delete Button */}
+                <Button 
+                  variant="outline" 
+                  onClick={() => setDeleteDialogOpen(true)} 
+                  className="w-full justify-start transition-all duration-200 hover:scale-105 hover:bg-muted text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete
                 </Button>
               </CardContent>
             </Card>
@@ -626,14 +637,24 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
       </div>
 
       {/* Sharing Info Display - New Component */}
-      <JobSharingInfo jobId={recording.id} jobTitle={recording.file_name || recording.file_path.split("/").pop()} />
-
-      {/* Share Dialog - New Component */}
+      <JobSharingInfo jobId={recording.id} jobTitle={recording.file_name || recording.file_path.split("/").pop()} />      {/* Share Dialog - New Component */}
       <JobShareDialog
         isOpen={shareDialogOpen}
         onOpenChange={setShareDialogOpen}
         jobId={recording.id}
         jobTitle={recording.file_name || recording.file_path.split("/").pop()}
+      />
+
+      {/* Delete Dialog */}
+      <JobDeleteDialog
+        isOpen={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        jobId={recording.id}
+        jobTitle={recording.file_name || recording.file_path.split("/").pop()}
+        onDeleteSuccess={() => {
+          // Navigate back to the recordings list after successful delete
+          window.location.href = "/audio-recordings";
+        }}
       />
     </div>
   );

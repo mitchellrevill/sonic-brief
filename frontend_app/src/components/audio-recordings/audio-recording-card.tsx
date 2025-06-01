@@ -7,6 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { 
@@ -18,7 +19,8 @@ import {
   Calendar,
   FileAudio,
   User,
-  Hash
+  Hash,
+  Trash2
 } from "lucide-react";
 
 export interface AudioRecordingCardProps {
@@ -35,6 +37,7 @@ export interface AudioRecordingCardProps {
   onDownload?: () => void;
   onRetryProcessing?: () => void;
   onShare?: () => void;
+  onDelete?: () => void;
   className?: string;
 }
 
@@ -45,6 +48,7 @@ export function AudioRecordingCard({
   onDownload,
   onRetryProcessing,
   onShare,
+  onDelete,
   className,
 }: AudioRecordingCardProps) {
   const fileName = recording.file_name || 
@@ -175,6 +179,18 @@ export function AudioRecordingCard({
                   <RefreshCcw className="mr-2 h-4 w-4" />
                   Retry Processing
                 </DropdownMenuItem>
+              )}
+              {onDelete && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem 
+                    onClick={onDelete}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </DropdownMenuItem>
+                </>
               )}
             </DropdownMenuContent>
           </DropdownMenu>

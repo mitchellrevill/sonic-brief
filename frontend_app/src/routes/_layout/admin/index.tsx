@@ -1,10 +1,10 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/_layout/user-management/")({
+export const Route = createFileRoute("/_layout/admin/")({
   beforeLoad: () => {
-    // Redirect to the new admin user-management path
+    // Redirect to the all jobs page by default
     throw redirect({
-      to: "/admin/user-management",
+      to: "/admin/all-jobs",
       replace: true
     });
   },

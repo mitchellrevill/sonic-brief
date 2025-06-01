@@ -19,8 +19,12 @@ import { Route as LayoutUnauthorisedIndexImport } from './routes/_layout/unautho
 import { Route as LayoutPromptManagementIndexImport } from './routes/_layout/prompt-management/index'
 import { Route as LayoutAudioUploadIndexImport } from './routes/_layout/audio-upload/index'
 import { Route as LayoutAudioRecordingsIndexImport } from './routes/_layout/audio-recordings/index'
+import { Route as LayoutAdminIndexImport } from './routes/_layout/admin/index'
 import { Route as LayoutAudioRecordingsIdImport } from './routes/_layout/audio-recordings/$id'
 import { Route as LayoutAudioRecordingsSharedIndexImport } from './routes/_layout/audio-recordings/shared/index'
+import { Route as LayoutAdminUserManagementIndexImport } from './routes/_layout/admin/user-management/index'
+import { Route as LayoutAdminDeletedJobsIndexImport } from './routes/_layout/admin/deleted-jobs/index'
+import { Route as LayoutAdminAllJobsIndexImport } from './routes/_layout/admin/all-jobs/index'
 
 // Create/Update Routes
 
@@ -74,6 +78,12 @@ const LayoutAudioRecordingsIndexRoute = LayoutAudioRecordingsIndexImport.update(
   } as any,
 )
 
+const LayoutAdminIndexRoute = LayoutAdminIndexImport.update({
+  id: '/admin/',
+  path: '/admin/',
+  getParentRoute: () => LayoutRoute,
+} as any)
+
 const LayoutAudioRecordingsIdRoute = LayoutAudioRecordingsIdImport.update({
   id: '/audio-recordings/$id',
   path: '/audio-recordings/$id',
@@ -86,6 +96,26 @@ const LayoutAudioRecordingsSharedIndexRoute =
     path: '/audio-recordings/shared/',
     getParentRoute: () => LayoutRoute,
   } as any)
+
+const LayoutAdminUserManagementIndexRoute =
+  LayoutAdminUserManagementIndexImport.update({
+    id: '/admin/user-management/',
+    path: '/admin/user-management/',
+    getParentRoute: () => LayoutRoute,
+  } as any)
+
+const LayoutAdminDeletedJobsIndexRoute =
+  LayoutAdminDeletedJobsIndexImport.update({
+    id: '/admin/deleted-jobs/',
+    path: '/admin/deleted-jobs/',
+    getParentRoute: () => LayoutRoute,
+  } as any)
+
+const LayoutAdminAllJobsIndexRoute = LayoutAdminAllJobsIndexImport.update({
+  id: '/admin/all-jobs/',
+  path: '/admin/all-jobs/',
+  getParentRoute: () => LayoutRoute,
+} as any)
 
 // Populate the FileRoutesByPath interface
 
@@ -117,6 +147,13 @@ declare module '@tanstack/react-router' {
       path: '/audio-recordings/$id'
       fullPath: '/audio-recordings/$id'
       preLoaderRoute: typeof LayoutAudioRecordingsIdImport
+      parentRoute: typeof LayoutImport
+    }
+    '/_layout/admin/': {
+      id: '/_layout/admin/'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof LayoutAdminIndexImport
       parentRoute: typeof LayoutImport
     }
     '/_layout/audio-recordings/': {
@@ -154,6 +191,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutUserManagementIndexImport
       parentRoute: typeof LayoutImport
     }
+    '/_layout/admin/all-jobs/': {
+      id: '/_layout/admin/all-jobs/'
+      path: '/admin/all-jobs'
+      fullPath: '/admin/all-jobs'
+      preLoaderRoute: typeof LayoutAdminAllJobsIndexImport
+      parentRoute: typeof LayoutImport
+    }
+    '/_layout/admin/deleted-jobs/': {
+      id: '/_layout/admin/deleted-jobs/'
+      path: '/admin/deleted-jobs'
+      fullPath: '/admin/deleted-jobs'
+      preLoaderRoute: typeof LayoutAdminDeletedJobsIndexImport
+      parentRoute: typeof LayoutImport
+    }
+    '/_layout/admin/user-management/': {
+      id: '/_layout/admin/user-management/'
+      path: '/admin/user-management'
+      fullPath: '/admin/user-management'
+      preLoaderRoute: typeof LayoutAdminUserManagementIndexImport
+      parentRoute: typeof LayoutImport
+    }
     '/_layout/audio-recordings/shared/': {
       id: '/_layout/audio-recordings/shared/'
       path: '/audio-recordings/shared'
@@ -168,21 +226,29 @@ declare module '@tanstack/react-router' {
 
 interface LayoutRouteChildren {
   LayoutAudioRecordingsIdRoute: typeof LayoutAudioRecordingsIdRoute
+  LayoutAdminIndexRoute: typeof LayoutAdminIndexRoute
   LayoutAudioRecordingsIndexRoute: typeof LayoutAudioRecordingsIndexRoute
   LayoutAudioUploadIndexRoute: typeof LayoutAudioUploadIndexRoute
   LayoutPromptManagementIndexRoute: typeof LayoutPromptManagementIndexRoute
   LayoutUnauthorisedIndexRoute: typeof LayoutUnauthorisedIndexRoute
   LayoutUserManagementIndexRoute: typeof LayoutUserManagementIndexRoute
+  LayoutAdminAllJobsIndexRoute: typeof LayoutAdminAllJobsIndexRoute
+  LayoutAdminDeletedJobsIndexRoute: typeof LayoutAdminDeletedJobsIndexRoute
+  LayoutAdminUserManagementIndexRoute: typeof LayoutAdminUserManagementIndexRoute
   LayoutAudioRecordingsSharedIndexRoute: typeof LayoutAudioRecordingsSharedIndexRoute
 }
 
 const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutAudioRecordingsIdRoute: LayoutAudioRecordingsIdRoute,
+  LayoutAdminIndexRoute: LayoutAdminIndexRoute,
   LayoutAudioRecordingsIndexRoute: LayoutAudioRecordingsIndexRoute,
   LayoutAudioUploadIndexRoute: LayoutAudioUploadIndexRoute,
   LayoutPromptManagementIndexRoute: LayoutPromptManagementIndexRoute,
   LayoutUnauthorisedIndexRoute: LayoutUnauthorisedIndexRoute,
   LayoutUserManagementIndexRoute: LayoutUserManagementIndexRoute,
+  LayoutAdminAllJobsIndexRoute: LayoutAdminAllJobsIndexRoute,
+  LayoutAdminDeletedJobsIndexRoute: LayoutAdminDeletedJobsIndexRoute,
+  LayoutAdminUserManagementIndexRoute: LayoutAdminUserManagementIndexRoute,
   LayoutAudioRecordingsSharedIndexRoute: LayoutAudioRecordingsSharedIndexRoute,
 }
 
@@ -194,11 +260,15 @@ export interface FileRoutesByFullPath {
   '': typeof LayoutRouteWithChildren
   '/login': typeof LoginRoute
   '/audio-recordings/$id': typeof LayoutAudioRecordingsIdRoute
+  '/admin': typeof LayoutAdminIndexRoute
   '/audio-recordings': typeof LayoutAudioRecordingsIndexRoute
   '/audio-upload': typeof LayoutAudioUploadIndexRoute
   '/prompt-management': typeof LayoutPromptManagementIndexRoute
   '/unauthorised': typeof LayoutUnauthorisedIndexRoute
   '/user-management': typeof LayoutUserManagementIndexRoute
+  '/admin/all-jobs': typeof LayoutAdminAllJobsIndexRoute
+  '/admin/deleted-jobs': typeof LayoutAdminDeletedJobsIndexRoute
+  '/admin/user-management': typeof LayoutAdminUserManagementIndexRoute
   '/audio-recordings/shared': typeof LayoutAudioRecordingsSharedIndexRoute
 }
 
@@ -207,11 +277,15 @@ export interface FileRoutesByTo {
   '': typeof LayoutRouteWithChildren
   '/login': typeof LoginRoute
   '/audio-recordings/$id': typeof LayoutAudioRecordingsIdRoute
+  '/admin': typeof LayoutAdminIndexRoute
   '/audio-recordings': typeof LayoutAudioRecordingsIndexRoute
   '/audio-upload': typeof LayoutAudioUploadIndexRoute
   '/prompt-management': typeof LayoutPromptManagementIndexRoute
   '/unauthorised': typeof LayoutUnauthorisedIndexRoute
   '/user-management': typeof LayoutUserManagementIndexRoute
+  '/admin/all-jobs': typeof LayoutAdminAllJobsIndexRoute
+  '/admin/deleted-jobs': typeof LayoutAdminDeletedJobsIndexRoute
+  '/admin/user-management': typeof LayoutAdminUserManagementIndexRoute
   '/audio-recordings/shared': typeof LayoutAudioRecordingsSharedIndexRoute
 }
 
@@ -221,11 +295,15 @@ export interface FileRoutesById {
   '/_layout': typeof LayoutRouteWithChildren
   '/login': typeof LoginRoute
   '/_layout/audio-recordings/$id': typeof LayoutAudioRecordingsIdRoute
+  '/_layout/admin/': typeof LayoutAdminIndexRoute
   '/_layout/audio-recordings/': typeof LayoutAudioRecordingsIndexRoute
   '/_layout/audio-upload/': typeof LayoutAudioUploadIndexRoute
   '/_layout/prompt-management/': typeof LayoutPromptManagementIndexRoute
   '/_layout/unauthorised/': typeof LayoutUnauthorisedIndexRoute
   '/_layout/user-management/': typeof LayoutUserManagementIndexRoute
+  '/_layout/admin/all-jobs/': typeof LayoutAdminAllJobsIndexRoute
+  '/_layout/admin/deleted-jobs/': typeof LayoutAdminDeletedJobsIndexRoute
+  '/_layout/admin/user-management/': typeof LayoutAdminUserManagementIndexRoute
   '/_layout/audio-recordings/shared/': typeof LayoutAudioRecordingsSharedIndexRoute
 }
 
@@ -236,11 +314,15 @@ export interface FileRouteTypes {
     | ''
     | '/login'
     | '/audio-recordings/$id'
+    | '/admin'
     | '/audio-recordings'
     | '/audio-upload'
     | '/prompt-management'
     | '/unauthorised'
     | '/user-management'
+    | '/admin/all-jobs'
+    | '/admin/deleted-jobs'
+    | '/admin/user-management'
     | '/audio-recordings/shared'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -248,11 +330,15 @@ export interface FileRouteTypes {
     | ''
     | '/login'
     | '/audio-recordings/$id'
+    | '/admin'
     | '/audio-recordings'
     | '/audio-upload'
     | '/prompt-management'
     | '/unauthorised'
     | '/user-management'
+    | '/admin/all-jobs'
+    | '/admin/deleted-jobs'
+    | '/admin/user-management'
     | '/audio-recordings/shared'
   id:
     | '__root__'
@@ -260,11 +346,15 @@ export interface FileRouteTypes {
     | '/_layout'
     | '/login'
     | '/_layout/audio-recordings/$id'
+    | '/_layout/admin/'
     | '/_layout/audio-recordings/'
     | '/_layout/audio-upload/'
     | '/_layout/prompt-management/'
     | '/_layout/unauthorised/'
     | '/_layout/user-management/'
+    | '/_layout/admin/all-jobs/'
+    | '/_layout/admin/deleted-jobs/'
+    | '/_layout/admin/user-management/'
     | '/_layout/audio-recordings/shared/'
   fileRoutesById: FileRoutesById
 }
@@ -303,11 +393,15 @@ export const routeTree = rootRoute
       "filePath": "_layout.tsx",
       "children": [
         "/_layout/audio-recordings/$id",
+        "/_layout/admin/",
         "/_layout/audio-recordings/",
         "/_layout/audio-upload/",
         "/_layout/prompt-management/",
         "/_layout/unauthorised/",
         "/_layout/user-management/",
+        "/_layout/admin/all-jobs/",
+        "/_layout/admin/deleted-jobs/",
+        "/_layout/admin/user-management/",
         "/_layout/audio-recordings/shared/"
       ]
     },
@@ -316,6 +410,10 @@ export const routeTree = rootRoute
     },
     "/_layout/audio-recordings/$id": {
       "filePath": "_layout/audio-recordings/$id.tsx",
+      "parent": "/_layout"
+    },
+    "/_layout/admin/": {
+      "filePath": "_layout/admin/index.tsx",
       "parent": "/_layout"
     },
     "/_layout/audio-recordings/": {
@@ -336,6 +434,18 @@ export const routeTree = rootRoute
     },
     "/_layout/user-management/": {
       "filePath": "_layout/user-management/index.tsx",
+      "parent": "/_layout"
+    },
+    "/_layout/admin/all-jobs/": {
+      "filePath": "_layout/admin/all-jobs/index.tsx",
+      "parent": "/_layout"
+    },
+    "/_layout/admin/deleted-jobs/": {
+      "filePath": "_layout/admin/deleted-jobs/index.tsx",
+      "parent": "/_layout"
+    },
+    "/_layout/admin/user-management/": {
+      "filePath": "_layout/admin/user-management/index.tsx",
       "parent": "/_layout"
     },
     "/_layout/audio-recordings/shared/": {

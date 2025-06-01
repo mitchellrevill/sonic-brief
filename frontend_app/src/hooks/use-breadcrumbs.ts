@@ -16,6 +16,10 @@ const ROUTE_MAPPINGS: Record<string, string> = {
   "/audio-recordings/shared": "Shared Recordings",
   "/prompt-management": "Prompt Management",
   "/user-management": "User Management",
+  "/admin": "Admin",
+  "/admin/user-management": "User Management",
+  "/admin/deleted-jobs": "Deleted Recordings",
+  "/admin/all-jobs": "All Recordings",
   "/unauthorised": "Unauthorized",
 };
 
@@ -66,8 +70,7 @@ const ROUTE_HANDLERS: Record<string, (pathname: string, segments: string[]) => B
       items[0].isCurrentPage = true;
     }
     
-    return items;
-  },
+    return items;  },
   
   "/user-management": (_: string, segments) => {
     const items: BreadcrumbItem[] = [
@@ -79,6 +82,35 @@ const ROUTE_HANDLERS: Record<string, (pathname: string, segments: string[]) => B
         label: `User ${segments[2]}`,
         isCurrentPage: true
       });
+    } else {
+      items[0].isCurrentPage = true;
+    }
+    
+    return items;
+  },
+
+  "/admin": (_: string, segments) => {
+    const items: BreadcrumbItem[] = [
+      { label: "Admin", to: "/admin" }
+    ];
+    
+    if (segments.length > 1) {
+      if (segments[1] === "deleted-jobs") {
+        items.push({
+          label: "Deleted Recordings",
+          isCurrentPage: true
+        });
+      } else if (segments[1] === "all-jobs") {
+        items.push({
+          label: "All Recordings",
+          isCurrentPage: true
+        });
+      } else if (segments[1] === "user-management") {
+        items.push({
+          label: "User Management",
+          isCurrentPage: true
+        });
+      }
     } else {
       items[0].isCurrentPage = true;
     }
