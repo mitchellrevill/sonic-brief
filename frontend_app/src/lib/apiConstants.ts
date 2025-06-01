@@ -16,3 +16,8 @@ export const User_MANAGEMENT_API = `${BASE_URL}/api/auth/users`;
 // Job Sharing APIs
 export const JOB_SHARE_API = `${BASE_URL}/api/jobs`;
 export const SHARED_JOBS_API = `${BASE_URL}/api/jobs/shared`;
+
+// Job Soft Delete APIs
+export const JOB_DELETE_API = `${BASE_URL}/api/jobs`;
+export const ADMIN_DELETED_JOBS_API = `${BASE_URL}/api/admin/deleted-jobs`;
+export const ADMIN_PERMANENT_DELETE_API = `${BASE_URL}/api/admin/jobs`;

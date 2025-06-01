@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { SmartBreadcrumb } from "@/components/ui/smart-breadcrumb";
 import { Users, UserPlus, RefreshCw } from "lucide-react";
+import { useLocation } from "@tanstack/react-router";
 
 interface UserManagementHeaderProps {
   onRefresh?: () => void;
@@ -13,6 +14,15 @@ export function UserManagementHeader({
   onAddUser, 
   loading = false 
 }: UserManagementHeaderProps) {
+  // Determine if this is being rendered from the admin route
+  const location = useLocation();
+  const isAdminRoute = location.pathname.startsWith('/admin');
+  
+  // Set breadcrumb based on route
+  const breadcrumbPath = isAdminRoute ? 
+    [{ label: "Admin", to: "/admin" }, { label: "User Management", isCurrentPage: true }] : 
+    [{ label: "User Management", isCurrentPage: true }];
+    
   return (
     <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between px-2 py-2 md:px-4 md:py-3 border-b bg-card/50">
       <div className="space-y-1 text-center md:text-left">
@@ -22,7 +32,7 @@ export function UserManagementHeader({
             User Management
           </h2>
         </div>        <SmartBreadcrumb
-          items={[{ label: "User Management", isCurrentPage: true }]}
+          items={breadcrumbPath}
           className="justify-center md:justify-start"
         />
         <p className="text-muted-foreground text-xs md:text-sm max-w-2xl">

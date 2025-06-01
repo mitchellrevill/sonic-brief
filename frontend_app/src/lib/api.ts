@@ -1,5 +1,8 @@
 import {
+  ADMIN_DELETED_JOBS_API,
+  ADMIN_PERMANENT_DELETE_API,
   CATEGORIES_API,
+  JOB_DELETE_API,
   JOB_SHARE_API,
   LOGIN_API,
   PROMPTS_API,
@@ -514,6 +517,132 @@ export async function deleteSubcategory(subcategoryId: string): Promise<void> {
     }
   } catch (error) {
     console.error("Error deleting subcategory:", error);
+    throw error;
+  }
+}
+
+// Job Soft Delete APIs
+
+interface JobDeleteResponse {
+  status: string;
+  message: string;
+}
+
+interface DeletedJobsResponse {
+  status: string;
+  message: string;
+  count: number;
+  jobs: Array<any>;
+}
+
+export async function softDeleteJob(jobId: string): Promise<JobDeleteResponse> {
+  try {
+    const token = localStorage.getItem("token");
+    
+    const response = await fetch(`${JOB_DELETE_API}/${jobId}`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Authentication failed. Please log in again.");
+      }
+      
+      const errorData = await response.json();
+      throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error deleting job:", error);
+    throw error;
+  }
+}
+
+export async function restoreJob(jobId: string): Promise<JobDeleteResponse> {
+  try {
+    const token = localStorage.getItem("token");
+    
+    const response = await fetch(`${JOB_DELETE_API}/${jobId}/restore`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Authentication failed. Please log in again.");
+      }
+      
+      const errorData = await response.json();
+      throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error restoring job:", error);
+    throw error;
+  }
+}
+
+export async function getDeletedJobs(): Promise<DeletedJobsResponse> {
+  try {
+    const token = localStorage.getItem("token");
+    
+    const response = await fetch(ADMIN_DELETED_JOBS_API, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Authentication failed. Please log in again.");
+      }
+      
+      const errorData = await response.json();
+      throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error getting deleted jobs:", error);
+    throw error;
+  }
+}
+
+export async function permanentDeleteJob(jobId: string): Promise<JobDeleteResponse> {
+  try {
+    const token = localStorage.getItem("token");
+    
+    const response = await fetch(`${ADMIN_PERMANENT_DELETE_API}/${jobId}/permanent`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Authentication failed. Please log in again.");
+      }
+      
+      const errorData = await response.json();
+      throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error permanently deleting job:", error);
     throw error;
   }
 }

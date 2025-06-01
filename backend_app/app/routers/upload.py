@@ -59,6 +59,9 @@ class JobShareResponse(BaseModel):
 class JobUnshareRequest(BaseModel):
     target_user_email: str
 
+class JobSoftDeleteRequest(BaseModel):
+    permanent: bool = False  # For admin permanent delete
+
 class SharedJobsResponse(BaseModel):
     status: str
     message: str
@@ -323,6 +326,9 @@ async def get_jobs(
         user_access_filter = f" AND (c.user_id = @user_id OR ARRAY_CONTAINS(c.shared_with, {{'user_id': @user_id}}, true))"
         query += user_access_filter
         parameters.append({"name": "@user_id", "value": current_user["id"]})
+        
+        # Exclude soft-deleted jobs for regular users (admins can see all jobs via admin endpoints)
+        query += " AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
 
         try:
             jobs = list(
@@ -429,9 +435,8 @@ async def get_job_transcription(
         raise HTTPException(status_code=500, detail="Error initializing services")
 
     # Query the job with proper error handling
-    try:
-        # Build query to get the specific job
-        query = "SELECT * FROM c WHERE c.type = 'job' AND c.id = @job_id"
+    try:        # Build query to get the specific job
+        query = "SELECT * FROM c WHERE c.type = 'job' AND c.id = @job_id AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
         parameters = [{"name": "@job_id", "value": job_id}]
 
         logger.info(f"[{request_id}] Querying CosmosDB for job_id: {job_id}")
@@ -887,10 +892,13 @@ async def share_job(
     try:
         config = AppConfig()
         cosmos_db = CosmosDB(config)
-        
-        # Get the job
+          # Get the job
         job = cosmos_db.get_job(job_id)
         if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Check if job is deleted
+        if job.get("deleted", False):
             raise HTTPException(status_code=404, detail="Job not found")
         
         # Verify user ownership - only job owner can share
@@ -976,10 +984,13 @@ async def unshare_job(
     try:
         config = AppConfig()
         cosmos_db = CosmosDB(config)
-        
-        # Get the job
+          # Get the job
         job = cosmos_db.get_job(job_id)
         if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Check if job is deleted
+        if job.get("deleted", False):
             raise HTTPException(status_code=404, detail="Job not found")
         
         # Verify user ownership - only job owner can unshare
@@ -1032,12 +1043,12 @@ async def get_shared_jobs(
         config = AppConfig()
         cosmos_db = CosmosDB(config)
         storage_service = StorageService(config)
-        
-        # Query for jobs shared with current user
+          # Query for jobs shared with current user
         shared_query = """
         SELECT * FROM c 
         WHERE c.type = 'job' 
         AND ARRAY_CONTAINS(c.shared_with, {'user_id': @user_id}, true)
+        AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)
         """
         shared_parameters = [{"name": "@user_id", "value": current_user["id"]}]
         
@@ -1048,14 +1059,14 @@ async def get_shared_jobs(
                 enable_cross_partition_query=True,
             )
         )
-        
-        # Query for jobs owned by current user that are shared with others
+          # Query for jobs owned by current user that are shared with others
         owned_shared_query = """
         SELECT * FROM c 
         WHERE c.type = 'job' 
         AND c.user_id = @user_id 
         AND IS_DEFINED(c.shared_with) 
         AND ARRAY_LENGTH(c.shared_with) > 0
+        AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)
         """
         owned_shared_parameters = [{"name": "@user_id", "value": current_user["id"]}]
         
@@ -1113,10 +1124,13 @@ async def get_job_sharing_info(
     try:
         config = AppConfig()
         cosmos_db = CosmosDB(config)
-        
-        # Get the job
+          # Get the job
         job = cosmos_db.get_job(job_id)
         if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Check if job is deleted
+        if job.get("deleted", False):
             raise HTTPException(status_code=404, detail="Job not found")
         
         # Check if user has access to this job (owner or shared with)
@@ -1154,6 +1168,240 @@ async def get_job_sharing_info(
         logger.error(f"Error getting job sharing info for {job_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error retrieving job sharing information")
 
+
+# Job Soft Delete Endpoints
+
+@router.delete("/jobs/{job_id}")
+async def soft_delete_job(
+    job_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Soft delete a job (mark as deleted but keep in database for admin access).
+    
+    Args:
+        job_id: The ID of the job to delete
+        current_user: Authenticated user from token
+        
+    Returns:
+        Dict containing delete status
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        
+        # Get the job
+        job = cosmos_db.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Check if job is already deleted
+        if job.get("deleted"):
+            raise HTTPException(status_code=400, detail="Job is already deleted")
+        
+        # Verify user ownership - only job owner can delete
+        if job["user_id"] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Only job owner can delete this job")
+        
+        # Soft delete the job
+        timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        update_fields = {
+            "deleted": True,
+            "deleted_at": timestamp,
+            "deleted_by": current_user["id"],
+            "updated_at": timestamp,
+        }
+        cosmos_db.update_job(job_id, update_fields)
+        
+        logger.info(f"Job {job_id} soft deleted by {current_user['email']}")
+        
+        return {
+            "status": "success",
+            "message": "Job deleted successfully"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error soft deleting job {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error deleting job")
+
+
+@router.post("/jobs/{job_id}/restore")
+async def restore_job(
+    job_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Restore a soft deleted job (admin only).
+    
+    Args:
+        job_id: The ID of the job to restore
+        current_user: Authenticated user from token
+        
+    Returns:
+        Dict containing restore status
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        
+        # Check if user is admin
+        user_permission = await cosmos_db.get_user_permission_with_fallback(current_user["id"])
+        if user_permission != "Admin":
+            raise HTTPException(status_code=403, detail="Admin access required")
+        
+        # Get the job (including deleted ones)
+        job = cosmos_db.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Check if job is deleted
+        if not job.get("deleted"):
+            raise HTTPException(status_code=400, detail="Job is not deleted")
+        
+        # Restore the job
+        timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        update_fields = {
+            "deleted": False,
+            "restored_at": timestamp,
+            "restored_by": current_user["id"],
+            "updated_at": timestamp,
+        }
+        # Remove deleted fields
+        update_fields["deleted_at"] = None
+        update_fields["deleted_by"] = None
+        
+        cosmos_db.update_job(job_id, update_fields)
+        
+        logger.info(f"Job {job_id} restored by admin {current_user['email']}")
+        
+        return {
+            "status": "success",
+            "message": "Job restored successfully"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error restoring job {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error restoring job")
+
+
+@router.get("/admin/deleted-jobs")
+async def get_deleted_jobs(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Get all soft deleted jobs (admin only).
+    
+    Args:
+        current_user: Authenticated user from token
+        
+    Returns:
+        Dict containing deleted jobs
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        storage_service = StorageService(config)
+        
+        # Check if user is admin
+        user_permission = await cosmos_db.get_user_permission_with_fallback(current_user["id"])
+        if user_permission != "Admin":
+            raise HTTPException(status_code=403, detail="Admin access required")
+        
+        # Query for deleted jobs
+        query = """
+        SELECT * FROM c 
+        WHERE c.type = 'job' 
+        AND c.deleted = true
+        ORDER BY c.deleted_at DESC
+        """
+        
+        deleted_jobs = list(
+            cosmos_db.jobs_container.query_items(
+                query=query,
+                enable_cross_partition_query=True,
+            )
+        )
+        
+        # Add SAS tokens and enhance job data
+        for job in deleted_jobs:
+            if job.get("file_path"):
+                file_path = job["file_path"]
+                path_parts = urlparse(file_path).path.strip("/").split("/")
+                job["file_name"] = path_parts[-1] if path_parts else None
+                job["file_path"] = storage_service.add_sas_token_to_url(file_path)
+                if job.get("transcription_file_path"):
+                    job["transcription_file_path"] = storage_service.add_sas_token_to_url(
+                        job["transcription_file_path"]
+                    )
+                if job.get("analysis_file_path"):
+                    job["analysis_file_path"] = storage_service.add_sas_token_to_url(
+                        job["analysis_file_path"]
+                    )
+        
+        return {
+            "status": "success",
+            "message": "Deleted jobs retrieved successfully",
+            "count": len(deleted_jobs),
+            "jobs": deleted_jobs,
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting deleted jobs: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error retrieving deleted jobs")
+
+
+@router.delete("/admin/jobs/{job_id}/permanent")
+async def permanent_delete_job(
+    job_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Permanently delete a job from database (admin only).
+    
+    Args:
+        job_id: The ID of the job to permanently delete
+        current_user: Authenticated user from token
+        
+    Returns:
+        Dict containing permanent delete status
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        
+        # Check if user is admin
+        user_permission = await cosmos_db.get_user_permission_with_fallback(current_user["id"])
+        if user_permission != "Admin":
+            raise HTTPException(status_code=403, detail="Admin access required")
+        
+        # Get the job
+        job = cosmos_db.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Permanently delete the job
+        cosmos_db.jobs_container.delete_item(item=job_id, partition_key=job_id)
+        
+        logger.info(f"Job {job_id} permanently deleted by admin {current_user['email']}")
+        
+        return {
+            "status": "success",
+            "message": "Job permanently deleted"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error permanently deleting job {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error permanently deleting job")
+
+
 # Utility function for job access control
 def check_job_access(job: Dict[str, Any], current_user: Dict[str, Any], required_permission: str = "view") -> bool:
     """
@@ -1167,6 +1415,10 @@ def check_job_access(job: Dict[str, Any], current_user: Dict[str, Any], required
     Returns:
         Boolean indicating if user has access
     """
+    # Check if job is soft-deleted - only admins can access deleted jobs through admin endpoints
+    if job.get("deleted", False):
+        return False
+    
     # Job owner has all permissions
     if job["user_id"] == current_user["id"]:
         return True

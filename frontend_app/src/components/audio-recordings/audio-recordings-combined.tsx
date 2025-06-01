@@ -9,6 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   Form,
@@ -39,6 +40,7 @@ import {
 import { StatusBadge } from "@/components/ui/status-badge";
 import { AudioRecordingCard } from "./audio-recording-card";
 import { JobShareDialog } from "./job-share-dialog";
+import { JobDeleteDialog } from "./job-delete-dialog";
 import { cn } from "@/lib/utils";
 import { getAudioRecordingsQuery } from "@/queries/audio-recordings.query";
 import { audioListSchema, statusEnum } from "@/schema/audio-list.schema";
@@ -58,6 +60,8 @@ import {
   Calendar,
   Loader2,
   User,
+  Trash2,
+  MoreHorizontal,
 } from "lucide-react";
 import { useForm } from "react-hook-form";
 
@@ -74,6 +78,8 @@ export function AudioRecordingsCombined({
   const [filtersExpanded, setFiltersExpanded] = useState(true);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [shareRecording, setShareRecording] = useState<any>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteRecording, setDeleteRecording] = useState<any>(null);
   const router = useRouter();
 
   const form = useForm<AudioListValues>({
@@ -143,6 +149,12 @@ export function AudioRecordingsCombined({
   const handleShare = (recording: any) => {
     setShareRecording(recording);
     setShareDialogOpen(true);
+  };
+
+  // Handler to open delete dialog
+  const handleDelete = (recording: any) => {
+    setDeleteRecording(recording);
+    setDeleteDialogOpen(true);
   };
 
   return (
@@ -434,6 +446,7 @@ export function AudioRecordingsCombined({
                         onDownload={() => handleDownloadAudio(recording)}
                         onRetryProcessing={() => handleRetryProcessing(recording)}
                         onShare={() => handleShare(recording)}
+                        onDelete={() => handleDelete(recording)}
                       />
                     </div>
                   ))
@@ -529,14 +542,13 @@ export function AudioRecordingsCombined({
                               onOpenChange={(open) => {
                                 if (open) setSelectedRecording(row);
                               }}
-                            >
-                              <DropdownMenuTrigger asChild>
+                            >                              <DropdownMenuTrigger asChild>
                                 <Button
                                   variant="ghost"
                                   size="icon"
                                   className="h-8 w-8"
                                 >
-                                  <Eye className="h-4 w-4" />
+                                  <MoreHorizontal className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>
                               {selectedRecording &&
@@ -571,6 +583,11 @@ export function AudioRecordingsCombined({
                                         Retry Processing
                                       </DropdownMenuItem>
                                     )}
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={() => handleDelete(row)}>
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      Delete
+                                    </DropdownMenuItem>
                                   </DropdownMenuContent>
                                 )}
                             </DropdownMenu>
@@ -660,6 +677,18 @@ export function AudioRecordingsCombined({
             shareRecording.file_name ||
             shareRecording.file_path.split("/").pop()
           }
+        />
+      )}
+      {deleteRecording && (
+        <JobDeleteDialog
+          isOpen={deleteDialogOpen}
+          onOpenChange={setDeleteDialogOpen}
+          jobId={deleteRecording.id}
+          jobTitle={
+            deleteRecording.file_name ||
+            deleteRecording.file_path.split("/").pop()
+          }
+          onDeleteSuccess={refetchJobs}
         />
       )}
     </>
