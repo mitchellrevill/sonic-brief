@@ -38,15 +38,16 @@ import {
 } from "@/components/ui/table";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { AudioRecordingCard } from "./audio-recording-card";
+import { JobShareDialog } from "./job-share-dialog";
 import { cn } from "@/lib/utils";
 import { getAudioRecordingsQuery } from "@/queries/audio-recordings.query";
 import { audioListSchema, statusEnum } from "@/schema/audio-list.schema";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
-import { 
-  Eye, 
-  RefreshCcw, 
+import {
+  Eye,
+  RefreshCcw,
   LayoutGrid,
   LayoutList,
   Download,
@@ -55,10 +56,10 @@ import {
   Search,
   FileAudio,
   Calendar,
-  Loader2
+  Loader2,
+  User,
 } from "lucide-react";
 import { useForm } from "react-hook-form";
-
 
 const RECORDS_PER_PAGE = 12;
 
@@ -66,10 +67,13 @@ export function AudioRecordingsCombined({
   initialFilters,
 }: {
   initialFilters: AudioListValues;
-}) {  const [currentPage, setCurrentPage] = useState(1);
+}) {
+  const [currentPage, setCurrentPage] = useState(1);
   const [selectedRecording, setSelectedRecording] = useState<any>(null);
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
   const [filtersExpanded, setFiltersExpanded] = useState(true);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [shareRecording, setShareRecording] = useState<any>(null);
   const router = useRouter();
 
   const form = useForm<AudioListValues>({
@@ -134,6 +138,13 @@ export function AudioRecordingsCombined({
     // TODO: Implement retry processing logic
     console.log("Retry processing for:", recording.id);
   };
+
+  // Handler to open share dialog
+  const handleShare = (recording: any) => {
+    setShareRecording(recording);
+    setShareDialogOpen(true);
+  };
+
   return (
     <>
       <Card className="mx-auto mt-8 w-full bg-gradient-to-br from-background via-background to-muted/30 border-border/50 shadow-lg backdrop-blur-sm">
@@ -156,7 +167,9 @@ export function AudioRecordingsCombined({
               {audioRecordings && (
                 <div className="flex items-center gap-4 text-sm text-muted-foreground">
                   <span className="flex items-center gap-1">
-                    <span className="font-medium text-foreground">{audioRecordings.length}</span>
+                    <span className="font-medium text-foreground">
+                      {audioRecordings.length}
+                    </span>
                     recordings
                   </span>
                   <span className="w-1 h-1 bg-muted-foreground rounded-full" />
@@ -172,7 +185,7 @@ export function AudioRecordingsCombined({
                   onClick={() => setViewMode("card")}
                   className={cn(
                     "transition-all duration-200",
-                    viewMode === "card" ? "shadow-sm" : "hover:bg-background/50"
+                    viewMode === "card" ? "shadow-sm" : "hover:bg-background/50",
                   )}
                 >
                   <LayoutGrid className="mr-2 h-4 w-4" />
@@ -184,7 +197,7 @@ export function AudioRecordingsCombined({
                   onClick={() => setViewMode("table")}
                   className={cn(
                     "transition-all duration-200",
-                    viewMode === "table" ? "shadow-sm" : "hover:bg-background/50"
+                    viewMode === "table" ? "shadow-sm" : "hover:bg-background/50",
                   )}
                 >
                   <LayoutList className="mr-2 h-4 w-4" />
@@ -193,7 +206,8 @@ export function AudioRecordingsCombined({
               </div>
             </div>
           </div>
-        </CardHeader>        <CardContent className="space-y-6 p-6">
+        </CardHeader>
+        <CardContent className="space-y-6 p-6">
           {/* Enhanced Filters Section */}
           <Card className="border-border/50 bg-gradient-to-br from-card/80 to-muted/10 backdrop-blur-sm">
             <CardContent className="p-0">
@@ -208,21 +222,25 @@ export function AudioRecordingsCombined({
                       <Filter className="h-4 w-4" />
                     </div>
                     <div className="text-left">
-                      <h3 className="font-semibold text-foreground">Search & Filters</h3>
+                      <h3 className="font-semibold text-foreground">
+                        Search & Filters
+                      </h3>
                       <p className="text-sm text-muted-foreground">
                         Refine your search to find specific recordings
                       </p>
                     </div>
                   </div>
-                  <div className={cn(
-                    "transition-transform duration-200",
-                    filtersExpanded ? "rotate-180" : ""
-                  )}>
+                  <div
+                    className={cn(
+                      "transition-transform duration-200",
+                      filtersExpanded ? "rotate-180" : "",
+                    )}
+                  >
                     <RefreshCcw className="h-4 w-4" />
                   </div>
                 </Button>
               </div>
-              
+
               {filtersExpanded && (
                 <div className="p-4 space-y-4 animate-in slide-in-from-top-2 duration-200">
                   <Form {...form}>
@@ -238,9 +256,9 @@ export function AudioRecordingsCombined({
                                 Job ID
                               </FormLabel>
                               <FormControl>
-                                <Input 
-                                  placeholder="Search by Job ID..." 
-                                  {...field} 
+                                <Input
+                                  placeholder="Search by Job ID..."
+                                  {...field}
                                   className="bg-background/50 border-border/50 focus:border-primary/50 transition-colors"
                                 />
                               </FormControl>
@@ -270,10 +288,15 @@ export function AudioRecordingsCombined({
                                     <SelectItem key={status} value={status}>
                                       <div className="flex items-center gap-2">
                                         {status !== "all" && (
-                                          <StatusBadge status={status as any} size="sm" />
+                                          <StatusBadge
+                                            status={status as any}
+                                            size="sm"
+                                          />
                                         )}
                                         <span className="capitalize">
-                                          {status === "all" ? "All Statuses" : status}
+                                          {status === "all"
+                                            ? "All Statuses"
+                                            : status}
                                         </span>
                                       </div>
                                     </SelectItem>
@@ -283,7 +306,8 @@ export function AudioRecordingsCombined({
                               <FormMessage />
                             </FormItem>
                           )}
-                        />                        <FormField
+                        />
+                        <FormField
                           control={form.control}
                           name="created_at"
                           render={({ field }) => (
@@ -335,7 +359,8 @@ export function AudioRecordingsCombined({
                         <div className="text-sm text-muted-foreground">
                           {audioRecordings && (
                             <span>
-                              Showing {paginatedData?.length || 0} of {audioRecordings.length} recordings
+                              Showing {paginatedData?.length || 0} of{" "}
+                              {audioRecordings.length} recordings
                             </span>
                           )}
                         </div>
@@ -345,26 +370,28 @@ export function AudioRecordingsCombined({
                 </div>
               )}
             </CardContent>
-          </Card>          {isLoading && (
+          </Card>
+          {isLoading && (
             <Card className="border-border/50 bg-gradient-to-r from-card/50 to-muted/10">
               <CardContent className="p-6">
                 <div className="space-y-4">
                   <div className="flex items-center gap-3">
                     <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                    <p className="text-sm font-medium text-foreground">Loading recordings...</p>
+                    <p className="text-sm font-medium text-foreground">
+                      Loading recordings...
+                    </p>
                   </div>
                   <Progress value={90} className="h-2" />
-                  <p className="text-xs text-muted-foreground">Fetching your audio files and processing status</p>
+                  <p className="text-xs text-muted-foreground">
+                    Fetching your audio files and processing status
+                  </p>
                 </div>
               </CardContent>
             </Card>
           )}
 
           {/* Mobile Card View (Always visible on mobile, toggleable on desktop) */}
-          <div className={cn(
-            "block",
-            viewMode === "table" ? "lg:hidden" : ""
-          )}>
+          <div className={cn("block", viewMode === "table" ? "lg:hidden" : "")}>
             {isLoading ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {Array.from({ length: 6 }).map((_, index) => (
@@ -391,24 +418,26 @@ export function AudioRecordingsCombined({
                     </div>
                   </Card>
                 ))}
-              </div>            ) : (
+              </div>
+            ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 animate-in fade-in duration-300">
                 {paginatedData && paginatedData.length > 0 ? (
                   paginatedData.map((recording: any, index: number) => (
-                    <div 
+                    <div
                       key={recording.id}
                       className="animate-in slide-in-from-bottom-4 duration-300"
                       style={{ animationDelay: `${index * 100}ms` }}
-                    >
-                      <AudioRecordingCard
+                    >                      <AudioRecordingCard
                         recording={recording}
                         onViewDetails={() => handleViewDetails(recording)}
                         onPlay={() => handlePlayAudio(recording)}
                         onDownload={() => handleDownloadAudio(recording)}
                         onRetryProcessing={() => handleRetryProcessing(recording)}
+                        onShare={() => handleShare(recording)}
                       />
                     </div>
-                  ))) : (
+                  ))
+                ) : (
                   <div className="col-span-full">
                     <Card className="p-8 border-dashed border-2 border-border/50 bg-gradient-to-br from-card/30 to-muted/10">
                       <div className="text-center space-y-4">
@@ -416,12 +445,13 @@ export function AudioRecordingsCombined({
                           <FileAudio className="h-8 w-8 text-primary/60" />
                         </div>
                         <div className="space-y-2">
-                          <h3 className="text-lg font-semibold text-foreground">No recordings found</h3>
+                          <h3 className="text-lg font-semibold text-foreground">
+                            No recordings found
+                          </h3>
                           <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                            {Object.values(cleanedFilters).some(Boolean) 
+                            {Object.values(cleanedFilters).some(Boolean)
                               ? "No recordings match your current filters. Try adjusting your search criteria."
-                              : "Upload your first audio recording to get started with transcription and analysis."
-                            }
+                              : "Upload your first audio recording to get started with transcription and analysis."}
                           </p>
                         </div>
                         <div className="flex flex-col sm:flex-row gap-2 justify-center">
@@ -444,10 +474,7 @@ export function AudioRecordingsCombined({
           </div>
 
           {/* Desktop Table View */}
-          <div className={cn(
-            "hidden",
-            viewMode === "table" ? "lg:block" : ""
-          )}>
+          <div className={cn("hidden", viewMode === "table" ? "lg:block" : "")}>
             <Card className="border-border/50 bg-card/50">
               <Table>
                 <TableHeader>
@@ -485,7 +512,7 @@ export function AudioRecordingsCombined({
                             </div>
                           </TableCell>
                           <TableCell>
-                            <StatusBadge 
+                            <StatusBadge
                               status={row.status}
                               size="sm"
                               showIcon={true}
@@ -534,6 +561,10 @@ export function AudioRecordingsCombined({
                                       <Download className="mr-2 h-4 w-4" />
                                       Download
                                     </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handleShare(row)}>
+                                      <User className="mr-2 h-4 w-4" />
+                                      Share
+                                    </DropdownMenuItem>
                                     {row.status === "uploaded" && (
                                       <DropdownMenuItem onClick={() => handleRetryProcessing(row)}>
                                         <RefreshCcw className="mr-2 h-4 w-4" />
@@ -545,45 +576,14 @@ export function AudioRecordingsCombined({
                             </DropdownMenu>
                           </TableCell>
                         </TableRow>
-                      ))                    ) : (
-                      <TableRow>
-                        <TableCell
-                          colSpan={5}
-                          className="py-16 text-center"
-                        >
-                          <div className="space-y-4">
-                            <div className="mx-auto h-16 w-16 rounded-full bg-gradient-to-br from-primary/10 to-muted/20 flex items-center justify-center">
-                              <FileAudio className="h-8 w-8 text-primary/60" />
-                            </div>
-                            <div className="space-y-2">
-                              <h3 className="text-lg font-semibold text-foreground">No recordings found</h3>
-                              <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                                {Object.values(cleanedFilters).some(Boolean) 
-                                  ? "No recordings match your current filters. Try adjusting your search criteria."
-                                  : "Upload your first audio recording to get started with transcription and analysis."
-                                }
-                              </p>
-                            </div>
-                            <div className="flex gap-2 justify-center">
-                              {Object.values(cleanedFilters).some(Boolean) && (
-                                <Button variant="outline" onClick={handleReset} size="sm">
-                                  Clear Filters
-                                </Button>
-                              )}
-                              <Button variant="outline" onClick={handleRefresh} size="sm">
-                                <RefreshCcw className="mr-2 h-4 w-4" />
-                                Refresh
-                              </Button>
-                            </div>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
+                      ))
+                    ) : null}
                   </TableBody>
                 )}
               </Table>
             </Card>
-          </div>          {/* Enhanced Pagination Controls */}
+          </div>
+          {/* Enhanced Pagination Controls */}
           {totalPages > 1 && (
             <Card className="border-border/50 bg-gradient-to-r from-card/50 to-muted/10">
               <CardContent className="p-4">
@@ -611,7 +611,7 @@ export function AudioRecordingsCombined({
                             disabled={isLoading}
                             className={cn(
                               "w-8 h-8 p-0 transition-all duration-200",
-                              isActive && "bg-primary text-primary-foreground shadow-md"
+                              isActive && "bg-primary text-primary-foreground shadow-md",
                             )}
                           >
                             {pageNum}
@@ -631,12 +631,15 @@ export function AudioRecordingsCombined({
                   </div>
                   <div className="text-sm text-muted-foreground">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium">Page {currentPage} of {totalPages}</span>
+                      <span className="font-medium">
+                        Page {currentPage} of {totalPages}
+                      </span>
                       {audioRecordings && (
                         <>
                           <span className="w-1 h-1 bg-muted-foreground rounded-full" />
                           <span>
-                            {audioRecordings.length} total record{audioRecordings.length !== 1 ? 's' : ''}
+                            {audioRecordings.length} total record
+                            {audioRecordings.length !== 1 ? "s" : ""}
                           </span>
                         </>
                       )}
@@ -648,6 +651,17 @@ export function AudioRecordingsCombined({
           )}
         </CardContent>
       </Card>
+      {shareRecording && (
+        <JobShareDialog
+          isOpen={shareDialogOpen}
+          onOpenChange={setShareDialogOpen}
+          jobId={shareRecording.id}
+          jobTitle={
+            shareRecording.file_name ||
+            shareRecording.file_path.split("/").pop()
+          }
+        />
+      )}
     </>
   );
 }
@@ -714,7 +728,7 @@ export function MobileCardSkeleton({
               </div>
               <Skeleton className="ml-1 h-4 w-12 rounded" /> {/* Status badge */}
             </div>
-            
+
             <div className="flex items-center justify-between">
               <Skeleton className="h-3 w-16" /> {/* Date */}
               <Skeleton className="h-7 w-7 rounded" /> {/* Actions button */}

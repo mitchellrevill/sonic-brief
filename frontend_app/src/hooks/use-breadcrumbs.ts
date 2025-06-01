@@ -13,20 +13,26 @@ const ROUTE_MAPPINGS: Record<string, string> = {
   "/": "Home",
   "/audio-upload": "Media Upload",
   "/audio-recordings": "Audio Recordings", 
+  "/audio-recordings/shared": "Shared Recordings",
   "/prompt-management": "Prompt Management",
   "/user-management": "User Management",
   "/unauthorised": "Unauthorized",
 };
 
 // Specific route handlers for complex breadcrumbs
-const ROUTE_HANDLERS: Record<string, (pathname: string, segments: string[]) => BreadcrumbItem[]> = {
-  "/audio-recordings": (_: string, segments) => {
+const ROUTE_HANDLERS: Record<string, (pathname: string, segments: string[]) => BreadcrumbItem[]> = {  "/audio-recordings": (_: string, segments) => {
     const items: BreadcrumbItem[] = [
       { label: "Audio Recordings", to: "/audio-recordings" }
     ];
     
-    // If there's a recording ID
-    if (segments.length > 2 && segments[2]) {
+    // Handle shared recordings path
+    if (segments.length > 1 && segments[1] === "shared") {
+      items.push({
+        label: "Shared Recordings",
+        isCurrentPage: true
+      });
+    } else if (segments.length > 2 && segments[2]) {
+      // If there's a recording ID
       items.push({
         label: `Recording ${segments[2]}`,
         isCurrentPage: true

@@ -34,6 +34,7 @@ export interface AudioRecordingCardProps {
   onPlay?: () => void;
   onDownload?: () => void;
   onRetryProcessing?: () => void;
+  onShare?: () => void;
   className?: string;
 }
 
@@ -43,6 +44,7 @@ export function AudioRecordingCard({
   onPlay,
   onDownload,
   onRetryProcessing,
+  onShare,
   className,
 }: AudioRecordingCardProps) {
   const fileName = recording.file_name || 
@@ -126,6 +128,17 @@ export function AudioRecordingCard({
               <Eye className="h-3.5 w-3.5 mr-1.5" />
               View
             </Button>
+            {onShare && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onShare}
+                className="h-8 px-3"
+              >
+                <User className="h-3.5 w-3.5 mr-1.5" />
+                Share
+              </Button>
+            )}
           </div>
 
           <DropdownMenu>
@@ -145,6 +158,12 @@ export function AudioRecordingCard({
                 <Eye className="mr-2 h-4 w-4" />
                 View Details
               </DropdownMenuItem>
+              {onShare && (
+                <DropdownMenuItem onClick={onShare}>
+                  <User className="mr-2 h-4 w-4" />
+                  Share
+                </DropdownMenuItem>
+              )}
               {onDownload && (
                 <DropdownMenuItem onClick={onDownload}>
                   <Download className="mr-2 h-4 w-4" />

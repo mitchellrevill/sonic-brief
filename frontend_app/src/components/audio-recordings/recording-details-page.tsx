@@ -34,6 +34,9 @@ import {
   CheckCircle,
   MessageSquare,
 } from "lucide-react";
+import { JobShareDialog } from "./job-share-dialog";
+import { JobSharingInfo } from "./job-sharing-info";
+import { useState } from "react";
 
 interface ExtendedAudioRecording extends AudioRecording {
   analysis_text?: string;
@@ -57,6 +60,7 @@ const copyToClipboard = async (text: string, label: string = "Text") => {
 
 export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
   const isMobile = useIsMobile();
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
   
   const { 
     data: transcriptionText, 
@@ -608,11 +612,29 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                     <Download className="mr-2 h-4 w-4" />
                     Download Analysis
                   </Button>
-                )}</CardContent>
+                )}
+
+                {/* Share Button - New Addition */}
+                <Button variant="outline" onClick={() => setShareDialogOpen(true)} className="w-full justify-start transition-all duration-200 hover:scale-105 hover:bg-muted">
+                  <User className="mr-2 h-4 w-4" />
+                  Share
+                </Button>
+              </CardContent>
             </Card>
           </div>
         </div>
       </div>
+
+      {/* Sharing Info Display - New Component */}
+      <JobSharingInfo jobId={recording.id} jobTitle={recording.file_name || recording.file_path.split("/").pop()} />
+
+      {/* Share Dialog - New Component */}
+      <JobShareDialog
+        isOpen={shareDialogOpen}
+        onOpenChange={setShareDialogOpen}
+        jobId={recording.id}
+        jobTitle={recording.file_name || recording.file_path.split("/").pop()}
+      />
     </div>
   );
 }

@@ -36,13 +36,34 @@ router = APIRouter()
 # Pydantic models for request/response
 class AnalysisRefinementRequest(BaseModel):
     message: str
-    
+
 class AnalysisRefinementResponse(BaseModel):
     status: str
     message: str
     response: str
     refinement_id: str
     timestamp: int
+
+class JobShareRequest(BaseModel):
+    target_user_email: str
+    permission_level: str = "view"  # "view", "edit", "admin"
+    message: Optional[str] = None
+
+class JobShareResponse(BaseModel):
+    status: str
+    message: str
+    shared_job_id: str
+    target_user_id: str
+    permission_level: str
+
+class JobUnshareRequest(BaseModel):
+    target_user_email: str
+
+class SharedJobsResponse(BaseModel):
+    status: str
+    message: str
+    shared_jobs: List[Dict[str, Any]]
+    owned_jobs_shared_with_others: List[Dict[str, Any]]
 
 
 @router.post("/upload")
@@ -229,7 +250,7 @@ async def get_jobs(
         job_id: Filter by job ID
         status: Filter by job status
         file_path: Filter by file path
-        created_at: Filter by creation date (YYYY-MM-DD)
+        created_at: Filter by creation date
         prompt_subcategory_id: Filter by prompt subcategory ID
         current_user: Authenticated user from token
 
@@ -298,10 +319,9 @@ async def get_jobs(
 
         if prompt_subcategory_id:
             query += " AND c.prompt_subcategory_id = @subcategory"
-            parameters.append({"name": "@subcategory", "value": prompt_subcategory_id})
-
-        # Add user filter for security
-        query += " AND c.user_id = @user_id"
+            parameters.append({"name": "@subcategory", "value": prompt_subcategory_id})        # Add user filter for security - include owned jobs and jobs shared with user
+        user_access_filter = f" AND (c.user_id = @user_id OR ARRAY_CONTAINS(c.shared_with, {{'user_id': @user_id}}, true))"
+        query += user_access_filter
         parameters.append({"name": "@user_id", "value": current_user["id"]})
 
         try:
@@ -311,24 +331,29 @@ async def get_jobs(
                     parameters=parameters,
                     enable_cross_partition_query=True,
                 )
-            )
-
-            # Add SAS tokens to file paths
+            )            # Add SAS tokens to file paths and sharing metadata
             for job in jobs:
+                # Add sharing metadata
+                job["is_owned"] = job["user_id"] == current_user["id"]
+                job["user_permission"] = get_user_job_permission(job, current_user)
+                job["shared_with_count"] = len(job.get("shared_with", []))
+                
                 if job.get("file_path"):
                     # Extract file name from the file path before adding SAS token
                     file_path = job["file_path"]
                     path_parts = urlparse(file_path).path.strip("/").split("/")
                     job["file_name"] = path_parts[-1] if path_parts else None
                     job["file_path"] = storage_service.add_sas_token_to_url(file_path)
-                    job["transcription_file_path"] = (
-                        storage_service.add_sas_token_to_url(
-                            job["transcription_file_path"]
+                    if job.get("transcription_file_path"):
+                        job["transcription_file_path"] = (
+                            storage_service.add_sas_token_to_url(
+                                job["transcription_file_path"]
+                            )
                         )
-                    )
-                    job["analysis_file_path"] = storage_service.add_sas_token_to_url(
-                        job["analysis_file_path"]
-                    )
+                    if job.get("analysis_file_path"):
+                        job["analysis_file_path"] = storage_service.add_sas_token_to_url(
+                            job["analysis_file_path"]
+                        )
 
             return {
                 "status": 200,
@@ -432,6 +457,11 @@ async def get_job_transcription(
             raise HTTPException(status_code=404, detail="Job not found")
 
         job = jobs[0]
+        
+        # Verify user has access to this job
+        if not check_job_access(job, current_user, "view"):
+            logger.warning(f"[{request_id}] Access denied for user {current_user.get('email')} to job {job_id}")
+            raise HTTPException(status_code=403, detail="Access denied")
         logger.debug(
             f"[{request_id}] Job retrieved successfully. Job status: {job.get('status', 'unknown')}, Created: {job.get('created_at', 'unknown')}"
         )
@@ -569,15 +599,15 @@ async def process_text_analysis(
         config = AppConfig()
         cosmos_db = CosmosDB(config)
         storage_service = StorageService(config)
-        
-        # Get the job
+          # Get the job
         job = cosmos_db.get_job(job_id)
+        
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
         
-        # Verify user ownership
-        if job["user_id"] != current_user["id"]:
-            raise HTTPException(status_code=403, detail="Access denied")
+        # Verify user has edit access
+        if not check_job_access(job, current_user, "edit"):
+            raise HTTPException(status_code=403, detail="Access denied - edit permission required")
         
         # Check if job has text content and is in transcribed status
         if not job.get("text_content"):
@@ -636,8 +666,7 @@ async def refine_analysis(
         current_user: Authenticated user from token
         
     Returns:
-        AnalysisRefinementResponse containing the AI response and metadata
-    """
+        AnalysisRefinementResponse containing the AI response and metadata    """
     try:
         config = AppConfig()
         cosmos_db = CosmosDB(config)
@@ -647,9 +676,9 @@ async def refine_analysis(
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
         
-        # Verify user ownership
-        if job["user_id"] != current_user["id"]:
-            raise HTTPException(status_code=403, detail="Access denied")
+        # Verify user has edit access
+        if not check_job_access(job, current_user, "edit"):
+            raise HTTPException(status_code=403, detail="Access denied - edit permission required")
         
         # Check if job has analysis available
         if not job.get("analysis_text") and not job.get("analysis_result"):
@@ -753,14 +782,13 @@ async def get_refinement_history(
     try:
         config = AppConfig()
         cosmos_db = CosmosDB(config)
-        
-        # Get the job
+          # Get the job
         job = cosmos_db.get_job(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
         
-        # Verify user ownership
-        if job["user_id"] != current_user["id"]:
+        # Verify user has view access
+        if not check_job_access(job, current_user, "view"):
             raise HTTPException(status_code=403, detail="Access denied")
         
         # Get refinement history
@@ -798,14 +826,13 @@ async def get_refinement_suggestions(
     try:
         config = AppConfig()
         cosmos_db = CosmosDB(config)
-        
-        # Get the job
+          # Get the job
         job = cosmos_db.get_job(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
         
-        # Verify user ownership
-        if job["user_id"] != current_user["id"]:
+        # Verify user has view access
+        if not check_job_access(job, current_user, "view"):
             raise HTTPException(status_code=403, detail="Access denied")
         
         # Check if job has analysis available
@@ -836,3 +863,348 @@ async def get_refinement_suggestions(
     except Exception as e:
         logger.error(f"Error getting refinement suggestions for job_id {job_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error retrieving refinement suggestions")
+
+
+# Job Sharing Endpoints
+
+@router.post("/jobs/{job_id}/share")
+async def share_job(
+    job_id: str,
+    request: JobShareRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> JobShareResponse:
+    """
+    Share a job with another user.
+    
+    Args:
+        job_id: The ID of the job to share
+        request: Job sharing request with target user and permissions
+        current_user: Authenticated user from token
+        
+    Returns:
+        JobShareResponse containing sharing status and details
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        
+        # Get the job
+        job = cosmos_db.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Verify user ownership - only job owner can share
+        if job["user_id"] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Only job owner can share this job")
+        
+        # Find target user by email
+        target_user = await cosmos_db.get_user_by_email(request.target_user_email)
+        if not target_user:
+            raise HTTPException(status_code=404, detail="Target user not found")
+        
+        # Don't allow sharing with yourself
+        if target_user["id"] == current_user["id"]:
+            raise HTTPException(status_code=400, detail="Cannot share job with yourself")
+        
+        # Initialize shared_with array if it doesn't exist
+        if "shared_with" not in job:
+            job["shared_with"] = []
+        
+        # Check if already shared with this user
+        existing_share = next((s for s in job["shared_with"] if s["user_id"] == target_user["id"]), None)
+        
+        if existing_share:
+            # Update existing share
+            existing_share["permission_level"] = request.permission_level
+            existing_share["shared_at"] = int(datetime.now(timezone.utc).timestamp() * 1000)
+            existing_share["shared_by"] = current_user["id"]
+            if request.message:
+                existing_share["message"] = request.message
+        else:
+            # Add new share
+            share_entry = {
+                "user_id": target_user["id"],
+                "user_email": target_user["email"],
+                "permission_level": request.permission_level,
+                "shared_at": int(datetime.now(timezone.utc).timestamp() * 1000),
+                "shared_by": current_user["id"],
+            }
+            if request.message:
+                share_entry["message"] = request.message
+            job["shared_with"].append(share_entry)
+        
+        # Update the job
+        update_fields = {
+            "shared_with": job["shared_with"],
+            "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000),
+        }
+        cosmos_db.update_job(job_id, update_fields)
+        
+        logger.info(f"Job {job_id} shared with user {target_user['email']} by {current_user['email']}")
+        
+        return JobShareResponse(
+            status="success",
+            message=f"Job shared successfully with {request.target_user_email}",
+            shared_job_id=job_id,
+            target_user_id=target_user["id"],
+            permission_level=request.permission_level
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sharing job {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error sharing job")
+
+@router.delete("/jobs/{job_id}/share")
+async def unshare_job(
+    job_id: str,
+    request: JobUnshareRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Remove job sharing with a specific user.
+    
+    Args:
+        job_id: The ID of the job to unshare
+        request: Job unshare request with target user email
+        current_user: Authenticated user from token
+        
+    Returns:
+        Dict containing unshare status
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        
+        # Get the job
+        job = cosmos_db.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Verify user ownership - only job owner can unshare
+        if job["user_id"] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Only job owner can unshare this job")
+        
+        # Find target user by email
+        target_user = await cosmos_db.get_user_by_email(request.target_user_email)
+        if not target_user:
+            raise HTTPException(status_code=404, detail="Target user not found")
+        
+        # Remove from shared_with array
+        if "shared_with" in job:
+            job["shared_with"] = [s for s in job["shared_with"] if s["user_id"] != target_user["id"]]
+            
+            # Update the job
+            update_fields = {
+                "shared_with": job["shared_with"],
+                "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000),
+            }
+            cosmos_db.update_job(job_id, update_fields)
+        
+        logger.info(f"Job {job_id} unshared with user {target_user['email']} by {current_user['email']}")
+        
+        return {
+            "status": "success",
+            "message": f"Job sharing removed for {request.target_user_email}"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error unsharing job {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error unsharing job")
+
+@router.get("/jobs/shared")
+async def get_shared_jobs(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> SharedJobsResponse:
+    """
+    Get all jobs shared with the current user and jobs owned by current user that are shared with others.
+    
+    Args:
+        current_user: Authenticated user from token
+        
+    Returns:
+        SharedJobsResponse containing shared jobs and owned shared jobs
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        storage_service = StorageService(config)
+        
+        # Query for jobs shared with current user
+        shared_query = """
+        SELECT * FROM c 
+        WHERE c.type = 'job' 
+        AND ARRAY_CONTAINS(c.shared_with, {'user_id': @user_id}, true)
+        """
+        shared_parameters = [{"name": "@user_id", "value": current_user["id"]}]
+        
+        shared_jobs = list(
+            cosmos_db.jobs_container.query_items(
+                query=shared_query,
+                parameters=shared_parameters,
+                enable_cross_partition_query=True,
+            )
+        )
+        
+        # Query for jobs owned by current user that are shared with others
+        owned_shared_query = """
+        SELECT * FROM c 
+        WHERE c.type = 'job' 
+        AND c.user_id = @user_id 
+        AND IS_DEFINED(c.shared_with) 
+        AND ARRAY_LENGTH(c.shared_with) > 0
+        """
+        owned_shared_parameters = [{"name": "@user_id", "value": current_user["id"]}]
+        
+        owned_shared_jobs = list(
+            cosmos_db.jobs_container.query_items(
+                query=owned_shared_query,
+                parameters=owned_shared_parameters,
+                enable_cross_partition_query=True,
+            )
+        )
+        
+        # Add SAS tokens and enhance job data
+        for job in shared_jobs + owned_shared_jobs:
+            if job.get("file_path"):
+                file_path = job["file_path"]
+                path_parts = urlparse(file_path).path.strip("/").split("/")
+                job["file_name"] = path_parts[-1] if path_parts else None
+                job["file_path"] = storage_service.add_sas_token_to_url(file_path)
+                
+                if job.get("transcription_file_path"):
+                    job["transcription_file_path"] = storage_service.add_sas_token_to_url(
+                        job["transcription_file_path"]
+                    )
+                if job.get("analysis_file_path"):
+                    job["analysis_file_path"] = storage_service.add_sas_token_to_url(
+                        job["analysis_file_path"]
+                    )
+        
+        return SharedJobsResponse(
+            status="success",
+            message="Shared jobs retrieved successfully",
+            shared_jobs=shared_jobs,
+            owned_jobs_shared_with_others=owned_shared_jobs
+        )
+    
+    except Exception as e:
+        logger.error(f"Error retrieving shared jobs: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error retrieving shared jobs")
+
+@router.get("/jobs/{job_id}/sharing-info")
+async def get_job_sharing_info(
+    job_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Get sharing information for a specific job.
+    
+    Args:
+        job_id: The ID of the job
+        current_user: Authenticated user from token
+        
+    Returns:
+        Dict containing job sharing information
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        
+        # Get the job
+        job = cosmos_db.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Check if user has access to this job (owner or shared with)
+        has_access = False
+        user_permission = None
+        
+        if job["user_id"] == current_user["id"]:
+            has_access = True
+            user_permission = "owner"
+        elif "shared_with" in job:
+            for share in job["shared_with"]:
+                if share["user_id"] == current_user["id"]:
+                    has_access = True
+                    user_permission = share["permission_level"]
+                    break
+        
+        if not has_access:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Return sharing info
+        shared_with = job.get("shared_with", [])
+        
+        return {
+            "status": "success",
+            "job_id": job_id,
+            "is_owner": job["user_id"] == current_user["id"],
+            "user_permission": user_permission,
+            "shared_with": shared_with,
+            "total_shares": len(shared_with)
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting job sharing info for {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error retrieving job sharing information")
+
+# Utility function for job access control
+def check_job_access(job: Dict[str, Any], current_user: Dict[str, Any], required_permission: str = "view") -> bool:
+    """
+    Check if user has access to a job with the required permission level.
+    
+    Args:
+        job: Job document
+        current_user: Current authenticated user
+        required_permission: Required permission level ("view", "edit", "admin")
+    
+    Returns:
+        Boolean indicating if user has access
+    """
+    # Job owner has all permissions
+    if job["user_id"] == current_user["id"]:
+        return True
+    
+    # Check shared permissions
+    if "shared_with" in job:
+        for share in job["shared_with"]:
+            if share["user_id"] == current_user["id"]:
+                user_permission = share["permission_level"]
+                
+                # Permission hierarchy: view < edit < admin
+                permission_levels = {"view": 1, "edit": 2, "admin": 3}
+                user_level = permission_levels.get(user_permission, 0)
+                required_level = permission_levels.get(required_permission, 0)
+                
+                return user_level >= required_level
+    
+    return False
+
+def get_user_job_permission(job: Dict[str, Any], current_user: Dict[str, Any]) -> Optional[str]:
+    """
+    Get the user's permission level for a job.
+    
+    Args:
+        job: Job document
+        current_user: Current authenticated user
+    
+    Returns:
+        Permission level string or None if no access
+    """
+    # Job owner has owner permission
+    if job["user_id"] == current_user["id"]:
+        return "owner"
+    
+    # Check shared permissions
+    if "shared_with" in job:
+        for share in job["shared_with"]:
+            if share["user_id"] == current_user["id"]:
+                return share["permission_level"]
+    
+    return None
