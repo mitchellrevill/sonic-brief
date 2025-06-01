@@ -341,7 +341,7 @@ function JobCard({
             className="flex-1 w-full"
             onClick={() => {
               // Navigate programmatically
-              window.location.href = `/audio-recordings/details/${job.id}`;
+              window.location.href = `/audio-recordings/${job.id}`;
             }}
           >
             View Details

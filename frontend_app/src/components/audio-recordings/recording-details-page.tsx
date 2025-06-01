@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { useAudioPlayer } from "@/hooks/use-audio-player";
 import { getAudioTranscriptionQuery } from "@/queries/audio-recordings.query";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useRouter } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { useIsMobile } from "@/components/ui/use-mobile";
 import { AnalysisRefinementChat } from "@/components/analysis-refinement/analysis-refinement-chat";
