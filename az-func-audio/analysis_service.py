@@ -55,7 +55,7 @@ class AnalysisService:
                 logger.error("Response missing expected message content. Full response: %s", response)
                 raise ValueError("Missing message content in response from AzureOpenAI")
             analysis_text = response.choices[0].message.content
-            logger.info("Analysis completed successfully:" + analysis_text)
+            logger.info(f"Analysis completed successfully: {analysis_text}")
 
             return {
                 "analysis_text": analysis_text,

@@ -7,6 +7,8 @@ from transcription_service import TranscriptionService
 from analysis_service import AnalysisService
 from storage_service import StorageService
 from cosmos_service import CosmosService
+import azure_storage
+import azure_oai
 
 # Configure logging
 logging.basicConfig(
@@ -52,6 +54,8 @@ def blob_trigger(myblob: func.InputStream):
         logging.info(f"Blob Path Without Extension: {blob_path_without_extension}")
         logging.info(f"Blob Extension: {blob_extension}")
         logging.info(f"Path Without Container: {path_without_container}")
+        transcription_model = os.getenv("TRANSCRIPTION_MODEL", "gpt-4o")
+        logging.info(f"Using transcription model: {transcription_model}")        
 
         cosmos_service = CosmosService(config)
         transcription_service = TranscriptionService(config)
@@ -71,27 +75,49 @@ def blob_trigger(myblob: func.InputStream):
 
         job_id = file_doc["id"]
         logging.debug(f"File document retrieved successfully: Job ID = {job_id}")
+        formatted_text = ""
 
-        # 1. Start transcription
-        logging.info("Starting transcription process...")
-        transcription_id = transcription_service.submit_transcription_job(blob_url)
-        logging.debug(
-            f"Transcription job submitted: Transcription ID = {transcription_id}"
-        )
+        if transcription_model == "AZURE_AI_SPEECH":
+            # 1. Start transcription
+            logging.info("Starting transcription process...")
+            transcription_id = transcription_service.submit_transcription_job(blob_url)
+            logging.debug(
+                f"Transcription job submitted: Transcription ID = {transcription_id}"
+            )
 
-        # Update job status to transcribing
-        cosmos_service.update_job_status(
-            job_id, "transcribing", transcription_id=transcription_id
-        )
-        logging.debug(f"Job status updated to 'transcribing' for Job ID = {job_id}")
+            # Update job status to transcribing
+            cosmos_service.update_job_status(
+                job_id, "transcribing", transcription_id=transcription_id
+            )
+            logging.debug(f"Job status updated to 'transcribing' for Job ID = {job_id}")
 
-        # 2. Wait for transcription completion
-        logging.info("Waiting for transcription to complete...")
-        status_data = transcription_service.check_status(transcription_id)
-        logging.debug("Transcription status checked successfully")
+            # 2. Wait for transcription completion
+            logging.info("Waiting for transcription to complete...")
+            status_data = transcription_service.check_status(transcription_id)
+            logging.debug("Transcription status checked successfully")
 
-        formatted_text = transcription_service.get_results(status_data)
-        logging.debug("Transcription results retrieved and formatted")
+            formatted_text = transcription_service.get_results(status_data)
+            logging.debug("Transcription results retrieved and formatted")
+        else:
+            # Step 1: Transcribe using Whisper or GPT-4-AUDIO
+            try:
+                #use azure_storage to download the blob from file_path to local storage and pass that to azure_oai
+                logging.info(f"Downloading audio file from blob blob_path= {path_without_container + blob_extension}")
+                local_file = azure_storage.download_audio_to_local_file(path_without_container + blob_extension)
+
+                logging.info(f"Audio file downloaded to local path: {local_file}")
+                transcription_text = azure_oai.transcribe_gpt4_audio(local_file)
+                logging.info("Transcription text retrieved ")
+                logging.debug(f"Results: {transcription_text}")
+
+                formatted_text = azure_oai.parse_speakers_with_gpt4(transcription_text)
+                logging.info("Formatted text retrieved")
+                # Delete the file
+                if os.path.exists(local_file):
+                    os.remove(local_file)
+                logging.info(f"Local file deleted: {local_file}")
+            except Exception as e:
+                raise ValueError(f"Error transcribing {blob_url}: {e}")
 
         # Save transcription text
         logging.info("Uploading transcription text to storage...")
