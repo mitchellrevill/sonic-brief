@@ -185,9 +185,7 @@ def blob_trigger(myblob: func.InputStream):
             raise ValueError(f"File document not found: {blob_path}")
 
         job_id = file_doc["id"]
-        logging.debug(f"File document retrieved successfully: Job ID = {job_id}")
-
-        # Process based on file type
+        logging.debug(f"File document retrieved successfully: Job ID = {job_id}")        # Process based on file type
         if file_type == "audio":
             formatted_text = process_audio_file(
                 config, blob_url, path_without_container, job_id, cosmos_service, storage_service
@@ -196,6 +194,11 @@ def blob_trigger(myblob: func.InputStream):
             formatted_text = process_text_file(
                 config, blob_url, blob_extension, path_without_container, job_id, 
                 cosmos_service, storage_service, text_processing_service
+            )
+        elif file_type == "document":
+            formatted_text = process_document_file(
+                config, blob_url, blob_extension, path_without_container, job_id, 
+                cosmos_service, storage_service
             )
         else:
             raise ValueError(f"Unsupported file type: {file_type}")
@@ -313,3 +316,38 @@ def process_text_file(config, blob_url, blob_extension, path_without_container, 
     logging.debug(f"Job status updated to 'text_processed' for Job ID = {job_id}")
     
     return formatted_text
+
+
+def process_document_file(config, blob_url, blob_extension, path_without_container, job_id, cosmos_service, storage_service):
+    """Process document files through text extraction workflow"""
+    logging.info("Processing document file through text extraction workflow")
+    
+    # Import the document processing service
+    from document_processing_service import DocumentProcessingService
+    document_processing_service = DocumentProcessingService(config)
+    
+    # Update job status to processing
+    cosmos_service.update_job_status(job_id, "processing_document")
+    logging.debug(f"Job status updated to 'processing_document' for Job ID = {job_id}")
+
+    # Process the document file to extract text
+    logging.info("Extracting text from document file...")
+    extracted_text = document_processing_service.process_document_file(blob_url, blob_extension)
+    logging.debug("Document text extraction completed successfully")
+
+    # Save extracted text (for consistency with audio workflow)
+    logging.info("Uploading extracted text to storage...")
+    extracted_text_blob_url = storage_service.upload_text(
+        container_name=config.storage_recordings_container,
+        blob_name=f"{path_without_container}_extracted_text.txt",
+        text_content=extracted_text,
+    )
+    logging.debug(f"Extracted text uploaded: {extracted_text_blob_url}")
+
+    # Update job with document processing complete
+    cosmos_service.update_job_status(
+        job_id, "document_processed", transcription_file_path=extracted_text_blob_url
+    )
+    logging.debug(f"Job status updated to 'document_processed' for Job ID = {job_id}")
+    
+    return extracted_text

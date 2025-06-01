@@ -72,10 +72,8 @@ class AppConfig:
                 ".bmp",           # Bitmap images
                 ".tiff", ".tif",  # TIFF images
                 ".webp",          # WebP images
-            }
-
-            # All supported file extensions (currently processable)
-            self.supported_extensions = self.supported_audio_extensions | self.supported_text_extensions
+            }            # All supported file extensions (currently processable)
+            self.supported_extensions = self.supported_audio_extensions | self.supported_text_extensions | self.supported_document_extensions
 
             # All known extensions (including future implementations)
             self.all_known_extensions = (
