@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
+import { isAudioFile, getFileNameFromPath, isWellSupportedAudioFormat } from "@/lib/file-utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,6 +39,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { MiniAudioPlayer } from "@/components/ui/mini-audio-player";
+import { FormatWarningDialog } from "@/components/ui/format-warning-dialog";
 import { AudioRecordingCard } from "./audio-recording-card";
 import { JobShareDialog } from "./job-share-dialog";
 import { JobDeleteDialog } from "./job-delete-dialog";
@@ -80,6 +83,9 @@ export function AudioRecordingsCombined({
   const [shareRecording, setShareRecording] = useState<any>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteRecording, setDeleteRecording] = useState<any>(null);
+  const [playingAudio, setPlayingAudio] = useState<string | null>(null);
+  const [formatWarningOpen, setFormatWarningOpen] = useState(false);
+  const [pendingAudioPlay, setPendingAudioPlay] = useState<string | null>(null);
   const router = useRouter();
 
   const form = useForm<AudioListValues>({
@@ -129,11 +135,21 @@ export function AudioRecordingsCombined({
       to: `/audio-recordings/$id`,
       params: { id: recording.id },
     });
-  };
-
-  const handlePlayAudio = (recording: any) => {
-    // Open audio in new tab for quick preview
-    window.open(recording.file_path, "_blank");
+  };  const handlePlayAudio = (recording: any) => {
+    if (isAudioFile(recording.file_path)) {
+      // Check if it's a commonly supported format
+      if (isWellSupportedAudioFormat(recording.file_path)) {
+        // Directly play well-supported formats
+        setPlayingAudio(recording.file_path);
+      } else {
+        // Show warning for other audio formats that might not work well
+        setPendingAudioPlay(recording.file_path);
+        setFormatWarningOpen(true);
+      }
+    } else {
+      // Non-audio files open directly in a new tab
+      window.open(recording.file_path, "_blank");
+    }
   };
 
   const handleDownloadAudio = (recording: any) => {
@@ -516,11 +532,10 @@ export function AudioRecordingsCombined({
                     {paginatedData && paginatedData.length > 0 ? (
                       paginatedData.map((row: any) => (
                         <TableRow key={row.id} className="hover:bg-muted/50 border-border/50">
-                          <TableCell className="font-mono text-sm">{row.id}</TableCell>
-                          <TableCell className="max-w-[250px]">
+                          <TableCell className="font-mono text-sm">{row.id}</TableCell>                          <TableCell className="max-w-[250px]">
                             <div className="truncate font-medium text-primary">
                               {row.file_name ||
-                                row.file_path.split("/").pop() ||
+                                getFileNameFromPath(row.file_path) ||
                                 "Unnamed Recording"}
                             </div>
                           </TableCell>
@@ -667,28 +682,43 @@ export function AudioRecordingsCombined({
             </Card>
           )}
         </CardContent>
-      </Card>
-      {shareRecording && (
+      </Card>      {shareRecording && (
         <JobShareDialog
           isOpen={shareDialogOpen}
           onOpenChange={setShareDialogOpen}
           jobId={shareRecording.id}
           jobTitle={
             shareRecording.file_name ||
-            shareRecording.file_path.split("/").pop()
+            getFileNameFromPath(shareRecording.file_path)
           }
         />
-      )}
-      {deleteRecording && (
+      )}      {deleteRecording && (
         <JobDeleteDialog
           isOpen={deleteDialogOpen}
           onOpenChange={setDeleteDialogOpen}
           jobId={deleteRecording.id}
           jobTitle={
             deleteRecording.file_name ||
-            deleteRecording.file_path.split("/").pop()
+            getFileNameFromPath(deleteRecording.file_path)
           }
           onDeleteSuccess={refetchJobs}
+        />      )}
+      
+      {/* Format Warning Dialog */}
+      {pendingAudioPlay && (
+        <FormatWarningDialog
+          isOpen={formatWarningOpen}
+          onOpenChange={setFormatWarningOpen}
+          filePath={pendingAudioPlay}
+          onContinue={() => setPlayingAudio(pendingAudioPlay)}
+        />
+      )}
+      
+      {/* Mini Audio Player */}
+      {playingAudio && (
+        <MiniAudioPlayer
+          src={playingAudio}
+          onClose={() => setPlayingAudio(null)}
         />
       )}
     </>
