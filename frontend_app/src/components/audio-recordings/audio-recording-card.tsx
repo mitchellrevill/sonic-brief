@@ -10,6 +10,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { getFileNameFromPath } from "@/lib/file-utils";
 import { 
   Eye, 
   MoreVertical,
@@ -50,9 +51,8 @@ export function AudioRecordingCard({
   onShare,
   onDelete,
   className,
-}: AudioRecordingCardProps) {
-  const fileName = recording.file_name || 
-    recording.file_path.split("/").pop() || 
+}: AudioRecordingCardProps) {  const fileName = recording.file_name || 
+    getFileNameFromPath(recording.file_path) || 
     "Unnamed Recording";
 
   const formattedDate = new Date(parseInt(recording.created_at.toString())).toLocaleDateString('en-US', {

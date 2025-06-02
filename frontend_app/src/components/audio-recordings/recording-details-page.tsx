@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { useIsMobile } from "@/components/ui/use-mobile";
 import { AnalysisRefinementChat } from "@/components/analysis-refinement/analysis-refinement-chat";
 import { fetchCategories, fetchSubcategories } from "@/api/prompt-management";
+import { isAudioFile, getFileNameFromPath } from "@/lib/file-utils";
 import {
   ArrowLeft,
   Download,
@@ -38,7 +39,7 @@ import {
 import { JobShareDialog } from "./job-share-dialog";
 import { JobSharingInfo } from "./job-sharing-info";
 import { JobDeleteDialog } from "./job-delete-dialog";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface ExtendedAudioRecording extends AudioRecording {
   analysis_text?: string;
@@ -60,11 +61,31 @@ const copyToClipboard = async (text: string, label: string = "Text") => {
   }
 };
 
-export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
-  const isMobile = useIsMobile();
+export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {  const isMobile = useIsMobile();
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);  // Check if audio file exists and is a valid audio format
+  const hasAudioFile = Boolean(recording.file_path) && isAudioFile(recording.file_path);
   
+  // Debug file type detection
+  useEffect(() => {
+    if (recording.file_path) {
+      console.log('File path:', recording.file_path);
+      console.log('Is audio file:', isAudioFile(recording.file_path));
+      console.log('Has audio file:', hasAudioFile);
+    }
+  }, [recording.file_path, hasAudioFile]);
+  
+  // Debug file type detection
+  useEffect(() => {
+    if (recording.file_path) {
+      const urlPath = recording.file_path.split('?')[0];
+      const ext = urlPath.split('.').pop()?.toLowerCase() || '';
+      console.log('File extension detected:', ext);
+      console.log('Is audio file:', isAudioFile(recording.file_path));
+      console.log('Has audio file:', hasAudioFile);
+    }
+  }, [recording.file_path, hasAudioFile]);
+
   const { 
     data: transcriptionText, 
     refetch: refetchTranscription,
@@ -111,7 +132,7 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
       toast.error(`Failed to download ${fileName}`);
     }
   };
-
+  // Only initialize audio player if file path exists
   const {
     audioRef,
     isPlaying,
@@ -125,10 +146,8 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
     handleVolumeSliderChange,
     formattedCurrentTime,
     formattedDuration,
-  } = useAudioPlayer(recording.file_path);
-
-  const fileName = recording.file_name || 
-    recording.file_path.split("/").pop() || 
+  } = useAudioPlayer(hasAudioFile ? recording.file_path : '');  const fileName = recording.file_name || 
+    (recording.file_path ? getFileNameFromPath(recording.file_path) : null) || 
     "Unnamed Recording";
 
   return (
@@ -177,91 +196,93 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Audio Player & Metadata */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Enhanced Audio Player Card */}
-            <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
-              <CardHeader className="pb-4">
-                <CardTitle className="flex items-center gap-2">
-                  <span className="bg-primary/10 rounded-full p-2">
-                    <FileAudio className="text-primary h-5 w-5" />
-                  </span>
-                  Audio Player
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <audio
-                  ref={audioRef}
-                  src={recording.file_path}
-                  preload="metadata"
-                  className="hidden"
-                />
+            {/* Enhanced Audio Player Card - Only shown when audio file exists */}
+            {hasAudioFile && (
+              <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+                <CardHeader className="pb-4">
+                  <CardTitle className="flex items-center gap-2">
+                    <span className="bg-primary/10 rounded-full p-2">
+                      <FileAudio className="text-primary h-5 w-5" />
+                    </span>
+                    Audio Player
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <audio
+                    ref={audioRef}
+                    src={recording.file_path}
+                    preload="metadata"
+                    className="hidden"
+                  />
 
-                {/* Enhanced Audio Player Interface */}
-                <div className="bg-gradient-to-r from-muted/50 to-muted/30 rounded-xl p-6 space-y-4">
-                  {/* Main Controls Row */}
-                  <div className="flex items-center gap-4">
-                    <Button
-                      size="icon"
-                      className="bg-primary text-primary-foreground hover:bg-primary/90 h-12 w-12 rounded-full shadow-lg transition-all duration-200 hover:scale-105"
-                      onClick={togglePlayPause}
-                    >
-                      {isPlaying ? (
-                        <Pause className="h-5 w-5" />
-                      ) : (
-                        <Play className="h-5 w-5 ml-0.5" />
-                      )}
-                    </Button>
-
-                    <div className="flex-1 space-y-2">
-                      <Slider
-                        value={[currentTime]}
-                        max={duration || 100}
-                        step={1}
-                        className="cursor-pointer"
-                        onValueChange={handleTimeSliderChange}
-                      />
-                      <div className="flex justify-between text-sm text-muted-foreground">
-                        <span className="font-mono">{formattedCurrentTime}</span>
-                        <span className="font-mono">{formattedDuration}</span>
-                      </div>
-                    </div>
-                  </div>                  {/* Volume Controls */}
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-2">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={toggleMute}
-                        className="h-8 w-8"
+                  {/* Enhanced Audio Player Interface */}
+                  <div className="bg-gradient-to-r from-muted/50 to-muted/30 rounded-xl p-6 space-y-4">
+                    {/* Main Controls Row */}
+                    <div className="flex items-center gap-4">
+                      <Button
+                        size="icon"
+                        className="bg-primary text-primary-foreground hover:bg-primary/90 h-12 w-12 rounded-full shadow-lg transition-all duration-200 hover:scale-105"
+                        onClick={togglePlayPause}
                       >
-                        {isMuted ? (
-                          <VolumeX className="h-4 w-4" />
+                        {isPlaying ? (
+                          <Pause className="h-5 w-5" />
                         ) : (
-                          <Volume2 className="h-4 w-4" />
+                          <Play className="h-5 w-5 ml-0.5" />
                         )}
                       </Button>
-                      <Slider
-                        value={[displayVolume]}
-                        max={100}
-                        step={1}
-                        className="w-24 cursor-pointer"
-                        onValueChange={handleVolumeSliderChange}
-                      />
-                      <span className="text-sm text-muted-foreground w-8">
-                        {Math.round(displayVolume)}%
-                      </span>
+
+                      <div className="flex-1 space-y-2">
+                        <Slider
+                          value={[currentTime]}
+                          max={duration || 100}
+                          step={1}
+                          className="cursor-pointer"
+                          onValueChange={handleTimeSliderChange}
+                        />
+                        <div className="flex justify-between text-sm text-muted-foreground">
+                          <span className="font-mono">{formattedCurrentTime}</span>
+                          <span className="font-mono">{formattedDuration}</span>
+                        </div>
+                      </div>
+                    </div>                    {/* Volume Controls */}
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-center gap-2">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={toggleMute}
+                          className="h-8 w-8"
+                        >
+                          {isMuted ? (
+                            <VolumeX className="h-4 w-4" />
+                          ) : (
+                            <Volume2 className="h-4 w-4" />
+                          )}
+                        </Button>
+                        <Slider
+                          value={[displayVolume]}
+                          max={100}
+                          step={1}
+                          className="w-24 cursor-pointer"
+                          onValueChange={handleVolumeSliderChange}
+                        />
+                        <span className="text-sm text-muted-foreground w-8">
+                          {Math.round(displayVolume)}%
+                        </span>
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={() => handleDownload(recording.file_path, "Audio file")}
+                        className="hover:bg-muted w-full sm:w-auto"
+                      >
+                        <Download className="mr-2 h-4 w-4" />
+                        Download
+                      </Button>
                     </div>
-                    <Button
-                      variant="outline"
-                      onClick={() => handleDownload(recording.file_path, "Audio file")}
-                      className="hover:bg-muted w-full sm:w-auto"
-                    >
-                      <Download className="mr-2 h-4 w-4" />
-                      Download
-                    </Button>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Tabs for Transcription and Analysis */}
             <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
@@ -585,15 +606,25 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                   </span>
                   Actions
                 </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">                <Button
-                  variant="outline"
-                  className="w-full justify-start transition-all duration-200 hover:scale-105 hover:bg-muted"
-                  onClick={() => handleDownload(recording.file_path, "Audio file")}
-                >
-                  <Download className="mr-2 h-4 w-4" />
-                  Download Audio File
-                </Button>
+              </CardHeader>              <CardContent className="space-y-3">                {hasAudioFile ? (
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start transition-all duration-200 hover:scale-105 hover:bg-muted"
+                    onClick={() => handleDownload(recording.file_path, "Audio file")}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Download Audio File
+                  </Button>
+                ) : recording.file_path && (
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start transition-all duration-200 hover:scale-105 hover:bg-muted"
+                    onClick={() => handleDownload(recording.file_path, "Source file")}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Download Source File
+                  </Button>
+                )}
                 
                 {recording.transcription_file_path && (
                   <Button
@@ -634,23 +665,19 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
             </Card>
           </div>
         </div>
-      </div>
-
-      {/* Sharing Info Display - New Component */}
-      <JobSharingInfo jobId={recording.id} jobTitle={recording.file_name || recording.file_path.split("/").pop()} />      {/* Share Dialog - New Component */}
+      </div>      {/* Sharing Info Display - New Component */}
+      <JobSharingInfo jobId={recording.id} jobTitle={fileName} />      {/* Share Dialog - New Component */}
       <JobShareDialog
         isOpen={shareDialogOpen}
         onOpenChange={setShareDialogOpen}
         jobId={recording.id}
-        jobTitle={recording.file_name || recording.file_path.split("/").pop()}
-      />
-
-      {/* Delete Dialog */}
+        jobTitle={fileName}
+      />      {/* Delete Dialog */}
       <JobDeleteDialog
         isOpen={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
         jobId={recording.id}
-        jobTitle={recording.file_name || recording.file_path.split("/").pop()}
+        jobTitle={fileName}
         onDeleteSuccess={() => {
           // Navigate back to the recordings list after successful delete
           window.location.href = "/audio-recordings";
