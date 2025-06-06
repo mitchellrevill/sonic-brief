@@ -86,7 +86,7 @@ const loadFFmpeg = async () => {
     return ffmpegRef.current;
   };
 
-const convertToWebm = async (file: File): Promise<File> => {
+const convertToWav = async (file: File): Promise<File> => {
     try {
       setConversionStep("Loading FFmpeg...");
       setConversionProgress(10);
@@ -98,17 +98,17 @@ const convertToWebm = async (file: File): Promise<File> => {
       
       const inputName = file.name;
       const baseName = inputName.replace(/\.[^/.]+$/, "");
-      const outputName = `${baseName}.webm`;
+      const outputName = `${baseName}.wav`;
 
       await ffmpeg.writeFile(inputName, await fetchFile(file));
 
-      setConversionStep("Converting to WebM format...");
+      setConversionStep("Converting to WAV format...");
       setConversionProgress(50);      const ffmpegArgs = [
         "-i", inputName,
-        "-c:a", "libopus",  // Use Opus codec for audio
-        "-b:a", "128k",     // Audio bitrate
-        "-ac", "1",         // Mono audio
-        "-y",               // Overwrite output file
+        "-acodec", "pcm_s16le",  // Use PCM 16-bit little-endian codec
+        "-ar", "16000",          // Sample rate 16kHz (good for speech)
+        "-ac", "1",              // Mono audio
+        "-y",                    // Overwrite output file
         outputName,
       ];
       
@@ -127,7 +127,7 @@ const convertToWebm = async (file: File): Promise<File> => {
       
       // Create a proper File object directly from the converted data
       const convertedFile = new File([data], outputName, {
-        type: "audio/webm",
+        type: "audio/wav",
         lastModified: Date.now(),
       });
       
@@ -166,10 +166,9 @@ const convertToWebm = async (file: File): Promise<File> => {
           setIsConverting(true);
           setConversionProgress(0);
           setConversionStep("Starting conversion...");
+            processedFile = await convertToWav(processedFile);
           
-          processedFile = await convertToWebm(processedFile);
-          
-          toast.success("Audio converted to WebM format successfully!");
+          toast.success("Audio converted to WAV format successfully!");
         } catch (error: unknown) {
           toast.error("Audio conversion failed. Uploading original file instead.");
           // Use original file when conversion fails
@@ -509,13 +508,12 @@ const convertToWebm = async (file: File): Promise<File> => {
         {/* Conversion Progress Dialog */}
     <Dialog open={isConverting} onOpenChange={() => {}}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+        <DialogHeader>          <DialogTitle className="flex items-center gap-2">
             <Music className="h-5 w-5 text-primary" />
-            Converting Audio to WebM
+            Converting Audio to WAV
           </DialogTitle>
           <DialogDescription>
-            Please wait while we convert your audio file to an optimized format for processing.
+            Please wait while we convert your audio file to WAV format for processing.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">

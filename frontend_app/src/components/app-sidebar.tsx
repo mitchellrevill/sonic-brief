@@ -367,8 +367,13 @@ export function AppSidebar({ children }: AppSidebarProps) {
                       <span className="ml-3">Settings</span>
                     )}
                   </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
+                </DropdownMenuTrigger>                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem asChild>
+                    <Link to="/profile" className="flex items-center">
+                      <User className="mr-2 h-4 w-4" />
+                      <span>Profile Settings</span>
+                    </Link>
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setTheme("light")}>
                     <Sun className="mr-2 h-4 w-4" />
                     <span>Light Theme</span>

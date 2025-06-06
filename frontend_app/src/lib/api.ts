@@ -112,6 +112,7 @@ export type User = {
   name: string;
   email: string;
   permission: "User" | "Admin" | "Viewer";
+  transcription_method?: "AZURE_AI_SPEECH" | "GPT4O_AUDIO";
   date?: string;
 };
 
@@ -250,6 +251,30 @@ export async function changeUserPassword(userId: string, newPassword: string): P
   }
 
   return data;
+}
+
+export async function updateUserTranscriptionMethod(
+  userId: string, 
+  transcriptionMethod: "AZURE_AI_SPEECH" | "GPT4O_AUDIO"
+): Promise<{ status: number; message: string; data: { user_id: string; transcription_method: string; updated_at: string } }> {
+  const token = localStorage.getItem("token");
+  if (!token) throw new Error("No authentication token found. Please log in again.");
+
+  const response = await fetch(`${User_MANAGEMENT_API}/${userId}/transcription-method`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ transcription_method: transcriptionMethod }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+  }
+
+  return await response.json();
 }
 
 export async function createCategory(name: string): Promise<CategoryResponse> {

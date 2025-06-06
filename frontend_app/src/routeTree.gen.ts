@@ -16,7 +16,9 @@ import { Route as LayoutImport } from './routes/_layout'
 import { Route as IndexImport } from './routes/index'
 import { Route as LayoutUserManagementIndexImport } from './routes/_layout/user-management/index'
 import { Route as LayoutUnauthorisedIndexImport } from './routes/_layout/unauthorised/index'
+import { Route as LayoutSimpleUploadIndexImport } from './routes/_layout/simple-upload/index'
 import { Route as LayoutPromptManagementIndexImport } from './routes/_layout/prompt-management/index'
+import { Route as LayoutProfileIndexImport } from './routes/_layout/profile/index'
 import { Route as LayoutAudioUploadIndexImport } from './routes/_layout/audio-upload/index'
 import { Route as LayoutAudioRecordingsIndexImport } from './routes/_layout/audio-recordings/index'
 import { Route as LayoutAdminIndexImport } from './routes/_layout/admin/index'
@@ -57,12 +59,24 @@ const LayoutUnauthorisedIndexRoute = LayoutUnauthorisedIndexImport.update({
   getParentRoute: () => LayoutRoute,
 } as any)
 
+const LayoutSimpleUploadIndexRoute = LayoutSimpleUploadIndexImport.update({
+  id: '/simple-upload/',
+  path: '/simple-upload/',
+  getParentRoute: () => LayoutRoute,
+} as any)
+
 const LayoutPromptManagementIndexRoute =
   LayoutPromptManagementIndexImport.update({
     id: '/prompt-management/',
     path: '/prompt-management/',
     getParentRoute: () => LayoutRoute,
   } as any)
+
+const LayoutProfileIndexRoute = LayoutProfileIndexImport.update({
+  id: '/profile/',
+  path: '/profile/',
+  getParentRoute: () => LayoutRoute,
+} as any)
 
 const LayoutAudioUploadIndexRoute = LayoutAudioUploadIndexImport.update({
   id: '/audio-upload/',
@@ -170,11 +184,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutAudioUploadIndexImport
       parentRoute: typeof LayoutImport
     }
+    '/_layout/profile/': {
+      id: '/_layout/profile/'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof LayoutProfileIndexImport
+      parentRoute: typeof LayoutImport
+    }
     '/_layout/prompt-management/': {
       id: '/_layout/prompt-management/'
       path: '/prompt-management'
       fullPath: '/prompt-management'
       preLoaderRoute: typeof LayoutPromptManagementIndexImport
+      parentRoute: typeof LayoutImport
+    }
+    '/_layout/simple-upload/': {
+      id: '/_layout/simple-upload/'
+      path: '/simple-upload'
+      fullPath: '/simple-upload'
+      preLoaderRoute: typeof LayoutSimpleUploadIndexImport
       parentRoute: typeof LayoutImport
     }
     '/_layout/unauthorised/': {
@@ -229,7 +257,9 @@ interface LayoutRouteChildren {
   LayoutAdminIndexRoute: typeof LayoutAdminIndexRoute
   LayoutAudioRecordingsIndexRoute: typeof LayoutAudioRecordingsIndexRoute
   LayoutAudioUploadIndexRoute: typeof LayoutAudioUploadIndexRoute
+  LayoutProfileIndexRoute: typeof LayoutProfileIndexRoute
   LayoutPromptManagementIndexRoute: typeof LayoutPromptManagementIndexRoute
+  LayoutSimpleUploadIndexRoute: typeof LayoutSimpleUploadIndexRoute
   LayoutUnauthorisedIndexRoute: typeof LayoutUnauthorisedIndexRoute
   LayoutUserManagementIndexRoute: typeof LayoutUserManagementIndexRoute
   LayoutAdminAllJobsIndexRoute: typeof LayoutAdminAllJobsIndexRoute
@@ -243,7 +273,9 @@ const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutAdminIndexRoute: LayoutAdminIndexRoute,
   LayoutAudioRecordingsIndexRoute: LayoutAudioRecordingsIndexRoute,
   LayoutAudioUploadIndexRoute: LayoutAudioUploadIndexRoute,
+  LayoutProfileIndexRoute: LayoutProfileIndexRoute,
   LayoutPromptManagementIndexRoute: LayoutPromptManagementIndexRoute,
+  LayoutSimpleUploadIndexRoute: LayoutSimpleUploadIndexRoute,
   LayoutUnauthorisedIndexRoute: LayoutUnauthorisedIndexRoute,
   LayoutUserManagementIndexRoute: LayoutUserManagementIndexRoute,
   LayoutAdminAllJobsIndexRoute: LayoutAdminAllJobsIndexRoute,
@@ -263,7 +295,9 @@ export interface FileRoutesByFullPath {
   '/admin': typeof LayoutAdminIndexRoute
   '/audio-recordings': typeof LayoutAudioRecordingsIndexRoute
   '/audio-upload': typeof LayoutAudioUploadIndexRoute
+  '/profile': typeof LayoutProfileIndexRoute
   '/prompt-management': typeof LayoutPromptManagementIndexRoute
+  '/simple-upload': typeof LayoutSimpleUploadIndexRoute
   '/unauthorised': typeof LayoutUnauthorisedIndexRoute
   '/user-management': typeof LayoutUserManagementIndexRoute
   '/admin/all-jobs': typeof LayoutAdminAllJobsIndexRoute
@@ -280,7 +314,9 @@ export interface FileRoutesByTo {
   '/admin': typeof LayoutAdminIndexRoute
   '/audio-recordings': typeof LayoutAudioRecordingsIndexRoute
   '/audio-upload': typeof LayoutAudioUploadIndexRoute
+  '/profile': typeof LayoutProfileIndexRoute
   '/prompt-management': typeof LayoutPromptManagementIndexRoute
+  '/simple-upload': typeof LayoutSimpleUploadIndexRoute
   '/unauthorised': typeof LayoutUnauthorisedIndexRoute
   '/user-management': typeof LayoutUserManagementIndexRoute
   '/admin/all-jobs': typeof LayoutAdminAllJobsIndexRoute
@@ -298,7 +334,9 @@ export interface FileRoutesById {
   '/_layout/admin/': typeof LayoutAdminIndexRoute
   '/_layout/audio-recordings/': typeof LayoutAudioRecordingsIndexRoute
   '/_layout/audio-upload/': typeof LayoutAudioUploadIndexRoute
+  '/_layout/profile/': typeof LayoutProfileIndexRoute
   '/_layout/prompt-management/': typeof LayoutPromptManagementIndexRoute
+  '/_layout/simple-upload/': typeof LayoutSimpleUploadIndexRoute
   '/_layout/unauthorised/': typeof LayoutUnauthorisedIndexRoute
   '/_layout/user-management/': typeof LayoutUserManagementIndexRoute
   '/_layout/admin/all-jobs/': typeof LayoutAdminAllJobsIndexRoute
@@ -317,7 +355,9 @@ export interface FileRouteTypes {
     | '/admin'
     | '/audio-recordings'
     | '/audio-upload'
+    | '/profile'
     | '/prompt-management'
+    | '/simple-upload'
     | '/unauthorised'
     | '/user-management'
     | '/admin/all-jobs'
@@ -333,7 +373,9 @@ export interface FileRouteTypes {
     | '/admin'
     | '/audio-recordings'
     | '/audio-upload'
+    | '/profile'
     | '/prompt-management'
+    | '/simple-upload'
     | '/unauthorised'
     | '/user-management'
     | '/admin/all-jobs'
@@ -349,7 +391,9 @@ export interface FileRouteTypes {
     | '/_layout/admin/'
     | '/_layout/audio-recordings/'
     | '/_layout/audio-upload/'
+    | '/_layout/profile/'
     | '/_layout/prompt-management/'
+    | '/_layout/simple-upload/'
     | '/_layout/unauthorised/'
     | '/_layout/user-management/'
     | '/_layout/admin/all-jobs/'
@@ -396,7 +440,9 @@ export const routeTree = rootRoute
         "/_layout/admin/",
         "/_layout/audio-recordings/",
         "/_layout/audio-upload/",
+        "/_layout/profile/",
         "/_layout/prompt-management/",
+        "/_layout/simple-upload/",
         "/_layout/unauthorised/",
         "/_layout/user-management/",
         "/_layout/admin/all-jobs/",
@@ -424,8 +470,16 @@ export const routeTree = rootRoute
       "filePath": "_layout/audio-upload/index.tsx",
       "parent": "/_layout"
     },
+    "/_layout/profile/": {
+      "filePath": "_layout/profile/index.tsx",
+      "parent": "/_layout"
+    },
     "/_layout/prompt-management/": {
       "filePath": "_layout/prompt-management/index.tsx",
+      "parent": "/_layout"
+    },
+    "/_layout/simple-upload/": {
+      "filePath": "_layout/simple-upload/index.tsx",
       "parent": "/_layout"
     },
     "/_layout/unauthorised/": {

@@ -93,7 +93,7 @@ export function AudioRecordingModal({ isOpen, onClose, onRecordingComplete }: Au
       mediaRecorderRef.current.ondataavailable = (event) => {
         audioChunks.current.push(event.data);
       };      mediaRecorderRef.current.onstop = () => {
-        const audioBlob = new Blob(audioChunks.current, { type: "audio/webm" });
+        const audioBlob = new Blob(audioChunks.current, { type: "audio/wav" });
         const url = URL.createObjectURL(audioBlob);
         setAudioURL(url);
         setState(RecordingState.RECORDED);
@@ -247,13 +247,11 @@ export function AudioRecordingModal({ isOpen, onClose, onRecordingComplete }: Au
           }
           return prev + 10;
         });
-      }, 100);
-
-      // Convert blob URL to actual file
+      }, 100);      // Convert blob URL to actual file
       const response = await fetch(audioURL);
       const audioBlob = await response.blob();
-      const randomName = `recording-${getRandomString(8)}.webm`;
-      const file = new File([audioBlob], randomName, { type: "audio/webm" });
+      const randomName = `recording-${getRandomString(8)}.wav`;
+      const file = new File([audioBlob], randomName, { type: "audio/wav" });
 
       // Complete processing
       setTimeout(() => {
