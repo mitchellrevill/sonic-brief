@@ -203,7 +203,7 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
       
       const inputName = file.name;
       const baseName = inputName.replace(/\.[^/.]+$/, "");
-      const outputName = `${baseName}.webm`;
+      const outputName = `${baseName}.wav`;
       
       console.log("📝 File names:", { inputName, baseName, outputName });
 

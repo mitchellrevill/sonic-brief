@@ -31,12 +31,14 @@ import {
   Calendar,
   Mail,
   Check,
-  X
+  X,
+  Mic
 } from "lucide-react";
 import { fetchAllUsers } from "@/lib/api"; 
 import type { User } from "@/lib/api";
 import { updateUserPermission } from "@/lib/api";
 import { ChangePasswordDialog } from "./change-password-dialog";
+import { TranscriptionMethodDialog } from "./transcription-method-dialog";
 
 const initialUsers: User[] = [
   { id: "1", name: "", email: "", permission: "Admin" },
@@ -87,6 +89,7 @@ export function UserManagementTable() {
   const [editPermission, setEditPermission] = useState<Record<string, User["permission"]>>({});
   const [loading, setLoading] = useState(false);
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [transcriptionDialogOpen, setTranscriptionDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
 
   const fetchAllUsersApi = async () => {
@@ -151,14 +154,23 @@ export function UserManagementTable() {
   const cancelEdit = () => {
     setEditingId(null);
     setEditPermission({});
-  };
-  const handleChangePassword = (user: User) => {
+  };  const handleChangePassword = (user: User) => {
     setSelectedUser(user);
     setPasswordDialogOpen(true);
   };
 
   const handleClosePasswordDialog = () => {
     setPasswordDialogOpen(false);
+    setSelectedUser(null);
+  };
+
+  const handleChangeTranscriptionMethod = (user: User) => {
+    setSelectedUser(user);
+    setTranscriptionDialogOpen(true);
+  };
+
+  const handleCloseTranscriptionDialog = () => {
+    setTranscriptionDialogOpen(false);
     setSelectedUser(null);
   };
 
@@ -232,13 +244,17 @@ export function UserManagementTable() {
                           <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
                             <MoreVertical className="h-4 w-4" />
                           </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
+                        </DropdownMenuTrigger>                        <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={() => startEdit(user)}>
                             <Edit2 className="mr-2 h-4 w-4" />
                             Edit Permissions
                           </DropdownMenuItem>
-                          <DropdownMenuSeparator />                          <DropdownMenuItem onClick={() => handleChangePassword(user)}>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => handleChangeTranscriptionMethod(user)}>
+                            <Mic className="mr-2 h-4 w-4" />
+                            Transcription Method
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleChangePassword(user)}>
                             <KeyRound className="mr-2 h-4 w-4" />
                             Change Password
                           </DropdownMenuItem>
@@ -407,9 +423,18 @@ export function UserManagementTable() {
                       <TableCell>
                         <div className="text-sm">{user.date || "—"}</div>
                       </TableCell>
-                      
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">                          <Button
+                        <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleChangeTranscriptionMethod(user)}
+                            className="h-8"
+                          >
+                            <Mic className="mr-2 h-3 w-3" />
+                            Transcription
+                          </Button>
+                          <Button
                             size="sm"
                             variant="outline"
                             onClick={() => handleChangePassword(user)}
@@ -437,14 +462,23 @@ export function UserManagementTable() {
             </Table>          </CardContent>
         </Card>
       </div>
-      
-      {/* Change Password Dialog */}
+        {/* Change Password Dialog */}
       {selectedUser && (
         <ChangePasswordDialog
           isOpen={passwordDialogOpen}
           onClose={handleClosePasswordDialog}
           userEmail={selectedUser.email}
           userId={String(selectedUser.id)}
+        />
+      )}
+      
+      {/* Transcription Method Dialog */}
+      {selectedUser && (
+        <TranscriptionMethodDialog
+          isOpen={transcriptionDialogOpen}
+          onClose={handleCloseTranscriptionDialog}
+          user={selectedUser}
+          onUpdate={fetchAllUsersApi}
         />
       )}
     </div>
