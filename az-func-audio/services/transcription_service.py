@@ -10,15 +10,25 @@ import json
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from config import AppConfig
-from storage_service import StorageService
+from services.storage_service import StorageService
 
+
+class TranscriptionServiceError(Exception):
+    """Custom exception for transcription service errors."""
+    pass
 
 class TranscriptionService:
-    def __init__(self, config: AppConfig):
+    def __init__(
+        self,
+        config: AppConfig,
+        credential: DefaultAzureCredential = None,
+        storage_service: StorageService = None,
+    ) -> None:
+        """Initialize the TranscriptionService with config, optional credential, and storage service."""
         self.config = config
         self.logger = logging.getLogger(__name__)
-        self.credential = DefaultAzureCredential()
-        self.storage_service = StorageService(config)
+        self.credential = credential if credential is not None else DefaultAzureCredential()
+        self.storage_service = storage_service if storage_service is not None else StorageService(config)
         self.endpoint = f"https://{config.speech_deployment}.cognitiveservices.azure.com/speechtotext/v3.2"
         self.logger.info(
             "Initialized TranscriptionService",
@@ -31,7 +41,7 @@ class TranscriptionService:
         )
 
     def _get_auth_token(self) -> str:
-        """Get authentication token for Azure services"""
+        """Get authentication token for Azure services."""
         try:
             self.logger.debug(
                 "Attempting to acquire authentication token",
@@ -87,41 +97,34 @@ class TranscriptionService:
                 },
                 exc_info=True,
             )
-            raise
-        except Exception as e:
-            self.logger.error(
-                "Failed to acquire authentication token",
-                extra={"error_type": type(e).__name__, "error_details": str(e)},
-                exc_info=True,
-            )
-            raise
+            raise TranscriptionServiceError(f"Failed to acquire authentication token: {str(e)}") from e
 
     def _get_headers(self) -> Dict[str, str]:
-        """Get headers for API requests"""
-        self.logger.debug("Preparing API request headers")
-        token = self._get_auth_token()
-
-        # Create headers
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-        }
-
-        # Log header details (safely)
-        self.logger.debug(
-            "Headers prepared",
-            extra={
-                "headers_present": {
-                    "Content-Type": headers.get("Content-Type"),
-                    "Authorization": "Bearer <redacted>",
-                    "token_length": len(token) if token else 0,
-                }
-            },
-        )
-        return headers
+        """Get headers for API requests."""
+        try:
+            self.logger.debug("Preparing API request headers")
+            token = self._get_auth_token()
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            }
+            self.logger.debug(
+                "Headers prepared",
+                extra={
+                    "headers_present": {
+                        "Content-Type": headers.get("Content-Type"),
+                        "Authorization": "Bearer <redacted>",
+                        "token_length": len(token) if token else 0,
+                    }
+                },
+            )
+            return headers
+        except Exception as e:
+            self.logger.error("Failed to prepare API request headers", extra={"error_type": type(e).__name__, "error_details": str(e)}, exc_info=True)
+            raise TranscriptionServiceError(f"Failed to prepare API request headers: {str(e)}") from e
 
     def _prepare_transcription_properties(self, blob_url: str) -> Dict[str, Any]:
-        """Prepare transcription job properties"""
+        """Prepare transcription job properties for Azure Speech Service."""
         properties = {
             "contentUrls": [blob_url],
             "locale": self.config.speech_transcription_locale,
@@ -144,15 +147,13 @@ class TranscriptionService:
                 "display_name": properties["displayName"],
                 "locale": properties["locale"],
                 "max_speakers": properties["properties"]["speakers"]["maxCount"],
-                "candidate_locales": properties["properties"]["languageIdentification"][
-                    "candidateLocales"
-                ],
+                "candidate_locales": properties["properties"]["languageIdentification"]["candidateLocales"],
             },
         )
         return properties
 
     def submit_transcription_job(self, blob_url: str) -> str:
-        """Submit transcription job and return job ID"""
+        """Submit transcription job and return job ID."""
         try:
             self.logger.info(
                 "Submitting transcription job", extra={"blob_url": blob_url}
@@ -208,12 +209,12 @@ class TranscriptionService:
                 },
                 exc_info=True,
             )
-            raise
+            raise TranscriptionServiceError(f"Failed to submit transcription job: {str(e)}") from e
 
     def check_status(
         self, transcription_id: str, timeout: int = 18000, interval: int = 20
     ) -> Dict[str, Any]:
-        """Check transcription status with timeout"""
+        """Check transcription status with timeout and polling interval."""
         start_time = time.time()
         status_endpoint = f"{self.endpoint}/transcriptions/{transcription_id}"
         headers = self._get_headers()
@@ -281,7 +282,7 @@ class TranscriptionService:
                         },
                         exc_info=True,
                     )
-                    raise Exception(
+                    raise TranscriptionServiceError(
                         f"Transcription failed: Code={error_code}, Message={error_message}, Details={error_details_json}"
                     )
                 elif status == "Running":
@@ -321,10 +322,10 @@ class TranscriptionService:
                     },
                     exc_info=True,
                 )
-                raise
+                raise TranscriptionServiceError(f"Unexpected error checking transcription status: {str(e)}") from e
 
     def _format_transcription(self, results: Dict[str, Any]) -> str:
-        """Format transcription results as text"""
+        """Format transcription results as text."""
         formatted_lines = []
         current_speaker = None
         phrase_count = 0
@@ -369,7 +370,7 @@ class TranscriptionService:
         return "\n".join(formatted_lines)
 
     def get_results(self, status_data: Dict[str, Any]) -> str:
-        """Retrieve transcription results"""
+        """Retrieve and format transcription results from Azure Speech Service."""
         try:
             files_url = status_data.get("links", {}).get("files")
             if not files_url:
@@ -429,12 +430,11 @@ class TranscriptionService:
                 extra={"error_type": type(e).__name__, "error_details": str(e)},
                 exc_info=True,
             )
-            raise
+            raise TranscriptionServiceError(f"Failed to retrieve transcription results: {str(e)}") from e
 
     def transcribe(self, blob_url: str) -> Dict[str, Any]:
-        """Main transcription workflow"""
+        """Main transcription workflow: submit, poll, and retrieve results."""
         start_time = time.time()
-
         try:
             self.logger.info(
                 "Starting transcription workflow", extra={"blob_url": blob_url}
@@ -481,4 +481,6 @@ class TranscriptionService:
                 },
                 exc_info=True,
             )
-            raise
+            raise TranscriptionServiceError(f"Transcription workflow failed: {str(e)}") from e
+
+# Move this file to az-func-audio/services/transcription_service.py
