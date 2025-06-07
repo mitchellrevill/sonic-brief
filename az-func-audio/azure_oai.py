@@ -20,8 +20,10 @@ if not AZURE_OPENAI_ENDPOINT:
 AZURE_OPENAI_DEPLOYMENT_NAME=os.environ["AZURE_OPENAI_DEPLOYMENT"]
 AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION")
 
-AZURE_AUDIO_MODEL=os.getenv("AZURE_AUDIO_MODEL", "")
+# --- AUDIO PREVIEW ENV VARS ---
+AZURE_AUDIO_ENDPOINT = os.getenv("AZURE_AUDIO_ENDPOINT")
 AZURE_AUDIO_API_VERSION = os.getenv("AZURE_AUDIO_API_VERSION")
+AZURE_AUDIO_MODEL = os.getenv("AZURE_AUDIO_MODEL", "")
 
 def get_oai_client():
     oai_client = AzureOpenAI(
@@ -32,9 +34,11 @@ def get_oai_client():
     return oai_client
 
 def get_audio_client():
+    if not AZURE_AUDIO_ENDPOINT:
+        raise ValueError("AZURE_AUDIO_ENDPOINT is not set.")
     oai_client = AzureOpenAI(
         api_version= AZURE_AUDIO_API_VERSION,
-        azure_endpoint= AZURE_OPENAI_ENDPOINT, 
+        azure_endpoint= AZURE_AUDIO_ENDPOINT, 
         azure_ad_token_provider=token_provider
     )
     return oai_client
