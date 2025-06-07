@@ -76,6 +76,12 @@ resource "azurerm_linux_function_app" "function_call_function_app" {
     AZURE_OPENAI_DEPLOYMENT  = var.openai_model_deployment_name
     AZURE_OPENAI_ENDPOINT    = azurerm_cognitive_account.openai.endpoint
 
+    # Azure OpenAI Audio Model Configuration
+
+    AZURE_AUDIO_MODEL       = var.openai_model_audio_deployment_name
+    AZURE_AUDIO_API_VERSION = var.openai_model_audio_deployment_api_version
+    TRANSCRIPTION_MODEL     = "gpt-4o"
+
     # Azure Speech Services Configuration
     AZURE_SPEECH_CANDIDATE_LOCALES    = "en-US,zu-ZA,af-ZA"
     AZURE_SPEECH_DEPLOYMENT           = azurerm_cognitive_account.SpeechServices.name

@@ -9,6 +9,8 @@ from services.analysis_service import AnalysisService
 from services.storage_service import StorageService
 from services.cosmos_service import CosmosService
 from services.file_processing_service import FileProcessingService, SYSTEM_GENERATED_TAG
+import azure_storage
+import azure_oai
 
 # Configure logging
 logging.basicConfig(
@@ -183,6 +185,13 @@ def blob_trigger(myblob: func.InputStream):
         logging.info(f"Blob Extension: {blob_extension}")
         logging.info(f"File Type: {file_type}")
         logging.info(f"Path Without Container: {path_without_container}")
+        transcription_model = os.getenv("TRANSCRIPTION_MODEL", "gpt-4o")
+        logging.info(f"Using transcription model: {transcription_model}")        
+
+        cosmos_service = CosmosService(config)
+        transcription_service = TranscriptionService(config)
+        analysis_service = AnalysisService(config)
+        storage_service = StorageService(config)
 
         blob_url = f"{config.storage_account_url}/{myblob.name}"
 
@@ -195,6 +204,7 @@ def blob_trigger(myblob: func.InputStream):
 
         job_id = file_doc["id"]
         logging.debug(f"File document retrieved successfully: Job ID = {job_id}")
+        formatted_text = ""
 
         # Process based on file type
         if file_type == "audio":
@@ -215,6 +225,62 @@ def blob_trigger(myblob: func.InputStream):
             )
         else:
             raise ValueError(f"Unsupported file type: {file_type}")
+        if transcription_model == "AZURE_AI_SPEECH":
+            # 1. Start transcription
+            logging.info("Starting transcription process...")
+            transcription_id = transcription_service.submit_transcription_job(blob_url)
+            logging.debug(
+                f"Transcription job submitted: Transcription ID = {transcription_id}"
+            )
+
+            # Update job status to transcribing
+            cosmos_service.update_job_status(
+                job_id, "transcribing", transcription_id=transcription_id
+            )
+            logging.debug(f"Job status updated to 'transcribing' for Job ID = {job_id}")
+
+            # 2. Wait for transcription completion
+            logging.info("Waiting for transcription to complete...")
+            status_data = transcription_service.check_status(transcription_id)
+            logging.debug("Transcription status checked successfully")
+
+            formatted_text = transcription_service.get_results(status_data)
+            logging.debug("Transcription results retrieved and formatted")
+        else:
+            # Step 1: Transcribe using Whisper or GPT-4-AUDIO
+            try:
+                #use azure_storage to download the blob from file_path to local storage and pass that to azure_oai
+                logging.info(f"Downloading audio file from blob blob_path= {path_without_container + blob_extension}")
+                local_file = azure_storage.download_audio_to_local_file(path_without_container + blob_extension)
+
+                logging.info(f"Audio file downloaded to local path: {local_file}")
+                transcription_text = azure_oai.transcribe_gpt4_audio(local_file)
+                logging.info("Transcription text retrieved ")
+                logging.debug(f"Results: {transcription_text}")
+
+                formatted_text = azure_oai.parse_speakers_with_gpt4(transcription_text)
+                logging.info("Formatted text retrieved")
+                # Delete the file
+                if os.path.exists(local_file):
+                    os.remove(local_file)
+                logging.info(f"Local file deleted: {local_file}")
+            except Exception as e:
+                raise ValueError(f"Error transcribing {blob_url}: {e}")
+
+        # Save transcription text
+        logging.info("Uploading transcription text to storage...")
+        transcription_blob_url = storage_service.upload_text(
+            container_name=config.storage_recordings_container,
+            blob_name=f"{path_without_container}_transcription.txt",
+            text_content=formatted_text,
+        )
+        logging.debug(f"Transcription text uploaded: {transcription_blob_url}")
+
+        # Update job with transcription complete
+        cosmos_service.update_job_status(
+            job_id, "transcribed", transcription_file_path=transcription_blob_url
+        )
+        logging.debug(f"Job status updated to 'transcribed' for Job ID = {job_id}")
 
         # Continue with analysis (common for both audio and text)
         logging.info("Retrieving analysis prompts...")

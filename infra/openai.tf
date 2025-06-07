@@ -15,6 +15,25 @@ variable "openai_model_deployment_api_version" {
   default     = "2024-12-01-preview"
 
 }
+
+variable "openai_model_audio_deployment_name" {
+  description = "Specifies the name of the Azure OpenAI Service model"
+  type        = string
+  default     = "gpt-4o-audio-preview"
+}
+
+variable "openai_model_audio_deployment_version" {
+  description = "Specifies the version of the Azure OpenAI Service model"
+  type        = string
+  default     = "gpt-4o-audio-preview"
+}
+variable "openai_model_audio_deployment_api_version" {
+  description = "Specifies the API version of the Azure OpenAI Service model"
+  type        = string
+  default     = "2025-01-01-preview"
+
+}
+
 variable "openai_model_deployment_sku_name" {
   description = "Specifies the SKU name of the Azure OpenAI Service"
   type        = string
@@ -59,6 +78,24 @@ resource "azurerm_cognitive_deployment" "openai_deployments" {
     format  = "OpenAI"
     name    = var.openai_model_deployment_name
     version = var.openai_model_deployment_version
+  }
+
+  sku {
+    name     = var.openai_model_deployment_sku_name
+    capacity = var.openai_model_deployment_sku_capacity
+  }
+}
+
+resource "azurerm_cognitive_deployment" "openai_audio_deployments" {
+  cognitive_account_id   = azurerm_cognitive_account.openai.id
+  name                   = var.openai_model_audio_deployment_name
+  version_upgrade_option = "OnceNewDefaultVersionAvailable"
+
+
+  model {
+    format  = "OpenAI"
+    name    = var.openai_model_audio_deployment_name
+    version = var.openai_model_audio_deployment_version
   }
 
   sku {
