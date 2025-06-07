@@ -7,23 +7,18 @@ from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
 logger = logging.getLogger(__name__)
 
+class AnalysisServiceError(Exception):
+    """Custom exception for analysis service errors."""
+    pass
 
 class AnalysisService:
-    def __init__(self, config: AppConfig):
+    def __init__(self, config: AppConfig, credential: DefaultAzureCredential = None) -> None:
+        """Initialize the AnalysisService with config and optional credential."""
         self.config = config
-        self.credential = DefaultAzureCredential()
+        self.credential = credential if credential is not None else DefaultAzureCredential()
 
     def analyze_conversation(self, conversation: str, context: str) -> Dict[str, Any]:
-        """
-        Analyze conversation using Azure OpenAI.
-
-        Args:
-            conversation: The conversation text to analyze
-            context: The system context/prompt for analysis
-
-        Returns:
-            Dict containing the analysis results
-        """
+        """Analyze conversation using Azure OpenAI and return analysis results."""
         try:
             logger.info("Getting Bearer Token...")
             token_provider = get_bearer_token_provider(
@@ -64,26 +59,12 @@ class AnalysisService:
             }
         except Exception as e:
             logger.error(f"Analysis failed: {str(e)}")
-            return {
-                "analysis_text": "",  # ensure key exists even on error
-                "raw_response": None,
-                "status": "error",
-                "error": str(e)
-            }
+            raise AnalysisServiceError(f"Analysis failed: {str(e)}") from e
 
     def process_transcription_results(
         self, transcription_result: Dict[str, Any], context: str
     ) -> Dict[str, Any]:
-        """
-        Process transcription results and perform analysis.
-
-        Args:
-            transcription_result: The transcription results to analyze
-            context: The analysis context/prompt
-
-        Returns:
-            Dict containing the analysis results
-        """
+        """Process transcription results and perform analysis."""
         try:
             # Extract conversation text from transcription
             conversation_text = transcription_result.get(
@@ -103,4 +84,5 @@ class AnalysisService:
 
         except Exception as e:
             logger.error(f"Failed to process transcription results: {str(e)}")
-            return {"status": "error", "error": str(e)}
+            raise AnalysisServiceError(f"Failed to process transcription results: {str(e)}") from e
+# Move this file to az-func-audio/services/analysis_service.py

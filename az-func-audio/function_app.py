@@ -4,11 +4,11 @@ import logging
 import json
 from datetime import datetime
 from config import AppConfig
-from transcription_service import TranscriptionService
-from text_processing_service import TextProcessingService
-from analysis_service import AnalysisService
-from storage_service import StorageService
-from cosmos_service import CosmosService
+from services.transcription_service import TranscriptionService
+from services.analysis_service import AnalysisService
+from services.storage_service import StorageService
+from services.cosmos_service import CosmosService
+from services.file_processing_service import FileProcessingService, SYSTEM_GENERATED_TAG
 
 # Configure logging
 logging.basicConfig(
@@ -117,6 +117,11 @@ Respond in a helpful, conversational manner as if you're assisting them in under
         )
 
 
+def is_system_generated_file(blob_name: str) -> bool:
+    """Return True if the blob name indicates a system-generated file."""
+    return SYSTEM_GENERATED_TAG in blob_name
+
+
 @app.blob_trigger(
     arg_name="myblob",
     path="%AZURE_STORAGE_RECORDINGS_CONTAINER%/{name}",
@@ -131,10 +136,15 @@ def blob_trigger(myblob: func.InputStream):
         config = AppConfig()
         blob_path = myblob.name
 
+        # Skip system-generated files
+        if is_system_generated_file(blob_path):
+            logging.info(f"Skipping system-generated file: {blob_path}")
+            return
+
         # Extract the file extension
         blob_path_without_extension, blob_extension = os.path.splitext(blob_path)
 
-        # Check if the file has a valid extension (audio or text)
+        # Check if the file has a valid extension (audio, text, or document)
         if blob_extension not in config.supported_extensions:
             logging.info(
                 f"Skipping file '{myblob.name}' (unsupported extension: {blob_extension})"
@@ -143,13 +153,12 @@ def blob_trigger(myblob: func.InputStream):
 
         # Initialize services
         cosmos_service = CosmosService(config)
-        text_processing_service = TextProcessingService(config)
         analysis_service = AnalysisService(config)
         storage_service = StorageService(config)
+        file_processing_service = FileProcessingService(config)
 
         # Determine file type
-        file_type = text_processing_service.get_file_type(blob_extension)
-        
+        file_type = file_processing_service.get_file_type(blob_extension)
         logging.info(
             f"Processing file: {blob_path}",
             extra={
@@ -185,20 +194,24 @@ def blob_trigger(myblob: func.InputStream):
             raise ValueError(f"File document not found: {blob_path}")
 
         job_id = file_doc["id"]
-        logging.debug(f"File document retrieved successfully: Job ID = {job_id}")        # Process based on file type
+        logging.debug(f"File document retrieved successfully: Job ID = {job_id}")
+
+        # Process based on file type
         if file_type == "audio":
             formatted_text = process_audio_file(
                 config, blob_url, path_without_container, job_id, cosmos_service, storage_service
             )
-        elif file_type == "text":
-            formatted_text = process_text_file(
-                config, blob_url, blob_extension, path_without_container, job_id, 
-                cosmos_service, storage_service, text_processing_service
+        elif file_type in ("text", "document"):
+            formatted_text = file_processing_service.process_file(blob_url, blob_extension)
+            # Save processed/extracted text (for consistency with audio workflow)
+            logging.info("Uploading processed/extracted text to storage...")
+            processed_text_blob_url = storage_service.upload_text(
+                container_name=config.storage_recordings_container,
+                blob_name=f"{path_without_container}_{SYSTEM_GENERATED_TAG}_processed_text.txt",
+                text_content=formatted_text,
             )
-        elif file_type == "document":
-            formatted_text = process_document_file(
-                config, blob_url, blob_extension, path_without_container, job_id, 
-                cosmos_service, storage_service
+            cosmos_service.update_job_status(
+                job_id, f"{file_type}_processed", transcription_file_path=processed_text_blob_url
             )
         else:
             raise ValueError(f"Unsupported file type: {file_type}")
@@ -222,7 +235,7 @@ def blob_trigger(myblob: func.InputStream):
         logging.info("Generating and uploading analysis PDF...")
         pdf_blob_url = storage_service.generate_and_upload_pdf(
             analysis_result["analysis_text"],
-            f"{path_without_container}_analysis.pdf",
+            f"{path_without_container}_{SYSTEM_GENERATED_TAG}_analysis.pdf",
         )
         logging.debug(f"Analysis PDF uploaded: {pdf_blob_url}")
 
@@ -273,7 +286,7 @@ def process_audio_file(config, blob_url, path_without_container, job_id, cosmos_
     logging.info("Uploading transcription text to storage...")
     transcription_blob_url = storage_service.upload_text(
         container_name=config.storage_recordings_container,
-        blob_name=f"{path_without_container}_transcription.txt",
+        blob_name=f"{path_without_container}_{SYSTEM_GENERATED_TAG}_transcription.txt",
         text_content=formatted_text,
     )
     logging.debug(f"Transcription text uploaded: {transcription_blob_url}")
@@ -285,69 +298,3 @@ def process_audio_file(config, blob_url, path_without_container, job_id, cosmos_
     logging.debug(f"Job status updated to 'transcribed' for Job ID = {job_id}")
     
     return formatted_text
-
-
-def process_text_file(config, blob_url, blob_extension, path_without_container, job_id, cosmos_service, storage_service, text_processing_service):
-    """Process text files directly without transcription"""
-    logging.info("Processing text file directly (skipping transcription)")
-    
-    # Update job status to processing
-    cosmos_service.update_job_status(job_id, "processing_text")
-    logging.debug(f"Job status updated to 'processing_text' for Job ID = {job_id}")
-
-    # Process the text file
-    logging.info("Processing text file content...")
-    formatted_text = text_processing_service.process_text_file(blob_url, blob_extension)
-    logging.debug("Text file content processed successfully")
-
-    # Save processed text (for consistency with audio workflow)
-    logging.info("Uploading processed text to storage...")
-    processed_text_blob_url = storage_service.upload_text(
-        container_name=config.storage_recordings_container,
-        blob_name=f"{path_without_container}_processed_text.txt",
-        text_content=formatted_text,
-    )
-    logging.debug(f"Processed text uploaded: {processed_text_blob_url}")
-
-    # Update job with text processing complete
-    cosmos_service.update_job_status(
-        job_id, "text_processed", transcription_file_path=processed_text_blob_url
-    )
-    logging.debug(f"Job status updated to 'text_processed' for Job ID = {job_id}")
-    
-    return formatted_text
-
-
-def process_document_file(config, blob_url, blob_extension, path_without_container, job_id, cosmos_service, storage_service):
-    """Process document files through text extraction workflow"""
-    logging.info("Processing document file through text extraction workflow")
-    
-    # Import the document processing service
-    from document_processing_service import DocumentProcessingService
-    document_processing_service = DocumentProcessingService(config)
-    
-    # Update job status to processing
-    cosmos_service.update_job_status(job_id, "processing_document")
-    logging.debug(f"Job status updated to 'processing_document' for Job ID = {job_id}")
-
-    # Process the document file to extract text
-    logging.info("Extracting text from document file...")
-    extracted_text = document_processing_service.process_document_file(blob_url, blob_extension)
-    logging.debug("Document text extraction completed successfully")
-
-    # Save extracted text (for consistency with audio workflow)
-    logging.info("Uploading extracted text to storage...")
-    extracted_text_blob_url = storage_service.upload_text(
-        container_name=config.storage_recordings_container,
-        blob_name=f"{path_without_container}_extracted_text.txt",
-        text_content=extracted_text,
-    )
-    logging.debug(f"Extracted text uploaded: {extracted_text_blob_url}")
-
-    # Update job with document processing complete
-    cosmos_service.update_job_status(
-        job_id, "document_processed", transcription_file_path=extracted_text_blob_url
-    )
-    logging.debug(f"Job status updated to 'document_processed' for Job ID = {job_id}")
-    
-    return extracted_text

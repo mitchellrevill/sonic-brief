@@ -176,8 +176,8 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
       console.log("♻️ Reusing existing FFmpeg instance");
     }
     return ffmpegRef.current;
-  };const convertToWebm = async (file: File): Promise<File> => {
-    console.log("🎵 Starting audio/video conversion to WebM...");
+  };const convertToWav = async (file: File): Promise<File> => {
+    console.log("🎵 Starting audio/video conversion to WAV...");
     console.log("📁 File details:", {
       name: file.name,
       size: file.size,
@@ -194,26 +194,26 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
       setConversionStep("Loading FFmpeg...");
       setConversionProgress(10);
       console.log("🔄 Step 1/6: Loading FFmpeg...");
-      
+
       const ffmpeg = await loadFFmpeg();
       console.log("✅ FFmpeg loaded and ready for conversion");
-        setConversionStep("Preparing media file...");
+      setConversionStep("Preparing media file...");
       setConversionProgress(25);
       console.log("🔄 Step 2/6: Preparing media file...");
-      
+
       const inputName = file.name;
       const baseName = inputName.replace(/\.[^/.]+$/, "");
       const outputName = `${baseName}.wav`;
-      
+
       console.log("📝 File names:", { inputName, baseName, outputName });
 
       console.log("📤 Writing input file to FFmpeg filesystem...");
       const fileData = await fetchFile(file);
       console.log("📊 File data size:", Array.isArray(fileData) ? fileData.length : fileData.byteLength || 'unknown', "bytes");
-      
+
       await ffmpeg.writeFile(inputName, fileData);
       console.log("✅ Input file written to FFmpeg filesystem");
-      
+
       // Verify file was written
       try {
         const stat = await ffmpeg.readFile(inputName);
@@ -223,72 +223,73 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
         console.error("❌ Failed to verify input file in FFmpeg filesystem:", statError);
         throw new Error("Input file verification failed");
       }
-      
-      setConversionStep("Converting to WebM format...");
+
+      setConversionStep("Converting to WAV format...");
       setConversionProgress(50);
       console.log("🔄 Step 3/6: Starting FFmpeg conversion...");
-      
+
       const ffmpegArgs = [
         "-i", inputName,
-        "-c:a", "libopus",
-        "-b:a", "128k",
-        "-ac", "1",
-        "-y", // Overwrite output file
+        "-acodec", "pcm_s16le", // PCM 16-bit
+        "-ar", "16000",         // 16kHz sample rate
+        "-ac", "1",             // Mono
+        "-y",                   // Overwrite output file
         outputName,
       ];
-      
+
       console.log("🎛️ FFmpeg command arguments:", ffmpegArgs);
-      
+
       await ffmpeg.exec(ffmpegArgs);
       console.log("✅ FFmpeg conversion completed");
-      
+
       setConversionStep("Finalizing conversion...");
       setConversionProgress(85);
       console.log("🔄 Step 4/6: Reading converted file...");
-      
+
       // Verify output file exists before reading
       try {
         const outputStat = await ffmpeg.readFile(outputName);
         const outputSize = Array.isArray(outputStat) ? outputStat.length : (outputStat as Uint8Array).byteLength || 0;
         console.log("🔍 Output file verification - size:", outputSize, "bytes");
-        
+
         if (outputSize === 0) {
           throw new Error("Output file is empty");
-        }        console.log("🔄 Step 5/6: Creating File object...");
-        
+        }
+        console.log("🔄 Step 5/6: Creating File object...");
+
         // Create a proper File object directly from the converted data
         const convertedFile = new (window as any).File([outputStat], outputName, {
-          type: "audio/webm",
+          type: "audio/wav",
           lastModified: Date.now(),
         }) as File;
-        
+
         console.log("✅ Converted file created:", {
           name: convertedFile.name,
           size: convertedFile.size,
           type: convertedFile.type
         });
-        
+
         setConversionProgress(95);
         console.log("🔄 Step 6/6: Cleaning up temporary files...");
-        
+
         // Clean up
         await ffmpeg.deleteFile(inputName);
         console.log("🗑️ Deleted input file from FFmpeg filesystem");
-        
+
         await ffmpeg.deleteFile(outputName);
         console.log("🗑️ Deleted output file from FFmpeg filesystem");
 
         setConversionProgress(100);
         console.log("🎉 Media conversion completed successfully!");
-        
+
         return convertedFile;
-        
+
       } catch (readError: unknown) {
         console.error("❌ Failed to read converted file:", readError);
         const errorMessage = readError instanceof Error ? readError.message : 'Unknown error reading file';
         throw new Error(`Failed to read converted file: ${errorMessage}`);
       }
-      
+
     } catch (error: unknown) {
       console.error("❌ FFmpeg conversion failed:");
       const errorDetails = {
@@ -302,11 +303,11 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
         fileSize: file.size,
         fileType: file.type
       });
-      
+
       // Reset conversion UI state
       setConversionStep("");
       setConversionProgress(0);
-      
+
       console.warn("⚠️ Falling back to original file due to conversion failure");
       throw error;
     }
@@ -337,7 +338,7 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
       });
       
       let processedFile = values.mediaFile;
-        // Convert audio and video files to webm (extract audio from video)
+        // Convert audio and video files to WAV (extract audio from video)
       if (processedFile && (fileType === "audio" || fileType === "video")) {
         console.log(`🎵 ${fileType === "audio" ? "Audio" : "Video"} file detected, starting conversion process...`);
         console.log("🎧 Audio file details:", {
@@ -352,9 +353,9 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
           setConversionProgress(0);
           setConversionStep("Starting conversion...");
           
-          console.log("🔄 Calling convertToWebm function...");
+          console.log("🔄 Calling convertToWav function...");
           const conversionStartTime = performance.now();
-          processedFile = await convertToWebm(processedFile);
+          processedFile = await convertToWav(processedFile);
           const conversionEndTime = performance.now();
           const conversionDuration = ((conversionEndTime - conversionStartTime) / 1000).toFixed(2);
             console.log("✅ Conversion completed successfully!");
@@ -367,7 +368,7 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
             convertedType: processedFile.type
           });
           
-          toast.success("Media converted to WebM format successfully!");
+          toast.success("Media converted to WAV format successfully!");
         } catch (error: unknown) {
           console.error("❌ Media conversion failed:");
           const errorDetails = {
@@ -406,8 +407,8 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
       console.log("📤 Starting file upload...");
       console.log("📋 Upload details:", { 
         fileName: processedFile?.name,
-        fileSize: processedFile?.size ? `${(processedFile.size / 1024 / 1024).toFixed(2)} MB` : 'unknown',
         fileType: processedFile?.type,
+        fileSize: processedFile?.size,
         category: values.promptCategory,
         subcategory: values.promptSubcategory
       });
@@ -842,10 +843,10 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Music className="h-5 w-5 text-primary" />
-              Converting Audio to WebM
+              Converting Audio to WAV
             </DialogTitle>
             <DialogDescription>
-              Please wait while we convert your audio file to an optimized format for processing.
+              Please wait while we convert your audio file to WAV format for Azure Speech.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
