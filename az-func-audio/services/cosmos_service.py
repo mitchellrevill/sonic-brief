@@ -4,6 +4,7 @@ import logging
 from azure.cosmos import CosmosClient
 from config import AppConfig
 from azure.identity import DefaultAzureCredential
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -118,3 +119,26 @@ class CosmosService:
         except Exception as e:
             logger.error(f"Error retrieving prompts: {str(e)}")
             raise CosmosServiceError(f"Error retrieving prompts: {str(e)}") from e
+
+    def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get user document by user ID."""
+        try:
+            query = "SELECT * FROM c WHERE c.id = @user_id AND c.type = 'user'"
+            users = list(
+                self.database.get_container_client(self.config.cosmos_users_container).query_items(
+                    query=query,
+                    parameters=[{"name": "@user_id", "value": user_id}],
+                    enable_cross_partition_query=True,
+                )
+            )
+            return users[0] if users else None
+        except Exception as e:
+            logger.error(f"Error retrieving user by id: {str(e)}")
+            raise CosmosServiceError(f"Error retrieving user by id: {str(e)}") from e
+
+    def get_user_transcription_method(self, user_id: str) -> str:
+        """Return the user's preferred transcription method, or default if not set."""
+        user_doc = self.get_user_by_id(user_id)
+        if user_doc and 'transcription_method' in user_doc:
+            return user_doc['transcription_method']
+        return os.getenv("TRANSCRIPTION_MODEL", "gpt-4o")
