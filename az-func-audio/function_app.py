@@ -196,25 +196,31 @@ def blob_trigger(myblob: func.InputStream):
 
         job_id = file_doc["id"]
         logging.debug(f"File document retrieved successfully: Job ID = {job_id}")
-        formatted_text = ""
-
-        # Determine transcription method for user (if user_id is provided)
+        formatted_text = ""        # Determine transcription method for user (if user_id is provided)
         user_id = None
         if hasattr(myblob, 'metadata') and myblob.metadata and 'user_id' in myblob.metadata:
             user_id = myblob.metadata['user_id']
         else:
             user_id = file_doc.get('user_id') if file_doc and 'user_id' in file_doc else None
 
+        logging.info(f"[TRANSCRIPTION] user_id: {user_id}")
+
         if user_id:
             transcription_model = cosmos_service.get_user_transcription_method(user_id)
-            logging.info(f"Using user-specific transcription model: {transcription_model}")
+            logging.info(f"[TRANSCRIPTION] User-specific transcription model: {transcription_model}")
         else:
-            transcription_model = os.getenv("TRANSCRIPTION_MODEL", "gpt-4o")
-            logging.info(f"Using default transcription model: {transcription_model}")
+            transcription_model = os.getenv("TRANSCRIPTION_MODEL", "AZURE_AI_SPEECH")  # Default to Azure Speech
+            logging.info(f"[TRANSCRIPTION] Default transcription model: {transcription_model}")
+        logging.info(f"[TRANSCRIPTION] Final transcription model selected: '{transcription_model}'")
+        logging.info(f"[TRANSCRIPTION] Available environment TRANSCRIPTION_MODEL: '{os.getenv('TRANSCRIPTION_MODEL', 'NOT_SET')}'")
+        logging.info(f"[TRANSCRIPTION] Will use Azure Speech Service: {transcription_model == 'AZURE_AI_SPEECH'}")
+        logging.info(f"[TRANSCRIPTION] Will use GPT-4o/Whisper: {transcription_model != 'AZURE_AI_SPEECH'}")
 
         # Process based on file type
         if file_type == "audio":
+            logging.info(f"[TRANSCRIPTION] Selected transcription model: {transcription_model}")
             if transcription_model == "AZURE_AI_SPEECH":
+                logging.info("[TRANSCRIPTION] Using Azure Speech TranscriptionService")
                 # 1. Start transcription
                 logging.info("Starting transcription process...")
                 transcription_service = TranscriptionService(config)
@@ -234,6 +240,7 @@ def blob_trigger(myblob: func.InputStream):
                 formatted_text = transcription_service.get_results(status_data)
                 logging.debug("Transcription results retrieved and formatted")
             else:
+                logging.info(f"[TRANSCRIPTION] Using GPT-4o/Whisper for transcription (model: {transcription_model})")
                 # Step 1: Transcribe using Whisper or GPT-4-AUDIO
                 try:
                     logging.info(f"Downloading audio file from blob blob_path= {path_without_container + blob_extension}")

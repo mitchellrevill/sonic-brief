@@ -138,7 +138,10 @@ class CosmosService:
 
     def get_user_transcription_method(self, user_id: str) -> str:
         """Return the user's preferred transcription method, or default if not set."""
-        user_doc = self.get_user_by_id(user_id)
-        if user_doc and 'transcription_method' in user_doc:
-            return user_doc['transcription_method']
-        return os.getenv("TRANSCRIPTION_MODEL", "gpt-4o")
+        try:
+            user_doc = self.get_user_by_id(user_id)
+            if user_doc and 'transcription_method' in user_doc:
+                return user_doc['transcription_method']
+        except CosmosServiceError as e:
+            logger.warning(f"User {user_id} not found, using default transcription method: {str(e)}")
+        return os.getenv("TRANSCRIPTION_MODEL", "AZURE_AI_SPEECH")

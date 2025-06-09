@@ -29,7 +29,8 @@ class AppConfig:
             self.cosmos_endpoint: str = get_required_env_var("AZURE_COSMOS_ENDPOINT")
             self.cosmos_database: str = os.getenv("AZURE_COSMOS_DB_NAME", "VoiceDB")
             self.cosmos_jobs_container: str = f"{prefix}jobs"
-            self.cosmos_prompts_container: str = f"{prefix}prompts"            # Supported Audio Extensions List
+            self.cosmos_prompts_container: str = f"{prefix}prompts"
+            self.cosmos_users_container: str = f"{prefix}users"  # Ensure this is set as an instance attribute            # Supported Audio Extensions List
             self.supported_audio_extensions = {
                 ".wav",  # Default audio streaming format
                 ".pcm",  # PCM (Pulse Code Modulation)

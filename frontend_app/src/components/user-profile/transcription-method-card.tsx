@@ -18,9 +18,9 @@ interface TranscriptionMethodCardProps {
 }
 
 export function TranscriptionMethodCard({ user }: TranscriptionMethodCardProps) {
-  // Default to AZURE_AI_SPEECH if no preference is set
+  // Use the user's transcription_method if available, otherwise default
   const [transcriptionMethod, setTranscriptionMethod] = useState<"AZURE_AI_SPEECH" | "GPT4O_AUDIO">(
-    "AZURE_AI_SPEECH" // We'll need to get this from user preferences when available
+    user.transcription_method || "AZURE_AI_SPEECH"
   );
   const [isUpdating, setIsUpdating] = useState(false);
 

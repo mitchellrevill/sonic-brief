@@ -109,11 +109,26 @@ def parse_speakers_with_gpt4(transcribed_text: str) -> str:
 
 
 def transcribe_gpt4_audio(audio_file):
-    logging.info(f"[START] Requested transcription for audio file: {audio_file}")
+    logging.info(f"[START] Requested transcription for audio file: {audio_file}")    # Check environment variables
+    logging.info(f"[DEBUG] AZURE_AUDIO_ENDPOINT: {AZURE_AUDIO_ENDPOINT}")
+    logging.info(f"[DEBUG] AZURE_AUDIO_API_VERSION: {AZURE_AUDIO_API_VERSION}")
+    logging.info(f"[DEBUG] AZURE_AUDIO_MODEL: {AZURE_AUDIO_MODEL}")
+    
+    if not AZURE_AUDIO_ENDPOINT:
+        logging.error("[ERROR] AZURE_AUDIO_ENDPOINT is not set!")
+        raise ValueError("AZURE_AUDIO_ENDPOINT environment variable is required for GPT-4o audio transcription")
+    
+    if not AZURE_AUDIO_MODEL:
+        logging.error("[ERROR] AZURE_AUDIO_MODEL is not set!")
+        raise ValueError("AZURE_AUDIO_MODEL environment variable is required for GPT-4o audio transcription")
 
     if not os.path.exists(audio_file):
         logging.error(f"[ERROR] Audio file not found: {audio_file}")
         raise FileNotFoundError(f"Audio file not found: {audio_file}")
+
+    # Check file size
+    file_size = os.path.getsize(audio_file)
+    logging.info(f"[DEBUG] Audio file size: {file_size} bytes ({file_size / 1024 / 1024:.2f} MB)")
 
     logging.info("[INFO] Initializing audio client...")
     oai_client = get_audio_client()
@@ -121,12 +136,21 @@ def transcribe_gpt4_audio(audio_file):
 
     file_extension = os.path.splitext(audio_file)[1][1:]
     logging.info(f"[INFO] Detected file extension: .{file_extension}")
+    
+    # Validate audio format for GPT-4o
+    supported_formats = ['wav', 'mp3', 'mp4', 'm4a', 'ogg', 'flac', 'webm']
+    if file_extension.lower() not in supported_formats:
+        logging.warning(f"[WARNING] File format '.{file_extension}' may not be supported by GPT-4o audio. Supported formats: {supported_formats}")
+    else:
+        logging.info(f"[INFO] Audio format '.{file_extension}' is supported by GPT-4o")
 
     try:
         with open(audio_file, "rb") as file:
             logging.info("[INFO] Reading audio file and encoding to base64...")
-            encoded_string = base64.b64encode(file.read()).decode('utf-8')
-        logging.info("[INFO] Audio file successfully encoded.")
+            audio_data = file.read()
+            encoded_string = base64.b64encode(audio_data).decode('utf-8')
+        logging.info(f"[INFO] Audio file successfully encoded. Encoded size: {len(encoded_string)} characters")
+        logging.info(f"[DEBUG] First 100 chars of encoded data: {encoded_string[:100]}")
     except Exception as e:
         logging.error(f"[ERROR] Failed to read or encode audio file: {e}")
         raise
@@ -134,13 +158,12 @@ def transcribe_gpt4_audio(audio_file):
     messages = [
         {
             "role": "user",
-            "content": [
-                { 
+            "content": [                { 
                     "type": "text",
                     "text": (
-                        "Transcribe the audio as is. no explanation needed. "
-                        "If you are able to detect the agent versus the service user, please label them as such. "
-                        "use **SOCIAL_WORKER:** and **SERVICE_USER:** to label the speakers."
+                        "Please transcribe this audio file verbatim. Provide only the transcription without any additional commentary, explanations, or responses. "
+                        "If you can identify different speakers, label them clearly as **SPEAKER_1:** and **SPEAKER_2:** (or **SOCIAL_WORKER:** and **SERVICE_USER:** if you can identify their roles). "
+                        "Do not ask questions or offer to help - just provide the transcription."
                     )
                 },
                 {
@@ -150,11 +173,15 @@ def transcribe_gpt4_audio(audio_file):
                         "format": file_extension
                     }
                 }
-            ]
-        },
+            ]        },
     ]
 
     logging.info("[INFO] Sending audio data to GPT-4o for transcription...")
+    logging.info(f"[DEBUG] Using model: {AZURE_AUDIO_MODEL}")
+    logging.info(f"[DEBUG] Message structure: {{'role': 'user', 'content': [text_part, audio_part]}}")
+    logging.info(f"[DEBUG] Audio format: {file_extension}")
+    logging.info(f"[DEBUG] Audio data size: {len(encoded_string)} characters")
+    
     try:
         completion = oai_client.chat.completions.create(
             model=AZURE_AUDIO_MODEL,
@@ -162,12 +189,17 @@ def transcribe_gpt4_audio(audio_file):
             messages=messages
         )
         logging.info("[SUCCESS] Transcription received from GPT-4o.")
+        logging.info(f"[DEBUG] Response object type: {type(completion)}")
+        logging.info(f"[DEBUG] Response has choices: {hasattr(completion, 'choices') and len(completion.choices) > 0}")
     except Exception as e:
         logging.error(f"[ERROR] Error during transcription request: {e}")
+        logging.error(f"[ERROR] Exception type: {type(e)}")
         raise
 
     transcript = completion.choices[0].message.content
     logging.info("[END] Returning transcription")
+    logging.debug(f"[DEBUG] Transcription result length: {len(transcript)} characters")
+    logging.debug(f"[DEBUG] Transcription preview: {transcript[:200]}...")
     return transcript
 
 
