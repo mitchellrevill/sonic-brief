@@ -10,6 +10,11 @@ from app.routers import auth, upload, prompts
 from fastapi import Request
 from azure.identity import DefaultAzureCredential
 
+# Import services for initialization
+from app.core.config import AppConfig
+from app.services.storage_service import StorageService
+from app.services.background_processing_service import initialize_background_service, cleanup_background_service
+
 default_credential = DefaultAzureCredential()
 
 # Load environment variables first
@@ -28,8 +33,35 @@ logger.setLevel(logging.INFO)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize services on startup
+    logger.info("Initializing application services...")
+    
+    try:
+        # Initialize configuration
+        config = AppConfig()
+        
+        # Initialize storage service
+        storage_service = StorageService(config)
+        
+        # Initialize background processing service
+        initialize_background_service(storage_service, config)
+        
+        logger.info("All services initialized successfully")
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize services: {str(e)}")
+        raise
+    
     logger.debug("Available routes:")
     yield
+    
+    # Cleanup on shutdown
+    logger.info("Cleaning up application services...")
+    try:
+        await cleanup_background_service()
+        logger.info("Services cleaned up successfully")
+    except Exception as e:
+        logger.error(f"Error during cleanup: {str(e)}")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -43,10 +75,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers with proper prefixes
-app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
-app.include_router(upload.router, prefix="/api", tags=["upload"])
-app.include_router(prompts.router, prefix="/api", tags=["prompts"])
+# Include routers with their own prefixes
+app.include_router(auth.router)
+app.include_router(upload.router)
+app.include_router(prompts.router)
 
 
 @app.get("/")
