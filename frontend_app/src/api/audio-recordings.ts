@@ -68,7 +68,7 @@ export async function refineAnalysis(
   request: AnalysisRefinementRequest
 ): Promise<AnalysisRefinementResponse> {
   const response = await httpClient.post(
-    `/api/jobs/${jobId}/refine-analysis`,
+    `${JOBS_API}/${jobId}/refine-analysis`,
     request
   );
   return response.data;
@@ -78,7 +78,7 @@ export async function getRefinementHistory(
   jobId: string
 ): Promise<RefinementHistoryResponse> {
   const response = await httpClient.get(
-    `/api/jobs/${jobId}/refinement-history`
+    `${JOBS_API}/${jobId}/refinement-history`
   );
   return response.data;
 }
@@ -89,7 +89,7 @@ export async function getRefinementSuggestions(jobId: string): Promise<{
   suggestions: string[];
 }> {
   const response = await httpClient.get(
-    `/api/jobs/${jobId}/refinement-suggestions`
+    `${JOBS_API}/${jobId}/refinement-suggestions`
   );
   return response.data;
 }

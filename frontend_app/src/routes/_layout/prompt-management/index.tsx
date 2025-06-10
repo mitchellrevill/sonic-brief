@@ -9,7 +9,7 @@ export const Route = createFileRoute("/_layout/prompt-management/")({
 
 function PromptManagementPage() {
   return (
-    <PermissionGuard required={["Admin"]}>
+    <PermissionGuard required={["Admin", "User"]}>
       <div className="space-y-4 p-4 pt-6 md:p-8">
         <PromptManagementHeader />
         <PromptManagementView />
