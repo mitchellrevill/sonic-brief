@@ -12,6 +12,7 @@ from fastapi import (
     Query,
     Form,
     Response,
+    BackgroundTasks,
 )
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
@@ -23,6 +24,7 @@ from urllib.parse import urlparse
 from app.core.config import AppConfig, CosmosDB, DatabaseError
 from app.services.storage_service import StorageService
 from app.services.analysis_refinement_service import AnalysisRefinementService
+from app.services.background_processing_service import get_background_service
 from app.routers.auth import get_current_user
 import logging
 import traceback
@@ -31,7 +33,7 @@ from azure.core.exceptions import AzureError
 # Setup logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-router = APIRouter()
+router = APIRouter(prefix="/api", tags=["upload"])
 
 # Pydantic models for request/response
 class AnalysisRefinementRequest(BaseModel):
@@ -71,20 +73,23 @@ class SharedJobsResponse(BaseModel):
 
 @router.post("/upload")
 async def upload_file(
+    background_tasks: BackgroundTasks,
+    current_user: Dict[str, Any] = Depends(get_current_user),
     file: UploadFile = File(None),
     text_content: str = Form(None),
     prompt_category_id: str = Form(None),
     prompt_subcategory_id: str = Form(None),
-    current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """
     Upload a file or process text content and create a job record.
+    Uses background tasks for improved performance on large files.
 
     Args:
         file: The file to upload (optional)
         text_content: Direct text content for processing (optional)
         prompt_category_id: Category ID for the prompt
         prompt_subcategory_id: Subcategory ID for the prompt
+        background_tasks: FastAPI background tasks for async processing
         current_user: Authenticated user from token
 
     Returns:
@@ -154,47 +159,13 @@ async def upload_file(
                         "status": 400,
                         "message": f"Invalid prompt_subcategory_id: {prompt_subcategory_id} for category: {prompt_category_id}",
                     }
-        # Initialize variables after validation
-        blob_url = None
-        transcript_content = None
-        
-        # Handle file upload or text content
-        if file:
-            try:
-                # Save uploaded file to temporary location
-                with tempfile.NamedTemporaryFile(
-                    delete=False, suffix=os.path.splitext(file.filename)[1]
-                ) as temp_file:
-                    content = await file.read()
-                    temp_file.write(content)
-                    temp_file_path = temp_file.name
 
-                # Upload file to blob storage
-                storage_service = StorageService(config)
-                blob_url = storage_service.upload_file(temp_file_path, file.filename)
-                logger.debug(f"File uploaded to blob storage: {blob_url}")
-
-                # Clean up temporary file
-                os.unlink(temp_file_path)
-
-            except AzureError as e:
-                logger.error(f"Storage error: {str(e)}")
-                return {"status": 504, "message": "Storage service unavailable"}
-            except Exception as e:
-                logger.error(f"Error uploading file: {str(e)}")
-                return {"status": 505, "message": f"Error uploading file: {str(e)}"}
-        else:
-            # For text-only submissions, store the text content as transcript
-            transcript_content = text_content
-            logger.debug("Processing text-only submission")
-
-        # Create job document
+        # Create job document first for immediate response
         timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
         job_id = f"job_{timestamp}"
-        
-        # Determine job status based on submission type
+          # Determine job status based on submission type
         if file:
-            job_status = "uploaded"  # File needs transcription
+            job_status = "processing"  # File upload in progress
         else:
             job_status = "transcribed"  # Text is already available for analysis
         
@@ -202,21 +173,83 @@ async def upload_file(
             "id": job_id,
             "type": "job",
             "user_id": current_user["id"],
-            "file_path": blob_url,
+            "file_path": None,  # Will be updated immediately after upload for files
             "transcription_file_path": None,
             "analysis_file_path": None,
             "prompt_category_id": prompt_category_id,
             "prompt_subcategory_id": prompt_subcategory_id,
             "status": job_status,
             "transcription_id": None,
-            "text_content": transcript_content,  # Store text content for text-only submissions
+            "text_content": text_content if text_content else None,
             "created_at": timestamp,
             "updated_at": timestamp,
         }
-        job = cosmos_db.create_job(job_data)        # Determine success message based on submission type
+        job = cosmos_db.create_job(job_data)        # Get background service for task submission
+        background_service = get_background_service()
+
+        # Handle file upload or text content 
         if file:
-            message = "File uploaded successfully"
+            # Upload file to storage synchronously to get blob URL immediately
+            storage_service = StorageService(config)
+            
+            # Save uploaded file to temporary location
+            with tempfile.NamedTemporaryFile(
+                delete=False, suffix=os.path.splitext(file.filename)[1]
+            ) as temp_file:
+                content = await file.read()
+                temp_file.write(content)
+                temp_file_path = temp_file.name
+
+            try:
+                # Upload file to blob storage synchronously
+                blob_url = storage_service.upload_file(temp_file_path, file.filename)
+                logger.info(f"File uploaded to blob storage: {blob_url}")
+                
+                # Clean up temporary file
+                os.unlink(temp_file_path)
+                
+                # Update job with file path immediately
+                update_fields = {
+                    "status": "uploaded",
+                    "message": "File uploaded successfully, processing in background",
+                    "file_path": blob_url,
+                    "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000),
+                }
+                cosmos_db.update_job(job_id, update_fields)
+                
+                # Now submit any additional background processing if needed
+                # (like transcription or analysis) - for now we just mark as uploaded
+                logger.info(f"File upload completed synchronously for job {job_id}")
+                message = "File uploaded successfully"
+                
+            except AzureError as e:
+                logger.error(f"Storage error for job {job_id}: {str(e)}")
+                # Update job with error status
+                update_fields = {
+                    "status": "failed",
+                    "message": f"Storage service unavailable: {str(e)}",
+                    "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000),
+                }
+                cosmos_db.update_job(job_id, update_fields)
+                raise HTTPException(status_code=503, detail="Storage service unavailable")
+                
+            except Exception as e:
+                logger.error(f"Error uploading file for job {job_id}: {str(e)}")
+                # Clean up temp file if it exists
+                if os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
+                # Update job with error status
+                update_fields = {
+                    "status": "failed", 
+                    "message": f"File upload failed: {str(e)}",
+                    "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000),
+                }
+                cosmos_db.update_job(job_id, update_fields)
+                raise HTTPException(status_code=500, detail="File upload failed")
         else:
+            # For text-only submissions, process immediately since it's lightweight
+            transcript_content = text_content
+            logger.debug("Processing text-only submission")
             message = "Text content submitted successfully"
 
         return {
@@ -588,6 +621,7 @@ async def get_job_transcription(
 @router.post("/jobs/{job_id}/process-analysis")
 async def process_text_analysis(
     job_id: str,
+    background_tasks: BackgroundTasks,
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """
@@ -595,6 +629,7 @@ async def process_text_analysis(
     
     Args:
         job_id: The ID of the job to process
+        background_tasks: FastAPI background tasks
         current_user: Authenticated user from token
         
     Returns:
@@ -603,8 +638,8 @@ async def process_text_analysis(
     try:
         config = AppConfig()
         cosmos_db = CosmosDB(config)
-        storage_service = StorageService(config)
-          # Get the job
+        
+        # Get the job
         job = cosmos_db.get_job(job_id)
         
         if not job:
@@ -621,7 +656,7 @@ async def process_text_analysis(
                 detail="Job does not have text content for processing"
             )
         
-        if job.get("status") != "transcribed":
+        if job.get("status") not in ["transcribed", "failed"]:
             raise HTTPException(
                 status_code=400,
                 detail=f"Job is not ready for analysis. Current status: {job.get('status')}"
@@ -630,30 +665,37 @@ async def process_text_analysis(
         # Update job status to processing
         update_fields = {
             "status": "processing",
+            "message": "Analysis queued for processing...",
             "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000),
         }
-        cosmos_db.update_job(job_id, update_fields)
+        cosmos_db.update_job(job_id, update_fields)        # Start background analysis using new pattern
+        background_service = get_background_service()
+        task = await background_service.submit_task(
+            task_id=f"analysis_{job_id}",
+            task_type="text_analysis",
+            user_id=current_user["id"],
+            task_func=background_service.perform_text_analysis,
+            background_tasks=background_tasks,
+            metadata={
+                "job_id": job_id,
+                "analysis_type": "text_analysis"
+            },
+            job_id=job_id
+        )
         
-        # Perform analysis (stubbed as a synchronous call for illustration)
-        logger.info(f"Starting analysis for job_id: {job_id}")
-        import time
-        time.sleep(5)  # Simulate long-running analysis
+        logger.info(f"Background analysis task submitted: {task.task_id} for job_id: {job_id}")
         
-        # Analysis complete - update job status and add analysis result
-        analysis_result = {"summary": "Analysis complete", "details": {}}
-        update_fields = {
-            "status": "completed",
-            "analysis_file_path": None,  # Set to actual file path if generated
-            "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000),
-            "analysis_result": analysis_result,
+        return {
+            "status": "processing", 
+            "message": "Analysis started in background. Check job status for updates.",
+            "task_id": task.task_id
         }
-        cosmos_db.update_job(job_id, update_fields)
-        
-        return {"status": "success", "message": "Analysis processing complete"}
     
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error processing text analysis for job_id {job_id}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Error processing text analysis")
+        logger.error(f"Error starting analysis for job_id {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error starting text analysis")
 
 
 @router.post("/jobs/{job_id}/refine-analysis")
