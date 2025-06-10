@@ -11,7 +11,7 @@ export const CATEGORIES_API = `${BASE_URL}/api/categories`;
 export const SUBCATEGORIES_API = `${BASE_URL}/api/subcategories`;
 export const PROMPTS_API = `${BASE_URL}/api/retrieve_prompts`;
 export const TRANSCRIPTION_API = `${BASE_URL}/api/jobs/transcription`;
-export const User_MANAGEMENT_API = `${BASE_URL}/api/auth/users`;
+export const USER_MANAGEMENT_API = `${BASE_URL}/api/auth/users`;
 
 // Job Sharing APIs
 export const JOB_SHARE_API = `${BASE_URL}/api/jobs`;

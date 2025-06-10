@@ -16,10 +16,8 @@ import {
   ChevronLeft,
   ChevronRight,
   FileAudio,
-  FileText,
-  LogOut,
+  FileText,  LogOut,
   Mic,
-  Settings,
   Sun,
   Moon,
   Monitor,
@@ -28,6 +26,7 @@ import {
   Trash2,
   User,
   MoreHorizontal,
+  Upload,
 } from "lucide-react";
 import { getStorageItem, setStorageItem } from "@/lib/storage";
 import { usePermissionGuard, useUserPermissions } from "@/hooks/usePermissions";
@@ -39,10 +38,9 @@ interface MenuItem {
 }
 
 const menuItems: Array<MenuItem> = [
-  { icon: Mic, label: "Media Upload", to: "/audio-upload" },
   { icon: Mic, label: "Simple Upload", to: "/simple-upload" },
+  { icon: Upload, label: "Media Upload", to: "/audio-upload" },
   { icon: FileAudio, label: "Audio Recordings", to: "/audio-recordings" },
-  { icon: FileText, label: "Prompt Management", to: "/prompt-management" },
   { icon: Users, label: "Shared Recordings", to: "/audio-recordings/shared" },
 ];
 
@@ -68,7 +66,7 @@ export function AppSidebar({ children }: AppSidebarProps) {
   
   const { currentPermission } = usePermissionGuard();
   const isAdmin = currentPermission === "Admin";
-  const { data: userPermissions, isLoading: isLoadingUser } = useUserPermissions();
+  const { data: userPermissions } = useUserPermissions();
 
   const router = useRouter();
   const { setTheme } = useTheme();
@@ -139,9 +137,7 @@ export function AppSidebar({ children }: AppSidebarProps) {
           >
             {isOpen ? <ChevronLeft /> : <ChevronRight />}
           </Button>
-        )}
-
-        <div
+        )}        <div
           className={cn(
             "flex h-full w-full",
             // Mobile: always row
@@ -186,8 +182,7 @@ export function AppSidebar({ children }: AppSidebarProps) {
                   <MoreHorizontal className="h-5 w-5" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                {/* Remaining menu items */}
+              <DropdownMenuContent align="end" className="w-56">                {/* Remaining menu items */}
                 {menuItems.slice(3).map((item) => (
                   <DropdownMenuItem key={item.to} asChild>
                     <Link to={item.to} className="flex items-center">
@@ -196,6 +191,16 @@ export function AppSidebar({ children }: AppSidebarProps) {
                     </Link>
                   </DropdownMenuItem>
                 ))}
+
+                {/* Admin/User permission items */}
+                {(currentPermission === "Admin" || currentPermission === "User") && (
+                  <DropdownMenuItem asChild>
+                    <Link to="/prompt-management" className="flex items-center">
+                      <FileText className="mr-2 h-4 w-4" />
+                      <span>Prompt Management</span>
+                    </Link>
+                  </DropdownMenuItem>
+                )}
 
                 {/* Admin items if admin */}
                 {isAdmin && adminMenuItems.map((item) => (
@@ -235,9 +240,7 @@ export function AppSidebar({ children }: AppSidebarProps) {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </nav>
-
-          {/* Desktop Navigation - Full navigation */}
+          </nav>          {/* Desktop Navigation - Full navigation */}
           <nav
             className={cn(
               "hidden md:flex flex-1 p-4",
@@ -249,8 +252,7 @@ export function AppSidebar({ children }: AppSidebarProps) {
                     !isOpen && "items-center"
                   )
             )}
-          >
-            {/* Regular menu items */}
+          >{/* Regular menu items */}
             {menuItems.map((item) => (
               <Link
                 key={item.to}
@@ -272,6 +274,28 @@ export function AppSidebar({ children }: AppSidebarProps) {
                 </span>
               </Link>
             ))}
+
+            {/* Admin/User permission items */}
+            {(currentPermission === "Admin" || currentPermission === "User") && (
+              <Link
+                to="/prompt-management"
+                className={cn(
+                  "flex items-center rounded-lg p-2 transition-colors hover:bg-gray-800",
+                  sidebarLayout === "left" && "w-full"
+                )}
+                activeProps={{ className: "bg-gray-800" }}
+              >
+                <FileText className="h-5 w-5" />
+                <span
+                  className={cn(
+                    "ml-3 hidden",
+                    sidebarLayout === "top" ? "inline" : isOpen && "inline"
+                  )}
+                >
+                  Prompt Management
+                </span>
+              </Link>
+            )}
 
             {/* Admin-only menu items */}
             {isAdmin && (
@@ -307,8 +331,7 @@ export function AppSidebar({ children }: AppSidebarProps) {
                       {item.label}
                     </span>
                   </Link>
-                ))}
-              </>
+                ))}              </>
             )}
           </nav>
 
@@ -321,156 +344,184 @@ export function AppSidebar({ children }: AppSidebarProps) {
             >
               <LogOut className="h-5 w-5" />
             </Button>
-          </div>
-
-          {/* Desktop User info and controls */}
-          <div className="hidden md:block">
-            {/* Signed In As - User info section */}
-            {userPermissions && !isLoadingUser && (
-              <div
-                className={cn(
-                  "border-t border-gray-700 p-4",
-                  sidebarLayout === "top"
-                    ? "flex flex-row items-center space-x-2"
-                    : cn(
-                        "flex flex-col space-y-2",
-                        !isOpen && "items-center"
-                      )
-                )}
-              >
-                {/* User Avatar */}
-                <div className="flex items-center justify-center">
-                  <Avatar className="h-10 w-10">
-                    <AvatarFallback className="bg-gray-700 text-white text-sm font-medium">
-                      {getUserInitials(userPermissions.email)}
-                    </AvatarFallback>
-                  </Avatar>
-                </div>
-
-                {/* User Details */}
-                <div
-                  className={cn(
-                    "min-w-0 flex-1",
-                    sidebarLayout === "top" 
-                      ? "block" 
-                      : isOpen 
-                      ? "block" 
-                      : "hidden"
-                  )}
-                >
-                  <div className="flex flex-col">
-                    <div className="text-sm font-medium text-white truncate">
-                      {userPermissions.email}
-                    </div>
-                    
-                    <div className="mt-1">
-                      <Badge 
-                        variant="outline" 
-                        className={cn(
-                          "text-xs px-2 py-0.5",
-                          getPermissionColor(userPermissions.permission)
-                        )}
-                      >
-                        {userPermissions.permission}
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Loading state for user info */}
-            {isLoadingUser && (
-              <div
-                className={cn(
-                  "border-t border-gray-700 p-4",
-                  sidebarLayout === "top"
-                    ? "flex flex-row items-center space-x-2"
-                    : cn(
-                        "flex flex-col space-y-2",
-                        !isOpen && "items-center"
-                      )
-                )}
-              >
-                <div className="flex items-center justify-center">
-                  <Avatar className="h-10 w-10">
-                    <AvatarFallback className="bg-gray-700">
-                      <User className="h-4 w-4 text-gray-400" />
-                    </AvatarFallback>
-                  </Avatar>
-                </div>
-                
-                <div>
-                  {(sidebarLayout === "top" || isOpen) && (
-                    <>
-                      <div className="h-4 bg-gray-700 rounded animate-pulse mb-1 w-32"></div>
-                      <div className="h-3 bg-gray-600 rounded animate-pulse w-16"></div>
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Settings and Logout */}
-            <div
-              className={cn(
-                "p-4",
-                sidebarLayout === "top"
-                  ? "flex flex-row space-x-2"
-                  : "flex flex-col space-y-2"
-              )}
-            >
-              {/* Settings */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="w-full justify-start">
-                    <Settings className="h-5 w-5" />
-                    {(sidebarLayout === "top" || isOpen) && (
-                      <span className="ml-3">Settings</span>
+          </div>          {/* Desktop User info and controls */}
+          <div className="hidden md:flex md:flex-shrink-0">            {/* For top bar - profile dropdown and separate logout button */}
+            {sidebarLayout === "top" && (
+              <div className="flex items-center space-x-2 mr-4">
+                {/* Profile Dropdown */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" className="flex items-center space-x-3 px-3 py-3 h-full">
+                      <Avatar className="h-8 w-8">
+                        <AvatarFallback className="bg-gray-700 text-white text-xs font-medium">
+                          {getUserInitials(userPermissions?.email)}
+                        </AvatarFallback>
+                      </Avatar>
+                      {userPermissions && (
+                        <div className="flex flex-col items-start min-w-0">
+                          <span className="text-sm font-medium text-white truncate max-w-[180px]">
+                            {userPermissions.email}
+                          </span>
+                          <Badge 
+                            variant="outline" 
+                            className={cn(
+                              "text-xs px-1.5 py-0.5 h-4",
+                              getPermissionColor(userPermissions.permission)
+                            )}
+                          >
+                            {userPermissions.permission}
+                          </Badge>
+                        </div>
+                      )}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-64">
+                    {userPermissions && (
+                      <>
+                        <div className="px-3 py-2 border-b">
+                          <div className="text-sm font-medium">{userPermissions.email}</div>
+                          <div className="mt-1">
+                            <Badge 
+                              variant="outline" 
+                              className={cn(
+                                "text-xs px-2 py-0.5",
+                                getPermissionColor(userPermissions.permission)
+                              )}
+                            >
+                              {userPermissions.permission}
+                            </Badge>
+                          </div>
+                        </div>
+                      </>
                     )}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuItem asChild>
-                    <Link to="/profile" className="flex items-center">
-                      <User className="mr-2 h-4 w-4" />
-                      <span>Profile Settings</span>
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setTheme("light")}>
-                    <Sun className="mr-2 h-4 w-4" />
-                    <span>Light Theme</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setTheme("dark")}>
-                    <Moon className="mr-2 h-4 w-4" />
-                    <span>Dark Theme</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setTheme("system")}>
-                    <Monitor className="mr-2 h-4 w-4" />
-                    <span>System Theme</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={toggleSidebarLayout}>
-                    <ChevronLeft className="mr-2 h-4 w-4" />
-                    <span>
-                      Switch to{" "}
-                      {sidebarLayout === "left" ? "Top Bar" : "Left Sidebar"}
-                    </span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                    <DropdownMenuItem asChild>
+                      <Link to="/profile" className="flex items-center">
+                        <User className="mr-2 h-4 w-4" />
+                        <span>Profile Settings</span>
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setTheme("light")}>
+                      <Sun className="mr-2 h-4 w-4" />
+                      <span>Light Theme</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setTheme("dark")}>
+                      <Moon className="mr-2 h-4 w-4" />
+                      <span>Dark Theme</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setTheme("system")}>
+                      <Monitor className="mr-2 h-4 w-4" />
+                      <span>System Theme</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={toggleSidebarLayout}>
+                      <ChevronLeft className="mr-2 h-4 w-4" />
+                      <span>Switch to Left Sidebar</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
 
-              {/* Logout */}
-              <Button
-                variant="ghost"
-                className="w-full justify-start"
-                onClick={handleLogout}
-              >
-                <LogOut className="h-5 w-5" />
-                {(sidebarLayout === "top" || isOpen) && (
-                  <span className="ml-3">Logout</span>
-                )}
-              </Button>
-            </div>
+                {/* Separate Logout Button */}
+                <Button
+                  variant="ghost"
+                  className="flex items-center px-3 py-3 h-full text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                  onClick={handleLogout}
+                >
+                  <LogOut className="h-5 w-5" />
+                </Button>
+              </div>
+            )}{/* For left sidebar - user profile positioned higher up */}
+            {sidebarLayout === "left" && (
+              <div className="w-full flex flex-col mt-8">
+                {/* User Profile Section */}
+                <div className="p-4 border-t border-gray-700 mt-6">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" className={cn(
+                        "w-full p-4 justify-start",
+                        !isOpen 
+                          ? "flex-col space-y-3 space-x-0" 
+                          : "flex-row space-x-4 space-y-0"
+                      )}>                        <Avatar className="h-10 w-10">
+                          <AvatarFallback className="bg-gray-700 text-white text-sm font-medium">
+                            {getUserInitials(userPermissions?.email)}
+                          </AvatarFallback>
+                        </Avatar>
+                        {userPermissions && isOpen && (
+                          <div className="flex flex-col items-start min-w-0">
+                            <span className="text-sm font-medium text-white truncate max-w-full">
+                              {userPermissions.email}
+                            </span>
+                            <Badge 
+                              variant="outline" 
+                              className={cn(
+                                "text-xs px-2 py-1 h-5 mt-1.5",
+                                getPermissionColor(userPermissions.permission)
+                              )}
+                            >
+                              {userPermissions.permission}
+                            </Badge>
+                          </div>
+                        )}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-64">
+                      {userPermissions && (
+                        <>
+                          <div className="px-3 py-2 border-b">
+                            <div className="text-sm font-medium">{userPermissions.email}</div>
+                            <div className="mt-1">
+                              <Badge 
+                                variant="outline" 
+                                className={cn(
+                                  "text-xs px-2 py-0.5",
+                                  getPermissionColor(userPermissions.permission)
+                                )}
+                              >
+                                {userPermissions.permission}
+                              </Badge>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                      <DropdownMenuItem asChild>
+                        <Link to="/profile" className="flex items-center">
+                          <User className="mr-2 h-4 w-4" />
+                          <span>Profile Settings</span>
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setTheme("light")}>
+                        <Sun className="mr-2 h-4 w-4" />
+                        <span>Light Theme</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setTheme("dark")}>
+                        <Moon className="mr-2 h-4 w-4" />
+                        <span>Dark Theme</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setTheme("system")}>
+                        <Monitor className="mr-2 h-4 w-4" />
+                        <span>System Theme</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={toggleSidebarLayout}>
+                        <ChevronLeft className="mr-2 h-4 w-4" />
+                        <span>Switch to Top Bar</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>                {/* Logout Button at the very bottom */}
+                <div className="mt-auto p-4 border-t border-gray-700">
+                  <Button
+                    variant="ghost"
+                    className={cn(
+                      "w-full p-4 text-red-400 hover:text-red-300 hover:bg-red-900/20 justify-start",
+                      !isOpen && "flex-col space-y-2"
+                    )}
+                    onClick={handleLogout}
+                  >
+                    <LogOut className="h-5 w-5" />
+                    {isOpen && <span className="ml-3">Logout</span>}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
