@@ -19,6 +19,7 @@ export interface UserPermissions {
     can_create_content: boolean;
     can_delete_content: boolean;
   };
+  transcription_method?: "AZURE_AI_SPEECH" | "GPT4O_AUDIO";
 }
 
 export interface PermissionStats {

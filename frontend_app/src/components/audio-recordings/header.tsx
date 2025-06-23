@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { SmartBreadcrumb } from "@/components/ui/smart-breadcrumb";
 import { Link } from "@tanstack/react-router";
-import { Upload } from "lucide-react";
+import { FileAudio } from "lucide-react";
 
 export function AudioRecordingsHeader() {
   return (
@@ -17,7 +17,7 @@ export function AudioRecordingsHeader() {
         </p>
       </div>
       <Link to="/audio-upload">        <Button size="sm" className="px-2 py-1">
-          <Upload className="mr-2 h-4 w-4" />
+          <FileAudio className="mr-2 h-4 w-4" />
           <span className="hidden sm:inline">Add New Media File</span>
         </Button>
       </Link>

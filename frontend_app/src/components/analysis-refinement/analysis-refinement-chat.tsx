@@ -1,10 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { 
   useAnalysisRefinementMutation, 
   getRefinementHistoryQuery, 
@@ -20,6 +18,7 @@ import {
   Sparkles,
   RefreshCw,
   AlertCircle,
+  ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -38,6 +37,7 @@ interface RefinementMessage {
 
 export function AnalysisRefinementChat({ jobId, className }: AnalysisRefinementChatProps) {
   const [inputMessage, setInputMessage] = useState("");
+  const [isExpanded, setIsExpanded] = useState(true); // Start expanded in modal
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -83,11 +83,15 @@ export function AnalysisRefinementChat({ jobId, className }: AnalysisRefinementC
   // Focus input on mount
   useEffect(() => {
     inputRef.current?.focus();
-  }, []);
-  const handleSendMessage = async (message: string) => {
+  }, []);  const handleSendMessage = async (message: string) => {
     if (!message.trim() || refinementMutation.isPending) return;
 
     try {
+      // Auto-expand if not already expanded
+      if (!isExpanded) {
+        setIsExpanded(true);
+      }
+
       await refinementMutation.mutateAsync({
         jobId,
         request: { message: message.trim() }
@@ -106,9 +110,12 @@ export function AnalysisRefinementChat({ jobId, className }: AnalysisRefinementC
     e.preventDefault();
     handleSendMessage(inputMessage);
   };
-
   const handleSuggestionClick = (suggestion: string) => {
     setInputMessage(suggestion);
+    // Auto-expand when user clicks a suggestion
+    if (!isExpanded) {
+      setIsExpanded(true);
+    }
     inputRef.current?.focus();
   };
 
@@ -123,192 +130,235 @@ export function AnalysisRefinementChat({ jobId, className }: AnalysisRefinementC
       return '';
     }
   };
-
   if (historyError) {
     return (
-      <Card className={cn("w-full", className)}>
-        <CardContent className="p-6">
-          <div className="flex flex-col items-center justify-center py-8 space-y-4">
-            <div className="rounded-full bg-destructive/10 p-3">
-              <AlertCircle className="h-6 w-6 text-destructive" />
+      <div className={cn("w-full border rounded-lg bg-card", className)}>
+        <div className="p-4">
+          <div className="flex flex-col items-center justify-center py-6 space-y-3">
+            <div className="rounded-full bg-destructive/10 p-2">
+              <AlertCircle className="h-4 w-4 text-destructive" />
             </div>
-            <div className="text-center space-y-2">
-              <h3 className="font-medium">Failed to load chat history</h3>
-              <p className="text-sm text-muted-foreground">
+            <div className="text-center space-y-1">
+              <h3 className="font-medium text-sm">Failed to load chat history</h3>
+              <p className="text-xs text-muted-foreground">
                 There was an error loading the refinement chat. Please try again.
               </p>
             </div>
-            <Button onClick={() => refetchHistory()} variant="outline">
-              <RefreshCw className="mr-2 h-4 w-4" />
+            <Button onClick={() => refetchHistory()} variant="outline" size="sm">
+              <RefreshCw className="mr-1.5 h-3 w-3" />
               Retry
             </Button>
           </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Card className={cn("w-full flex flex-col", className)}>
-      <CardHeader className="pb-4">
-        <CardTitle className="flex items-center gap-2">
-          <span className="bg-primary/10 rounded-full p-2">
-            <Sparkles className="text-primary h-4 w-4" />
-          </span>          Analysis Refinement
-          {displayMessages.length > 0 && (
-            <Badge variant="secondary" className="ml-auto">
-              {chatHistory.length} conversation{chatHistory.length !== 1 ? 's' : ''}
-            </Badge>
-          )}
-        </CardTitle>
-      </CardHeader>
-
-      <CardContent className="flex-1 flex flex-col space-y-4 p-0 pb-6">        {/* Suggestion Chips */}
-        {suggestions.length > 0 && chatHistory.length === 0 && (
-          <div className="px-6 space-y-3">
-            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-              <MessageSquare className="h-4 w-4" />
-              Suggested prompts to get started:
-            </div>            <div className="flex flex-wrap gap-2">
-              {suggestions.map((suggestion, index) => (
-                <Button
-                  key={index}
-                  variant="outline"
-                  size="sm"
-                  className="h-auto py-2 px-3 text-left justify-start text-wrap"
-                  onClick={() => handleSuggestionClick(suggestion)}
-                  disabled={refinementMutation.isPending}
-                >
-                  {suggestion}
-                </Button>
-              ))}
-            </div>
-            <Separator />
-          </div>
-        )}
-
-        {/* Chat Messages */}
-        <div className="flex-1 min-h-[300px] px-6">
-          {isLoadingHistory ? (
-            <div className="flex flex-col items-center justify-center py-12 space-y-4">
-              <div className="rounded-full bg-primary/10 p-3 animate-pulse">
-                <Loader2 className="h-6 w-6 text-primary animate-spin" />
-              </div>
-              <div className="text-center space-y-2">
-                <h3 className="font-medium">Loading chat history...</h3>
-                <p className="text-sm text-muted-foreground">
-                  Please wait while we fetch your conversation
-                </p>
-              </div>
-            </div>
-          ) : chatHistory.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 space-y-4">
-              <div className="rounded-full bg-muted p-3">
-                <MessageSquare className="h-6 w-6 text-muted-foreground" />
-              </div>
-              <div className="text-center space-y-2">
-                <h3 className="font-medium">Start refining your analysis</h3>
-                <p className="text-sm text-muted-foreground max-w-md">
-                  Ask questions about your analysis, request specific insights, or explore different perspectives. 
-                  Try using one of the suggested prompts above!
-                </p>
-              </div>
-            </div>
-          ) : (            <ScrollArea className="h-[400px] pr-4" ref={scrollAreaRef}>
-              <div className="space-y-4">
-                {displayMessages.map((message: RefinementMessage) => (
-                  <div
-                    key={message.id}
-                    className={cn(
-                      "flex gap-3 animate-in fade-in duration-500",
-                      message.role === "user" ? "justify-end" : "justify-start"
-                    )}
-                  >
-                    {message.role === "assistant" && (
-                      <div className="rounded-full bg-primary/10 p-2 self-start mt-1">
-                        <Bot className="h-4 w-4 text-primary" />
-                      </div>
-                    )}
-                    
-                    <div className={cn(
-                      "max-w-[80%] rounded-lg px-4 py-3 space-y-1",
-                      message.role === "user" 
-                        ? "bg-primary text-primary-foreground ml-12" 
-                        : "bg-muted mr-12"
-                    )}>
-                      <div className="text-sm leading-relaxed whitespace-pre-wrap">
-                        {message.message}
-                      </div>
-                      <div className={cn(
-                        "text-xs",
-                        message.role === "user" 
-                          ? "text-primary-foreground/70" 
-                          : "text-muted-foreground"
-                      )}>
-                        {formatTimestamp(message.timestamp)}
-                      </div>
-                    </div>
-
-                    {message.role === "user" && (
-                      <div className="rounded-full bg-primary/10 p-2 self-start mt-1">
-                        <UserIcon className="h-4 w-4 text-primary" />
-                      </div>
-                    )}
-                  </div>
-                ))}
-                
-                {/* Loading indicator for pending message */}
-                {refinementMutation.isPending && (
-                  <div className="flex gap-3 justify-start animate-in fade-in duration-500">
-                    <div className="rounded-full bg-primary/10 p-2 self-start mt-1">
-                      <Bot className="h-4 w-4 text-primary" />
-                    </div>
-                    <div className="max-w-[80%] rounded-lg px-4 py-3 bg-muted mr-12">
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Analyzing your request...
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </ScrollArea>
-          )}
         </div>
+      </div>
+    );
+  }return (
+    <div className={cn("w-full border rounded-lg bg-card transition-all duration-300", className)}>
+      {/* Compact Header */}
+      <div 
+        className="px-4 py-3 border-b cursor-pointer hover:bg-muted/30 transition-colors flex items-center gap-2"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <span className="bg-primary/10 rounded-full p-1.5">
+          <Sparkles className="text-primary h-3.5 w-3.5" />
+        </span>
+        <span className="font-medium text-sm">Analysis Refinement</span>
+        {displayMessages.length > 0 && (
+          <Badge variant="secondary" className="ml-auto text-xs px-2 py-0.5">
+            {chatHistory.length}
+          </Badge>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="ml-1 h-5 w-5 transition-transform duration-300"
+          style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+        </Button>
+      </div>
 
-        {/* Input Form */}
-        <div className="px-6 pt-4 border-t border-border/50">
+      {/* Collapsed Preview */}
+      {!isExpanded && chatHistory.length > 0 && (
+        <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20">
+          <div className="flex items-center justify-between">
+            <span>{chatHistory.length} message{chatHistory.length !== 1 ? 's' : ''} • Click to expand</span>
+            <span>Latest: {new Date(chatHistory[chatHistory.length - 1]?.timestamp * 1000).toLocaleDateString()}</span>
+          </div>
+        </div>
+      )}      {/* Collapsed Quick Input */}
+      {!isExpanded && (
+        <div className="px-4 py-3">
           <form onSubmit={handleSubmit} className="flex gap-2">
             <Input
-              ref={inputRef}
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
-              placeholder="Ask questions about your analysis or request specific insights..."
+              placeholder="Quick question about your analysis..."
               disabled={refinementMutation.isPending}
-              className="flex-1"
+              className="flex-1 text-sm h-8"
               maxLength={1000}
+              onFocus={() => setIsExpanded(true)}
             />
             <Button 
               type="submit" 
+              size="sm"
               disabled={!inputMessage.trim() || refinementMutation.isPending}
-              className="transition-all duration-200 hover:scale-105"
+              className="h-8 px-3"
             >
               {refinementMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-3 w-3 animate-spin" />
               ) : (
-                <Send className="h-4 w-4" />
+                <Send className="h-3 w-3" />
               )}
             </Button>
           </form>
-          
-          {/* Character count */}
-          {inputMessage.length > 800 && (
-            <div className="text-xs text-muted-foreground mt-1 text-right">
-              {inputMessage.length}/1000 characters
-            </div>
-          )}
         </div>
-      </CardContent>
-    </Card>
+      )}      {isExpanded && (
+        <div className="flex-1 flex flex-col animate-in slide-in-from-top duration-300">
+          {/* Suggestion Chips */}
+          {suggestions.length > 0 && chatHistory.length === 0 && (
+            <div className="px-4 py-3 space-y-3 border-b">
+              <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <MessageSquare className="h-3 w-3" />
+                Suggested prompts:
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {suggestions.map((suggestion, index) => (
+                  <Button
+                    key={index}
+                    variant="outline"
+                    size="sm"
+                    className="h-auto py-1.5 px-2.5 text-left justify-start text-wrap text-xs"
+                    onClick={() => handleSuggestionClick(suggestion)}
+                    disabled={refinementMutation.isPending}
+                  >
+                    {suggestion}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}          {/* Chat Messages - Compact scrolling area */}
+          <div className="flex-1 px-4">
+            {isLoadingHistory ? (
+              <div className="flex flex-col items-center justify-center py-6 space-y-3">
+                <div className="rounded-full bg-primary/10 p-2 animate-pulse">
+                  <Loader2 className="h-4 w-4 text-primary animate-spin" />
+                </div>
+                <div className="text-center space-y-1">
+                  <h3 className="font-medium text-sm">Loading chat history...</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Please wait while we fetch your conversation
+                  </p>
+                </div>
+              </div>
+            ) : chatHistory.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-6 space-y-3">
+                <div className="rounded-full bg-muted p-2">
+                  <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="text-center space-y-1">
+                  <h3 className="font-medium text-sm">Start refining your analysis</h3>
+                  <p className="text-xs text-muted-foreground max-w-sm">
+                    Ask questions about your analysis, request specific insights, or explore different perspectives.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <ScrollArea className="h-[400px] pr-2" ref={scrollAreaRef}>
+                <div className="space-y-2 py-2">
+                  {displayMessages.map((message: RefinementMessage) => (
+                    <div
+                      key={message.id}
+                      className={cn(
+                        "flex gap-2 animate-in fade-in duration-300",
+                        message.role === "user" ? "justify-end" : "justify-start"
+                      )}
+                    >
+                      {message.role === "assistant" && (
+                        <div className="rounded-full bg-primary/10 p-1 self-start mt-0.5 flex-shrink-0">
+                          <Bot className="h-2.5 w-2.5 text-primary" />
+                        </div>
+                      )}
+                      
+                      <div className={cn(
+                        "max-w-[75%] rounded-lg px-2.5 py-1.5 space-y-0.5",
+                        message.role === "user" 
+                          ? "bg-primary text-primary-foreground ml-6" 
+                          : "bg-muted mr-6"
+                      )}>
+                        <div className="text-xs leading-relaxed whitespace-pre-wrap">
+                          {message.message}
+                        </div>
+                        <div className={cn(
+                          "text-[10px]",
+                          message.role === "user" 
+                            ? "text-primary-foreground/60" 
+                            : "text-muted-foreground"
+                        )}>
+                          {formatTimestamp(message.timestamp)}
+                        </div>
+                      </div>
+
+                      {message.role === "user" && (
+                        <div className="rounded-full bg-primary/10 p-1 self-start mt-0.5 flex-shrink-0">
+                          <UserIcon className="h-2.5 w-2.5 text-primary" />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  
+                  {/* Loading indicator for pending message */}
+                  {refinementMutation.isPending && (
+                    <div className="flex gap-2 justify-start animate-in fade-in duration-300">
+                      <div className="rounded-full bg-primary/10 p-1 self-start mt-0.5 flex-shrink-0">
+                        <Bot className="h-2.5 w-2.5 text-primary" />
+                      </div>
+                      <div className="max-w-[75%] rounded-lg px-2.5 py-1.5 bg-muted mr-6">
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                          Analyzing your request...
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+            )}
+          </div>          {/* Input Form - Compact */}
+          <div className="px-4 py-3 border-t border-border/30">
+            <form onSubmit={handleSubmit} className="flex gap-2">
+              <Input
+                ref={inputRef}
+                value={inputMessage}
+                onChange={(e) => setInputMessage(e.target.value)}
+                placeholder="Ask questions about your analysis..."
+                disabled={refinementMutation.isPending}
+                className="flex-1 text-sm h-8"
+                maxLength={1000}
+              />
+              <Button 
+                type="submit" 
+                size="sm"
+                disabled={!inputMessage.trim() || refinementMutation.isPending}
+                className="h-8 px-3"
+              >
+                {refinementMutation.isPending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Send className="h-3 w-3" />
+                )}
+              </Button>
+            </form>
+            
+            {/* Character count */}
+            {inputMessage.length > 800 && (
+              <div className="text-[10px] text-muted-foreground mt-1 text-right">
+                {inputMessage.length}/1000 characters
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

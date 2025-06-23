@@ -2,6 +2,7 @@ from typing import Dict, Any
 import logging
 import aiohttp
 import asyncio
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 from app.core.config import AppConfig
 
 logger = logging.getLogger(__name__)
@@ -37,8 +38,7 @@ class AnalysisRefinementService:
         """
         try:
             logger.info("Calling Azure Functions for analysis refinement...")
-            
-            # Prepare request data
+              # Prepare request data
             request_data = {
                 "original_text": original_text,
                 "current_analysis": current_analysis,
@@ -58,8 +58,9 @@ class AnalysisRefinementService:
                 "error": str(e)
             }
     
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2), retry=retry_if_exception_type((aiohttp.ClientError, asyncio.TimeoutError)))
     async def _call_functions_api(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Call the Azure Functions API for refinement."""
+        """Call the Azure Functions API for refinement with retry logic."""
         url = f"{self.functions_base_url}/api/refine-analysis"
         
         logger.info(f"Making request to Azure Functions URL: {url}")
@@ -69,15 +70,17 @@ class AnalysisRefinementService:
             "Content-Type": "application/json"
         }
         
-        # Add function key if available
+        # Add function key if available  
         if self.functions_key:
             headers["x-functions-key"] = self.functions_key
             logger.info("Function key added to headers")
         else:
             logger.warning("No function key available")
         
+        timeout = aiohttp.ClientTimeout(total=300)  # 5 minute timeout
+        
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(url, json=request_data, headers=headers) as response:
                     logger.info(f"Response status: {response.status}")
                     
@@ -88,10 +91,13 @@ class AnalysisRefinementService:
                     else:
                         error_text = await response.text()
                         logger.error(f"Azure Functions call failed with status {response.status}: {error_text}")
-                        raise Exception(f"Azure Functions returned status {response.status}: {error_text}")
+                        raise aiohttp.ClientError(f"Azure Functions returned status {response.status}: {error_text}")
+        except asyncio.TimeoutError as e:
+            logger.error(f"Timeout error when calling Azure Functions: {str(e)}")
+            raise
         except aiohttp.ClientError as e:
             logger.error(f"HTTP client error when calling Azure Functions: {str(e)}")
-            raise Exception(f"Network error calling Azure Functions: {str(e)}")
+            raise
         except Exception as e:
             logger.error(f"Unexpected error calling Azure Functions: {str(e)}")
             raise Exception(f"Failed to call Azure Functions: {str(e)}")
