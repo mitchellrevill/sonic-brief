@@ -23,6 +23,7 @@ interface LoginResponse {
   message: string
   access_token: string
   token_type: string
+  permission?: string // Added optional permission property
 }
 
 interface UploadResponse {

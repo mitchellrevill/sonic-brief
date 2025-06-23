@@ -9,6 +9,8 @@ from azure.cosmos.exceptions import CosmosHttpResponseError
 import logging
 import traceback
 from fastapi import Request
+from fastapi.responses import JSONResponse
+import uuid
 from app.core.config import AppConfig, CosmosDB, DatabaseError
 from app.middleware.permission_middleware import (
     PermissionLevel, 
@@ -214,7 +216,7 @@ async def get_user_by_email(email: str = Query(..., description="User's email ad
 
         
 @router.post("/register")
-async def register_user(request: Request):
+async def register_user(request: Request, current_user: Dict[str, Any] = Depends(require_admin_user)):
     try:
         data = await request.json()
         email = data.get("email")
@@ -605,3 +607,107 @@ async def change_user_password(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error changing password: {str(e)}"
         )
+
+@router.post("/microsoft-sso")
+async def microsoft_sso_auth(request: Request):
+    """
+    Authenticate or register a user using Microsoft SSO login response.
+    Accepts the full Microsoft login response object.
+    """
+    try:
+        data = await request.json()
+        # Accept the full Microsoft login response
+        id_token = data.get("id_token")
+        access_token = data.get("access_token")
+        refresh_token = data.get("refresh_token")
+        email = None
+        full_name = None
+        given_name = None
+        family_name = None
+        oid = None
+        tenant_id = None
+        decoded = None
+
+        # Prefer id_token for user info (OpenID Connect standard)
+        if id_token:
+            try:
+                decoded = jwt.get_unverified_claims(id_token)
+                email = decoded.get("email") or decoded.get("upn") or decoded.get("preferred_username")
+                full_name = decoded.get("name")
+                given_name = decoded.get("given_name")
+                family_name = decoded.get("family_name")
+                oid = decoded.get("oid")
+                tenant_id = decoded.get("tid")
+            except Exception as e:
+                return JSONResponse(status_code=400, content={"message": f"Invalid id_token: {str(e)}"})
+        elif access_token:
+            try:
+                decoded = jwt.get_unverified_claims(access_token)
+                email = decoded.get("email") or decoded.get("upn") or decoded.get("preferred_username")
+                full_name = decoded.get("name")
+                given_name = decoded.get("given_name")
+                family_name = decoded.get("family_name")
+                oid = decoded.get("oid")
+                tenant_id = decoded.get("tid")
+            except Exception as e:
+                return JSONResponse(status_code=400, content={"message": f"Invalid access_token: {str(e)}"})
+        else:
+            return JSONResponse(status_code=400, content={"message": "Missing id_token or access_token"})
+
+        if not email:
+            return JSONResponse(status_code=400, content={"message": "No email found in token"})
+
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+
+        # Try to find user by email
+        user = await cosmos_db.get_user_by_email(email)
+        if not user:
+            # Register new user
+            user_data = {
+                "id": str(uuid.uuid4()),
+                "email": email,
+                "password": None,
+                "permission": "user",
+                "source": "microsoft",
+                "full_name": full_name,
+                "given_name": given_name,
+                "family_name": family_name,
+                "microsoft_oid": oid,
+                "tenant_id": tenant_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "last_login": datetime.now(timezone.utc).isoformat(),
+                "is_active": True,
+                "refresh_token": refresh_token,
+            }
+            user = await cosmos_db.create_user(user_data)
+        else:
+            # Update last_login and any new info
+            update_data = {
+                "last_login": datetime.now(timezone.utc).isoformat(),
+                "full_name": full_name,
+                "given_name": given_name,
+                "family_name": family_name,
+                "microsoft_oid": oid,
+                "tenant_id": tenant_id,
+                "is_active": True,
+                "refresh_token": refresh_token,
+            }
+            user = await cosmos_db.update_user(user["id"], update_data)
+
+        # Generate app access token
+        app_access_token = create_access_token(data={"sub": email}, config=config)
+        return {
+            "status": 200,
+            "message": "Microsoft SSO login successful",
+            "access_token": app_access_token,
+            "token_type": "bearer",
+            "permission": user.get("permission", "user"),
+            "user": {
+                "email": user["email"],
+                "full_name": user.get("full_name"),
+                "permission": user.get("permission", "user")
+            }
+        }
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"message": f"Unexpected error: {str(e)}"})

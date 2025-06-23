@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { getStorageItem, setStorageItem } from "@/lib/storage";
 import { usePermissionGuard, useUserPermissions } from "@/hooks/usePermissions";
+import { useMicrosoftProfileImage } from "@/hooks/useMicrosoftProfileImage";
 
 interface MenuItem {
   icon: React.ElementType;
@@ -76,6 +77,10 @@ export function AppSidebar({ children }: AppSidebarProps) {
     if (!email) return "U";
     return email.split('@')[0].slice(0, 2).toUpperCase();
   };
+
+  // Get access token from localStorage (set after login)
+  const accessToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const profileImage = useMicrosoftProfileImage(accessToken);
 
   const getPermissionColor = (permission?: string) => {
     switch (permission) {
@@ -263,9 +268,17 @@ export function AppSidebar({ children }: AppSidebarProps) {
               {/* User Avatar */}
               <div className="flex items-center justify-center">
                 <Avatar className="h-8 w-8 md:h-10 md:w-10">
-                  <AvatarFallback className="bg-gray-700 text-white text-sm font-medium">
-                    {getUserInitials(userPermissions.email)}
-                  </AvatarFallback>
+                  {profileImage ? (
+                    <img
+                      src={profileImage}
+                      alt="Profile"
+                      className="object-cover w-full h-full rounded-full"
+                    />
+                  ) : (
+                    <AvatarFallback className="bg-gray-700 text-white text-sm font-medium">
+                      {getUserInitials(userPermissions.email)}
+                    </AvatarFallback>
+                  )}
                 </Avatar>
               </div>              {/* User Details - hide on mobile, show on desktop when expanded or in top layout */}
               <div

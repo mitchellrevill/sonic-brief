@@ -12,6 +12,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
+import MicrosoftLogin from "@/components/microsoft-login";
+import { loginUser } from "@/lib/api";
+
 export function LoginForm() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -19,35 +22,29 @@ export function LoginForm() {
   const router = useRouter();
   const { toast } = useToast();
 
-    const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-
     try {
-      const response = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        localStorage.setItem("token", data.token);
-
-      
-
+      const data = await loginUser(username, password);
+      if (data.status === 200 && data.access_token) {
+        localStorage.setItem("token", data.access_token);
+        if (data.permission) {
+          localStorage.setItem("permission", data.permission);
+        }
         toast({
           title: "Login Successful",
           description: "You have been successfully logged in.",
         });
-        router.navigate({ to: "/" }); // Redirect to dashboard
+        router.navigate({ to: "/" });
       } else {
-        throw new Error("Login failed");
+        throw new Error(data.message || "Login failed");
       }
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Login Failed",
-        description: "Please check your credentials and try again.",
+        description:
+          error.message || "Please check your credentials and try again.",
         variant: "destructive",
       });
     } finally {
@@ -89,6 +86,10 @@ export function LoginForm() {
             </div>
           </div>
         </form>
+        <div className="my-6 flex items-center justify-center">
+          <span className="text-muted-foreground text-xs px-2">or</span>
+        </div>
+        <MicrosoftLogin />
       </CardContent>
       <CardFooter className="flex justify-between">
         <Button variant="outline">Cancel</Button>
