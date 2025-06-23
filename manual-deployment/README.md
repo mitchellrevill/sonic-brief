@@ -353,6 +353,40 @@ This section covers the deployment of the Azure OpenAI GPT model that will be us
 
 *NB: When testing the content filters on the GPT deployment may affect your results. You may need to request access to change the inbuilt content filters from Microsoft directly, which can be configured in the Azure AI Foundry portal.*
 
+
+## Using `gpt-4o-audio-preview` for Transcription (Optional)
+
+**📌 Use this section *only* if you're replacing Azure AI Speech with OpenAI’s `gpt-4o-audio-preview`.**
+
+To switch your transcription service:
+
+1. **Navigate to**: Azure AI Foundry → **Deployments** → **Deploy Base Model** → Select **`gpt-4o-audio-preview`**.
+2. **Update your Azure Function app settings** with the following configuration:
+
+```json
+{
+  "name": "AZURE_AUDIO_API_VERSION",
+  "value": "2025-01-01-preview",
+  "slotSetting": false
+},
+{
+  "name": "AZURE_AUDIO_MODEL",
+  "value": "gpt-4o-audio-preview",
+  "slotSetting": false
+},
+{
+  "name": "TRANSCRIPTION_MODEL",
+  "value": "gpt-4o",
+  "slotSetting": false
+}
+```
+
+Refer to the screenshots below for exact steps.
+
+![alt text](image.png)
+
+
+
 # Configuring the Storage Account
 
 1. Navigate to the storage account resource, under ‘containers’ add a new container for example ‘recordingcontainer’.

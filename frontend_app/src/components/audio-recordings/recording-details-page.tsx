@@ -11,8 +11,9 @@ import { getAudioTranscriptionQuery } from "@/queries/audio-recordings.query";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { useIsMobile } from "@/components/ui/use-mobile";
 import { AnalysisRefinementChat } from "@/components/analysis-refinement/analysis-refinement-chat";
+import { FloatingAnalysisChat } from "@/components/analysis-refinement/floating-analysis-chat";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { fetchCategories, fetchSubcategories } from "@/api/prompt-management";
 import { isAudioFile, getFileNameFromPath } from "@/lib/file-utils";
 import {
@@ -61,9 +62,9 @@ const copyToClipboard = async (text: string, label: string = "Text") => {
   }
 };
 
-export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {  const isMobile = useIsMobile();
+export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);  // Check if audio file exists and is a valid audio format
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);// Check if audio file exists and is a valid audio format
   const hasAudioFile = Boolean(recording.file_path) && isAudioFile(recording.file_path);
   
   // Debug file type detection
@@ -189,9 +190,7 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Main Content */}
+      </div>      {/* Main Content */}
       <div className="container mx-auto px-4 py-6">
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Audio Player & Metadata */}
@@ -364,8 +363,7 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                           <div className="flex items-center gap-2 text-sm text-muted-foreground animate-in fade-in duration-500 delay-200">
                             <CheckCircle className="h-4 w-4 text-green-500" />
                             <span>Transcription loaded successfully</span>
-                          </div>
-                          <div className="rounded-lg bg-muted/50 p-4 max-h-96 overflow-y-auto border border-border/50 animate-in fade-in duration-500 delay-300">
+                          </div>                          <div className="rounded-lg bg-muted/50 p-4 h-[600px] lg:h-[700px] xl:h-[800px] overflow-y-auto border border-border/50 animate-in fade-in duration-500 delay-300">
                             <pre className="text-sm whitespace-pre-wrap font-sans leading-relaxed">
                               {transcriptionText}
                             </pre>
@@ -412,10 +410,8 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                     )}
                   </TabsContent>                  <TabsContent value="analysis" className="mt-0 space-y-4">
                     {recording.analysis_text ? (
-                      <div className="space-y-6">
-                        {/* Original Analysis */}
-                        <div className="animate-in slide-in-from-bottom duration-700">
-                          <div className="rounded-lg bg-muted/50 p-4 max-h-96 overflow-y-auto space-y-4 border border-border/50">
+                      <div className="space-y-6">                        {/* Original Analysis */}
+                        <div className="animate-in slide-in-from-bottom duration-700">                          <div className="rounded-lg bg-muted/50 p-4 h-[600px] lg:h-[700px] xl:h-[800px] overflow-y-auto space-y-4 border border-border/50">
                             {recording.analysis_text
                               .split("\n\n")
                               .map((section: string, index: number) => {
@@ -446,34 +442,10 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                             >
                               <Download className="mr-2 h-4 w-4" />
                               Download Analysis PDF
-                            </Button>
-                          )}
-                        </div>                        {/* Analysis Refinement Chat - Hidden on mobile */}
-                        {!isMobile && (
-                          <>
-                            <Separator />
-                            <div className="animate-in slide-in-from-bottom duration-700 delay-200">
-                              <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
-                                <CardHeader className="pb-4">
-                                  <CardTitle className="flex items-center gap-2">
-                                    <span className="bg-primary/10 rounded-full p-2">
-                                      <MessageSquare className="text-primary h-4 w-4" />
-                                    </span>
-                                    Refine Analysis
-                                  </CardTitle>
-                                  <p className="text-sm text-muted-foreground">
-                                    Chat with AI to refine and explore your analysis results
-                                  </p>
-                                </CardHeader>
-                                <CardContent>
-                                  <AnalysisRefinementChat 
-                                    jobId={recording.id}
-                                  />
-                                </CardContent>
-                              </Card>
-                            </div>
-                          </>
-                        )}
+                            </Button>                          )}
+                        </div>
+
+                        {/* Analysis Refinement Chat removed - moved to sidebar */}
                       </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center py-12 space-y-4 animate-in fade-in duration-500">
@@ -646,7 +618,50 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                     <Download className="mr-2 h-4 w-4" />
                     Download Analysis
                   </Button>
-                )}                {/* Share Button - New Addition */}
+                )}
+
+                {/* Analysis Refinement Chat Button - Prominent in Actions */}
+                {recording.analysis_text && (
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button 
+                        variant="default" 
+                        className="w-full justify-start transition-all duration-200 hover:scale-105 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-md"
+                      >
+                        <MessageSquare className="mr-2 h-4 w-4" />
+                        Chat with Analysis
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col p-0 gap-0">
+                      <DialogHeader className="px-6 py-4 border-b bg-muted/30">
+                        <DialogTitle className="flex items-center gap-3">
+                          <span className="bg-primary/10 rounded-full p-2.5">
+                            <MessageSquare className="text-primary h-5 w-5" />
+                          </span>
+                          <div>
+                            <div className="text-lg font-semibold">Refine Your Analysis</div>
+                            <p className="text-sm text-muted-foreground font-normal mt-1">
+                              Chat with AI to refine and explore your analysis results
+                            </p>
+                          </div>
+                        </DialogTitle>
+                      </DialogHeader>
+                      
+                      <div className="flex-1 min-h-0">
+                        <AnalysisRefinementChat 
+                          jobId={recording.id}
+                          className="border-0 bg-transparent h-full rounded-none"
+                        />
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                )}
+                
+                <div className="pt-2 border-t border-border/50">
+                  {/* Secondary Actions */}
+                </div>
+
+                {/* Share Button */}
                 <Button variant="outline" onClick={() => setShareDialogOpen(true)} className="w-full justify-start transition-all duration-200 hover:scale-105 hover:bg-muted">
                   <User className="mr-2 h-4 w-4" />
                   Share
@@ -659,13 +674,17 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                   className="w-full justify-start transition-all duration-200 hover:scale-105 hover:bg-muted text-destructive hover:text-destructive"
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
-                  Delete
-                </Button>
-              </CardContent>
+                  Delete                </Button>              </CardContent>
             </Card>
           </div>
         </div>
-      </div>      {/* Sharing Info Display - New Component */}
+      </div>      {/* Floating Analysis Chat - Mobile/Global Access */}
+      <FloatingAnalysisChat 
+        jobId={recording.id} 
+        hasAnalysis={Boolean(recording.analysis_text)}
+      />
+
+      {/* Sharing Info Display - New Component */}
       <JobSharingInfo jobId={recording.id} jobTitle={fileName} />      {/* Share Dialog - New Component */}
       <JobShareDialog
         isOpen={shareDialogOpen}

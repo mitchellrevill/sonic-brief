@@ -10,7 +10,7 @@ import {
   SHARED_JOBS_API,
   SUBCATEGORIES_API,
   UPLOAD_API,
-  User_MANAGEMENT_API,
+  USER_MANAGEMENT_API,
 } from "../lib/apiConstants"
 
 interface RegisterResponse {
@@ -123,7 +123,7 @@ export async function fetchAllUsers(): Promise<User[]> {
   const token = localStorage.getItem("token");
   if (!token) throw new Error("No authentication token found. Please log in again.");
 
-  const response = await fetch(User_MANAGEMENT_API, {
+  const response = await fetch(USER_MANAGEMENT_API, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -142,7 +142,7 @@ export async function fetchUserByEmail(email: string): Promise<User> {
   const token = localStorage.getItem("token");
   if (!token) throw new Error("No authentication token found. Please log in again.");
 
-  const response = await fetch(`${User_MANAGEMENT_API}/by-email?email=${encodeURIComponent(email)}`, {
+  const response = await fetch(`${USER_MANAGEMENT_API}/by-email?email=${encodeURIComponent(email)}`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -215,7 +215,7 @@ export async function updateUserPermission(userId: string, permission: "User" | 
   const token = localStorage.getItem("token");
   if (!token) throw new Error("No authentication token found. Please log in again.");
 
-  const response = await fetch(`${User_MANAGEMENT_API}/${userId}`, {
+  const response = await fetch(`${USER_MANAGEMENT_API}/${userId}`, {
     method: "PATCH",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -236,7 +236,7 @@ export async function changeUserPassword(userId: string, newPassword: string): P
   const token = localStorage.getItem("token");
   if (!token) throw new Error("No authentication token found. Please log in again.");
 
-  const response = await fetch(`${User_MANAGEMENT_API}/${userId}/password`, {
+  const response = await fetch(`${USER_MANAGEMENT_API}/${userId}/password`, {
     method: "PATCH",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -261,7 +261,7 @@ export async function updateUserTranscriptionMethod(
   const token = localStorage.getItem("token");
   if (!token) throw new Error("No authentication token found. Please log in again.");
 
-  const response = await fetch(`${User_MANAGEMENT_API}/${userId}/transcription-method`, {
+  const response = await fetch(`${USER_MANAGEMENT_API}/${userId}/transcription-method`, {
     method: "PATCH",
     headers: {
       Authorization: `Bearer ${token}`,
