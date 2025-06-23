@@ -248,17 +248,7 @@ async def get_jobs(
 ) -> Dict[str, Any]:
     """
     Get job details with optional filters.
-
-    Args:
-        job_id: Filter by job ID
-        status: Filter by job status
-        file_path: Filter by file path
-        created_at: Filter by creation date
-        prompt_subcategory_id: Filter by prompt subcategory ID
-        current_user: Authenticated user from token
-
-    Returns:
-        Dict containing jobs and status
+    If the user is an admin, return all jobs. Otherwise, only return jobs owned by or shared with the user.
     """
     try:
         config = AppConfig()
@@ -320,13 +310,22 @@ async def get_jobs(
                     "message": "Invalid created_at date. Expected format: YYYY-MM-DD.",
                 }
 
-        if prompt_subcategory_id:
-            query += " AND c.prompt_subcategory_id = @subcategory"
-            parameters.append({"name": "@subcategory", "value": prompt_subcategory_id})        # Add user filter for security - include owned jobs and jobs shared with user
-        user_access_filter = f" AND (c.user_id = @user_id OR ARRAY_CONTAINS(c.shared_with, {{'user_id': @user_id}}, true))"
-        query += user_access_filter
-        parameters.append({"name": "@user_id", "value": current_user["id"]})
-        
+        # Only apply user access filter if not admin
+        is_admin = False
+        if "permission" in current_user:
+            # Accepts 'Admin' or 'admin' (case-insensitive)
+            is_admin = str(current_user["permission"]).lower() == "admin"
+        elif "permissions" in current_user:
+            # Some user objects may use 'permissions' as a list
+            perms = current_user["permissions"]
+            if isinstance(perms, list):
+                is_admin = any(str(p).lower() == "admin" for p in perms)
+
+        if not is_admin:
+            user_access_filter = f" AND (c.user_id = @user_id OR ARRAY_CONTAINS(c.shared_with, {{'user_id': @user_id}}, true))"
+            query += user_access_filter
+            parameters.append({"name": "@user_id", "value": current_user["id"]})
+
         # Exclude soft-deleted jobs for regular users (admins can see all jobs via admin endpoints)
         query += " AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
 
@@ -367,7 +366,6 @@ async def get_jobs(
                 "count": len(jobs),
                 "jobs": jobs,
             }
-
         except Exception as e:
             logger.error(f"Error querying jobs: {str(e)}")
             return {"status": 500, "message": f"Error retrieving jobs: {str(e)}"}
@@ -438,7 +436,6 @@ async def get_job_transcription(
     try:        # Build query to get the specific job
         query = "SELECT * FROM c WHERE c.type = 'job' AND c.id = @job_id AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
         parameters = [{"name": "@job_id", "value": job_id}]
-
         logger.info(f"[{request_id}] Querying CosmosDB for job_id: {job_id}")
         logger.debug(
             f"[{request_id}] Query: {query}, Parameters: {json.dumps(parameters)}"

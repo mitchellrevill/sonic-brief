@@ -19,6 +19,8 @@ import {
   DropdownMenuSeparator 
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   Edit2, 
@@ -32,9 +34,11 @@ import {
   Mail,
   Check,
   X,
-  Mic
+  Mic,
+  CheckCircle2,
+  XCircle
 } from "lucide-react";
-import { fetchAllUsers } from "@/lib/api"; 
+import { fetchAllUsers, registerUser } from "@/lib/api"; 
 import type { User } from "@/lib/api";
 import { updateUserPermission } from "@/lib/api";
 import { ChangePasswordDialog } from "./change-password-dialog";
@@ -91,6 +95,11 @@ export function UserManagementTable() {
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
   const [transcriptionDialogOpen, setTranscriptionDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [registerEmail, setRegisterEmail] = useState("");
+  const [registerPassword, setRegisterPassword] = useState("");
+  const [registerLoading, setRegisterLoading] = useState(false);
+  const [registerError, setRegisterError] = useState("");
+  const [registerSuccess, setRegisterSuccess] = useState("");
 
   const fetchAllUsersApi = async () => {
     setLoading(true);
@@ -174,6 +183,24 @@ export function UserManagementTable() {
     setSelectedUser(null);
   };
 
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRegisterLoading(true);
+    setRegisterError("");
+    setRegisterSuccess("");
+    try {
+      await registerUser(registerEmail, registerPassword);
+      setRegisterSuccess("User registered successfully.");
+      setRegisterEmail("");
+      setRegisterPassword("");
+      fetchAllUsersApi();
+    } catch (err: any) {
+      setRegisterError(err.message || "Failed to register user.");
+    } finally {
+      setRegisterLoading(false);
+    }
+  };
+
   const renderPermissionBadge = (permission: User["permission"]) => {
     const permissionInfo = getPermissionInfo(permission);
     const IconComponent = permissionInfo.icon;
@@ -220,6 +247,58 @@ export function UserManagementTable() {
 
   return (
     <div className="space-y-6">
+      {/* Register New User Form */}
+      <Card className="max-w-md mb-4 bg-muted/40 border border-muted-foreground/10 shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <UserIcon className="h-5 w-5 text-primary" />
+            Register New User (Outside Tenant)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleRegister} className="space-y-4">
+            <div>
+              <Label htmlFor="register-email">Email</Label>
+              <Input
+                id="register-email"
+                type="email"
+                value={registerEmail}
+                onChange={e => setRegisterEmail(e.target.value)}
+                required
+                autoComplete="off"
+                placeholder="user@email.com"
+              />
+            </div>
+            <div>
+              <Label htmlFor="register-password">Password</Label>
+              <Input
+                id="register-password"
+                type="password"
+                value={registerPassword}
+                onChange={e => setRegisterPassword(e.target.value)}
+                required
+                autoComplete="new-password"
+                placeholder="Password"
+              />
+            </div>
+            {registerError && (
+              <div className="flex items-center gap-2 text-red-600 text-sm">
+                <XCircle className="h-4 w-4" />
+                {registerError}
+              </div>
+            )}
+            {registerSuccess && (
+              <div className="flex items-center gap-2 text-green-600 text-sm">
+                <CheckCircle2 className="h-4 w-4" />
+                {registerSuccess}
+              </div>
+            )}
+            <Button type="submit" disabled={registerLoading} className="w-full">
+              {registerLoading ? "Registering..." : "Register User"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
       {/* Mobile: Card Layout */}
       <div className="block lg:hidden space-y-4">
         {users.map(user => {
