@@ -15,14 +15,14 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 class PermissionLevel(str, Enum):
     """Permission levels in hierarchical order"""
-    VIEWER = "Viewer"
-    USER = "User" 
+    USER = "User"
+    EDITOR = "Editor"
     ADMIN = "Admin"
 
 # Permission hierarchy (higher number = more permissions)
 PERMISSION_HIERARCHY = {
-    PermissionLevel.VIEWER: 1,
-    PermissionLevel.USER: 2,
+    PermissionLevel.USER: 1,
+    PermissionLevel.EDITOR: 2,
     PermissionLevel.ADMIN: 3,
 }
 
@@ -38,7 +38,7 @@ class PermissionChecker:
         try:
             user = await self.cosmos_db.get_user_by_id(user_id)
             if user:
-                return user.get("permission", "Viewer")
+                return user.get("permission", "User")
             return None
         except Exception as e:
             logger.error(f"Error getting user permission for {user_id}: {str(e)}")
@@ -126,13 +126,13 @@ def require_admin_permission(func: Callable):
     """Require Admin permission"""
     return require_permission(PermissionLevel.ADMIN)(func)
 
+def require_editor_permission(func: Callable):
+    """Require Editor permission or higher"""
+    return require_permission(PermissionLevel.EDITOR)(func)
+
 def require_user_permission(func: Callable):
     """Require User permission or higher"""
     return require_permission(PermissionLevel.USER)(func)
-
-def require_viewer_permission(func: Callable):
-    """Require Viewer permission or higher (basically any authenticated user)"""
-    return require_permission(PermissionLevel.VIEWER)(func)
 
 # FastAPI dependencies for permission checking
 async def require_admin(current_user_id: str = Depends(get_current_user_id)) -> str:
@@ -145,6 +145,16 @@ async def require_admin(current_user_id: str = Depends(get_current_user_id)) -> 
         )
     return current_user_id
 
+async def require_editor(current_user_id: str = Depends(get_current_user_id)) -> str:
+    """FastAPI dependency to require editor permission or higher"""
+    has_permission = await permission_checker.check_permission(current_user_id, PermissionLevel.EDITOR)
+    if not has_permission:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Editor permission or higher required"
+        )
+    return current_user_id
+
 async def require_user(current_user_id: str = Depends(get_current_user_id)) -> str:
     """FastAPI dependency to require user permission or higher"""
     has_permission = await permission_checker.check_permission(current_user_id, PermissionLevel.USER)
@@ -152,16 +162,6 @@ async def require_user(current_user_id: str = Depends(get_current_user_id)) -> s
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User permission or higher required"
-        )
-    return current_user_id
-
-async def require_viewer(current_user_id: str = Depends(get_current_user_id)) -> str:
-    """FastAPI dependency to require viewer permission or higher"""
-    has_permission = await permission_checker.check_permission(current_user_id, PermissionLevel.VIEWER)
-    if not has_permission:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Authentication required"
         )
     return current_user_id
 

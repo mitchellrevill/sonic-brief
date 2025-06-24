@@ -19,7 +19,9 @@ function MediaUploadPage() {
   };
 
   return (
-    <PermissionGuard required={["Admin", "User"]}>      <div className="flex-1 space-y-6 p-4 pt-6 md:p-8">
+    // Allow Admin, Editor, and User roles
+    <PermissionGuard required={["Admin", "Editor", "User"]}>
+      <div className="flex-1 space-y-6 p-4 pt-6 md:p-8">
         <MediaUploadHeader onStartRecording={() => setIsModalOpen(true)} />
         <MediaUploadForm mediaFile={audioFile} />
         <AudioRecordingModal

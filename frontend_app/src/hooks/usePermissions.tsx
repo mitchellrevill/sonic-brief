@@ -5,7 +5,7 @@ import { useMemo } from 'react';
 // Import the base URL from API constants
 const API_BASE_URL = import.meta.env.VITE_API_URL;
 
-export type PermissionLevel = 'Admin' | 'User' | 'Viewer';
+export type PermissionLevel = 'Admin' | 'Editor' | 'User';
 
 export interface UserPermissions {
   user_id: string;
@@ -30,8 +30,8 @@ export interface PermissionStats {
 
 // Permission hierarchy for frontend validation
 const PERMISSION_HIERARCHY: Record<PermissionLevel, number> = {
-  'Viewer': 1,
-  'User': 2,
+  'User': 1,
+  'Editor': 2,
   'Admin': 3,
 };
 
@@ -61,7 +61,8 @@ export const useUserPermissions = () => {
       const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
-      }      const response = await fetch(`${API_BASE_URL}/api/auth/users/me/permissions`, {
+      }
+      const response = await fetch(`${API_BASE_URL}/api/auth/users/me/permissions`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -230,7 +231,7 @@ export const usePermissionGuard = () => {
     canDeleteContent: userPermissions?.capabilities.can_delete_content || false,
     
     // User info
-    currentPermission: userPermissions?.permission || 'Viewer',
+    currentPermission: userPermissions?.permission || 'User',
     userEmail: userPermissions?.email,
     userId: userPermissions?.user_id,
     
@@ -306,8 +307,8 @@ export const useConditionalRender = () => {
 // Export permission levels for use in components
 export const PERMISSION_LEVELS = {
   ADMIN: 'Admin' as const,
+  EDITOR: 'Editor' as const,
   USER: 'User' as const,
-  VIEWER: 'Viewer' as const,
 };
 
 // Utility function to get permission badge color
@@ -315,10 +316,10 @@ export const getPermissionBadgeColor = (permission: PermissionLevel): string => 
   switch (permission) {
     case 'Admin':
       return 'bg-red-100 text-red-800 border-red-200';
+    case 'Editor':
+      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
     case 'User':
       return 'bg-blue-100 text-blue-800 border-blue-200';
-    case 'Viewer':
-      return 'bg-gray-100 text-gray-800 border-gray-200';
     default:
       return 'bg-gray-100 text-gray-800 border-gray-200';
   }
@@ -329,10 +330,10 @@ export const getPermissionIcon = (permission: PermissionLevel): string => {
   switch (permission) {
     case 'Admin':
       return '👑'; // Crown
+    case 'Editor':
+      return '✏️'; // Pencil
     case 'User':
       return '🔧'; // Wrench
-    case 'Viewer':
-      return '👁️'; // Eye
     default:
       return '❓'; // Question mark
   }

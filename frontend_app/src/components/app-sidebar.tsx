@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { getStorageItem, setStorageItem } from "@/lib/storage";
 import { usePermissionGuard, useUserPermissions } from "@/hooks/usePermissions";
+import { queryClient } from "@/queryClient";
 
 interface MenuItem {
   icon: React.ElementType;
@@ -102,7 +103,16 @@ export function AppSidebar({ children }: AppSidebarProps) {
     setStorageItem("sidebarLayout", newLayout);
   };
   const handleLogout = () => {
-    localStorage.removeItem("token");
+    // Clear all storage
+    localStorage.clear();
+    sessionStorage.clear();
+    if (window.indexedDB && indexedDB.databases) {
+      indexedDB.databases().then(dbs => {
+        dbs.forEach(db => db.name && indexedDB.deleteDatabase(db.name));
+      });
+    }
+    // Clear react-query cache
+    queryClient.clear();
     router.navigate({ to: "/login" });
   };  return (
     <div className="flex min-h-screen flex-col">
@@ -147,19 +157,21 @@ export function AppSidebar({ children }: AppSidebarProps) {
           )}
         >
           {/* Logo */}
-          <div
-            className={cn(
-              "flex items-center justify-center flex-shrink-0",
-              // Mobile: compact
-              "w-16 h-full",
-              // Desktop: depends on layout
-              sidebarLayout === "top" ? "md:w-16 md:h-full" : "md:h-16 md:w-full"
-            )}
-          >
-            <div className="rounded-full bg-white p-2">
-              <Mic className="h-6 w-6 md:h-8 md:w-8 text-gray-900" />
+          {sidebarLayout === "left" && isOpen && (
+            <div
+              className={cn(
+                "flex items-center justify-center flex-shrink-0 transition-all duration-300 overflow-hidden bg-gray-900 w-full md:h-24 h-24 pt-4",
+                // Hide on mobile (show only on md and up)
+                "hidden md:flex"
+              )}
+              style={{ minWidth: isOpen ? undefined : 0, minHeight: isOpen ? undefined : 0 }}
+            >
+              <img src="/logo.png" alt="Barnsley Council Logo" className={cn(
+                "object-contain transition-all duration-300 w-full h-full",
+                isOpen ? "opacity-100" : "opacity-0"
+              )} />
             </div>
-          </div>
+          )}
 
           {/* Mobile Navigation - Show only essential items + dropdown for rest */}
           <nav className="flex-1 p-2 flex flex-row space-x-1 items-center md:hidden">

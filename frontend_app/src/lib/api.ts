@@ -112,7 +112,7 @@ export type User = {
   id: string;
   name: string;
   email: string;
-  permission: "User" | "Admin" | "Viewer";
+  permission: "Editor" | "Admin" | "User";
   transcription_method?: "AZURE_AI_SPEECH" | "GPT4O_AUDIO";
   date?: string;
 };

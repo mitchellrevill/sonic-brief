@@ -28,7 +28,6 @@ import {
   KeyRound, 
   Shield, 
   ShieldCheck, 
-  Eye,
   User as UserIcon,
   Calendar,
   Mail,
@@ -40,9 +39,9 @@ import {
 } from "lucide-react";
 import { fetchAllUsers, registerUser } from "@/lib/api"; 
 import type { User } from "@/lib/api";
-import { updateUserPermission } from "@/lib/api";
 import { ChangePasswordDialog } from "./change-password-dialog";
 import { TranscriptionMethodDialog } from "./transcription-method-dialog";
+import { useUpdateUserPermission } from "@/hooks/usePermissions";
 
 const initialUsers: User[] = [
   { id: "1", name: "", email: "", permission: "Admin" },
@@ -60,28 +59,28 @@ const getUserInitials = (email: string, name?: string) => {
 const getPermissionInfo = (permission: User["permission"]) => {
   switch (permission) {
     case "Admin":
-      return { 
-        variant: "default" as const, 
-        icon: Shield, 
-        color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" 
+      return {
+        variant: "default" as const,
+        icon: Shield,
+        color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+      };
+    case "Editor":
+      return {
+        variant: "secondary" as const,
+        icon: ShieldCheck,
+        color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
       };
     case "User":
-      return { 
-        variant: "secondary" as const, 
-        icon: ShieldCheck, 
-        color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" 
-      };
-    case "Viewer":
-      return { 
-        variant: "outline" as const, 
-        icon: Eye, 
-        color: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200" 
+      return {
+        variant: "outline" as const,
+        icon: UserIcon,
+        color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
       };
     default:
-      return { 
-        variant: "outline" as const, 
-        icon: UserIcon, 
-        color: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200" 
+      return {
+        variant: "outline" as const,
+        icon: UserIcon,
+        color: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200"
       };
   }
 };
@@ -90,7 +89,7 @@ const getPermissionInfo = (permission: User["permission"]) => {
 export function UserManagementTable() {
   const [users, setUsers] = useState<User[]>(initialUsers);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editPermission, setEditPermission] = useState<Record<string, User["permission"]>>({});
+  const [editPermission, setEditPermission] = useState<Record<string, "Admin" | "Editor" | "User">>({});
   const [loading, setLoading] = useState(false);
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
   const [transcriptionDialogOpen, setTranscriptionDialogOpen] = useState(false);
@@ -100,6 +99,8 @@ export function UserManagementTable() {
   const [registerLoading, setRegisterLoading] = useState(false);
   const [registerError, setRegisterError] = useState("");
   const [registerSuccess, setRegisterSuccess] = useState("");
+
+  const updateUserPermissionMutation = useUpdateUserPermission();
 
   const fetchAllUsersApi = async () => {
     setLoading(true);
@@ -123,11 +124,16 @@ export function UserManagementTable() {
           const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
           dateStr = `${day}/${month}/${year} ${time}`;
         }
+        // Map 'Viewer' to 'User' for compatibility
+        let permission: "Admin" | "Editor" | "User" =
+          u.permission === "Admin" ? "Admin" :
+          u.permission === "Editor" ? "Editor" :
+          "User";
         return {
           id: u.id || idx,
           name: u.name || u.email || "",
           email: u.email,
-          permission: (u.permission as "User" | "Admin" | "Viewer") || "Viewer",
+          permission: permission as "Admin" | "Editor" | "User",
           date: dateStr,
         };
       });
@@ -151,7 +157,7 @@ export function UserManagementTable() {
   const saveEdit = async (id: string) => {
     try {
       const permission = editPermission[id];
-      await updateUserPermission(id, permission);
+      await updateUserPermissionMutation.mutateAsync({ userId: id, newPermission: permission });
       await fetchAllUsersApi();
     } catch (err) {
       console.error("Failed to update user permission:", err);
@@ -377,16 +383,16 @@ export function UserManagementTable() {
                                     Admin
                                   </div>
                                 </SelectItem>
-                                <SelectItem value="User">
+                                <SelectItem value="Editor">
                                   <div className="flex items-center gap-2">
                                     <ShieldCheck className="h-3 w-3" />
-                                    User
+                                    Editor
                                   </div>
                                 </SelectItem>
-                                <SelectItem value="Viewer">
+                                <SelectItem value="User">
                                   <div className="flex items-center gap-2">
-                                    <Eye className="h-3 w-3" />
-                                    Viewer
+                                    <UserIcon className="h-3 w-3" />
+                                    User
                                   </div>
                                 </SelectItem>
                               </SelectContent>
@@ -473,16 +479,16 @@ export function UserManagementTable() {
                                     Admin
                                   </div>
                                 </SelectItem>
-                                <SelectItem value="User">
+                                <SelectItem value="Editor">
                                   <div className="flex items-center gap-2">
                                     <ShieldCheck className="h-3 w-3" />
-                                    User
+                                    Editor
                                   </div>
                                 </SelectItem>
-                                <SelectItem value="Viewer">
+                                <SelectItem value="User">
                                   <div className="flex items-center gap-2">
-                                    <Eye className="h-3 w-3" />
-                                    Viewer
+                                    <UserIcon className="h-3 w-3" />
+                                    User
                                   </div>
                                 </SelectItem>
                               </SelectContent>

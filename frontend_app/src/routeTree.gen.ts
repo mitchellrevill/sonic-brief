@@ -11,6 +11,7 @@
 // Import Routes
 
 import { Route as rootRoute } from './routes/__root'
+import { Route as LogoutImport } from './routes/logout'
 import { Route as LoginImport } from './routes/login'
 import { Route as LayoutImport } from './routes/_layout'
 import { Route as IndexImport } from './routes/index'
@@ -29,6 +30,12 @@ import { Route as LayoutAdminDeletedJobsIndexImport } from './routes/_layout/adm
 import { Route as LayoutAdminAllJobsIndexImport } from './routes/_layout/admin/all-jobs/index'
 
 // Create/Update Routes
+
+const LogoutRoute = LogoutImport.update({
+  id: '/logout',
+  path: '/logout',
+  getParentRoute: () => rootRoute,
+} as any)
 
 const LoginRoute = LoginImport.update({
   id: '/login',
@@ -154,6 +161,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginImport
+      parentRoute: typeof rootRoute
+    }
+    '/logout': {
+      id: '/logout'
+      path: '/logout'
+      fullPath: '/logout'
+      preLoaderRoute: typeof LogoutImport
       parentRoute: typeof rootRoute
     }
     '/_layout/audio-recordings/$id': {
@@ -291,6 +305,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '': typeof LayoutRouteWithChildren
   '/login': typeof LoginRoute
+  '/logout': typeof LogoutRoute
   '/audio-recordings/$id': typeof LayoutAudioRecordingsIdRoute
   '/admin': typeof LayoutAdminIndexRoute
   '/audio-recordings': typeof LayoutAudioRecordingsIndexRoute
@@ -310,6 +325,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '': typeof LayoutRouteWithChildren
   '/login': typeof LoginRoute
+  '/logout': typeof LogoutRoute
   '/audio-recordings/$id': typeof LayoutAudioRecordingsIdRoute
   '/admin': typeof LayoutAdminIndexRoute
   '/audio-recordings': typeof LayoutAudioRecordingsIndexRoute
@@ -330,6 +346,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_layout': typeof LayoutRouteWithChildren
   '/login': typeof LoginRoute
+  '/logout': typeof LogoutRoute
   '/_layout/audio-recordings/$id': typeof LayoutAudioRecordingsIdRoute
   '/_layout/admin/': typeof LayoutAdminIndexRoute
   '/_layout/audio-recordings/': typeof LayoutAudioRecordingsIndexRoute
@@ -351,6 +368,7 @@ export interface FileRouteTypes {
     | '/'
     | ''
     | '/login'
+    | '/logout'
     | '/audio-recordings/$id'
     | '/admin'
     | '/audio-recordings'
@@ -369,6 +387,7 @@ export interface FileRouteTypes {
     | '/'
     | ''
     | '/login'
+    | '/logout'
     | '/audio-recordings/$id'
     | '/admin'
     | '/audio-recordings'
@@ -387,6 +406,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_layout'
     | '/login'
+    | '/logout'
     | '/_layout/audio-recordings/$id'
     | '/_layout/admin/'
     | '/_layout/audio-recordings/'
@@ -407,12 +427,14 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LayoutRoute: typeof LayoutRouteWithChildren
   LoginRoute: typeof LoginRoute
+  LogoutRoute: typeof LogoutRoute
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LayoutRoute: LayoutRouteWithChildren,
   LoginRoute: LoginRoute,
+  LogoutRoute: LogoutRoute,
 }
 
 export const routeTree = rootRoute
@@ -427,7 +449,8 @@ export const routeTree = rootRoute
       "children": [
         "/",
         "/_layout",
-        "/login"
+        "/login",
+        "/logout"
       ]
     },
     "/": {
@@ -453,6 +476,9 @@ export const routeTree = rootRoute
     },
     "/login": {
       "filePath": "login.tsx"
+    },
+    "/logout": {
+      "filePath": "logout.tsx"
     },
     "/_layout/audio-recordings/$id": {
       "filePath": "_layout/audio-recordings/$id.tsx",
