@@ -76,6 +76,7 @@ export function AdminAllJobsPage() {
     const token = localStorage.getItem("token");
     if (!token) throw new Error("No authentication token found. Please log in again.");
 
+    // Use the admin endpoint for all jobs
     const response = await fetch(`${import.meta.env.VITE_API_URL}/api/jobs`, {
       method: "GET",
       headers: {

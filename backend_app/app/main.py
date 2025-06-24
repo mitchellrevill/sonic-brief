@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import auth, upload, prompts
+from app.routers import logout  # Add this import
 from fastapi import Request
 from azure.identity import DefaultAzureCredential
 
@@ -79,6 +80,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(upload.router)
 app.include_router(prompts.router)
+app.include_router(logout.router)  # Add this line
 
 
 @app.get("/")

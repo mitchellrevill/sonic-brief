@@ -1499,3 +1499,58 @@ def get_user_job_permission(job: Dict[str, Any], current_user: Dict[str, Any]) -
                 return share["permission_level"]
     
     return None
+
+@router.get("/jobs/my")
+async def get_my_jobs(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Get only the jobs owned by the current user (for user's audio recording page).
+    """
+    try:
+        config = AppConfig()
+        try:
+            cosmos_db = CosmosDB(config)
+            logger.debug("CosmosDB client initialized for my jobs query")
+        except DatabaseError as e:
+            logger.error(f"Database initialization failed: {str(e)}")
+            return {"status": 503, "message": "Database service unavailable"}
+
+        storage_service = StorageService(config)
+
+        query = "SELECT * FROM c WHERE c.type = 'job' AND c.user_id = @user_id AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+        parameters = [{"name": "@user_id", "value": current_user["id"]}]
+
+        try:
+            jobs = list(
+                cosmos_db.jobs_container.query_items(
+                    query=query,
+                    parameters=parameters,
+                    enable_cross_partition_query=True,
+                )
+            )
+            for job in jobs:
+                job["is_owned"] = True
+                job["user_permission"] = get_user_job_permission(job, current_user)
+                job["shared_with_count"] = len(job.get("shared_with", []))
+                if job.get("file_path"):
+                    file_path = job["file_path"]
+                    path_parts = urlparse(file_path).path.strip("/").split("/")
+                    job["file_name"] = path_parts[-1] if path_parts else None
+                    job["file_path"] = storage_service.add_sas_token_to_url(file_path)
+                    if job.get("transcription_file_path"):
+                        job["transcription_file_path"] = storage_service.add_sas_token_to_url(job["transcription_file_path"])
+                    if job.get("analysis_file_path"):
+                        job["analysis_file_path"] = storage_service.add_sas_token_to_url(job["analysis_file_path"])
+            return {
+                "status": 200,
+                "message": "User jobs retrieved successfully",
+                "count": len(jobs),
+                "jobs": jobs,
+            }
+        except Exception as e:
+            logger.error(f"Error querying my jobs: {str(e)}")
+            return {"status": 500, "message": f"Error retrieving jobs: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error getting my jobs: {str(e)}", exc_info=True)
+        return {"status": 500, "message": f"An unexpected error occurred: {str(e)}"}

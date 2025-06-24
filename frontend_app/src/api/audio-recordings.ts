@@ -23,7 +23,8 @@ export interface AudioRecording {
 }
 
 export async function getAudioRecordings(filters?: AudioListValues) {
-  const response = await httpClient.get(JOBS_API, {
+  // Use the new /jobs/my endpoint for user jobs
+  const response = await httpClient.get(`${JOBS_API}/my`, {
     params: filters,
   });
 

@@ -3,7 +3,7 @@ import { useRouter } from "@tanstack/react-router";
 import { usePermissionGuard } from "@/hooks/usePermissions";
 
 interface PermissionGuardProps {
-  required: Array<"Admin" | "User" | "Viewer">;
+  required: Array<"Admin" | "User" | "Editor">;
   children: React.ReactNode;
 }
 

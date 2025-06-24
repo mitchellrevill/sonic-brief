@@ -363,13 +363,14 @@ async def update_user_permission(
     """
     try:
         new_permission = permission_data.get("permission")
-        if new_permission not in [PermissionLevel.ADMIN, PermissionLevel.USER, PermissionLevel.VIEWER]:
+        if new_permission not in [PermissionLevel.ADMIN, PermissionLevel.EDITOR, PermissionLevel.USER]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid permission level. Must be one of: {[PermissionLevel.ADMIN, PermissionLevel.USER, PermissionLevel.VIEWER]}"
+                detail=f"Invalid permission level. Must be one of: {[PermissionLevel.ADMIN, PermissionLevel.EDITOR, PermissionLevel.USER]}"
             )
         
-        cosmos_db = CosmosDB()
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
         
         # Get current user data
         current_user_data = await cosmos_db.get_user_by_id(user_id)
@@ -379,7 +380,7 @@ async def update_user_permission(
                 detail="User not found"
             )
         
-        old_permission = current_user_data.get("permission", PermissionLevel.VIEWER)
+        old_permission = current_user_data.get("permission", PermissionLevel.USER)
         
         # Prepare update data with audit trail
         update_data = {
@@ -500,7 +501,7 @@ async def get_my_permissions(
     Get current user's permission information.
     """
     try:
-        permission = current_user.get("permission", PermissionLevel.VIEWER)
+        permission = current_user.get("permission", PermissionLevel.USER)
           # Get permission capabilities using the utility function
         from app.middleware.permission_middleware import get_user_capabilities
         capabilities = get_user_capabilities(permission)
