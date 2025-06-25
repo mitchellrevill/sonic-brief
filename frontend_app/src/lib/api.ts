@@ -69,6 +69,22 @@ interface SubcategoryResponse {
   updated_at: number
 }
 
+interface JobSharingInfo {
+  status: string;
+  job_id: string;
+  is_owner: boolean;
+  user_permission: string;
+  shared_with: Array<{
+    user_id: string;
+    user_email: string;
+    permission_level: string;
+    shared_at: number;
+    shared_by: string;
+    message?: string;
+  }>;
+  total_shares: number;
+}
+
 export async function registerUser(email: string, password: string): Promise<RegisterResponse> {
   const response = await fetch(REGISTER_API, {
     method: "POST",
@@ -691,25 +707,8 @@ interface JobShareResponse {
 
 interface SharedJobsResponse {
   status: string;
-  message: string;
-  shared_jobs: Array<any>;
+  message: string;  shared_jobs: Array<any>;
   owned_jobs_shared_with_others: Array<any>;
-}
-
-interface JobSharingInfo {
-  status: string;
-  job_id: string;
-  is_owner: boolean;
-  user_permission: string;
-  shared_with: Array<{
-    user_id: string;
-    user_email: string;
-    permission_level: string;
-    shared_at: number;
-    shared_by: string;
-    message?: string;
-  }>;
-  total_shares: number;
 }
 
 export async function shareJob(jobId: string, shareRequest: JobShareRequest): Promise<JobShareResponse> {
@@ -791,38 +790,28 @@ export async function getSharedJobs(): Promise<SharedJobsResponse> {
       throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
     }
 
-    return await response.json();
-  } catch (error) {
+    return await response.json();  } catch (error) {
     console.error("Error getting shared jobs:", error);
     throw error;
   }
 }
 
 export async function getJobSharingInfo(jobId: string): Promise<JobSharingInfo> {
-  try {
-    const token = localStorage.getItem("token");
-    
-    const response = await fetch(`${JOB_SHARE_API}/${jobId}/sharing-info`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-    });
+  const token = localStorage.getItem("token");
+  if (!token) throw new Error("No authentication token found. Please log in again.");
 
-    if (!response.ok) {
-      if (response.status === 401) {
-        throw new Error("Authentication failed. Please log in again.");
-      }
-      
-      const errorData = await response.json();
-      throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-    }
+  const response = await fetch(`${JOB_SHARE_API}/${jobId}/sharing-info`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
 
-    return await response.json();
-  } catch (error) {
-    console.error("Error getting job sharing info:", error);
-    throw error;
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
   }
+
+  return await response.json();
 }
 

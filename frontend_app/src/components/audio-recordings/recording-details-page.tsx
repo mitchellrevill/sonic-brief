@@ -685,7 +685,9 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
       />
 
       {/* Sharing Info Display - New Component */}
-      <JobSharingInfo jobId={recording.id} jobTitle={fileName} />      {/* Share Dialog - New Component */}
+      <JobSharingInfo jobId={recording.id} jobTitle={fileName} />
+
+      {/* Share Dialog - New Component */}
       <JobShareDialog
         isOpen={shareDialogOpen}
         onOpenChange={setShareDialogOpen}

@@ -28,15 +28,7 @@ export function RecordingDetailsPageWrapper({
   };
 
   useEffect(() => {
-    // For static export, check if we have a current_recording_id in localStorage
-    // This would mean we're viewing a real recording through a placeholder route
-    const currentRecordingId = safeGetLocalStorage("current_recording_id");
-    const actualId = currentRecordingId || id; // Use the stored ID or the route ID
-
-    // Clear the current_recording_id from localStorage
-    if (currentRecordingId && typeof window !== "undefined") {
-      localStorage.removeItem("current_recording_id");
-    }
+    const actualId = id;
 
     // Function to fetch a single recording by ID from the API
     const fetchRecordingById = async (recordingId: string) => {
@@ -45,8 +37,6 @@ export function RecordingDetailsPageWrapper({
         if (!token) {
           throw new Error("Authentication required");
         }
-
-        // Optional: If your API supports fetching a single recording by ID
         const response = await fetch(`${JOBS_API}/${recordingId}`, {
           method: "GET",
           headers: {
@@ -54,10 +44,9 @@ export function RecordingDetailsPageWrapper({
             "Content-Type": "application/json",
           },
         });
-
         if (response.ok) {
           const data = await response.json();
-          setRecording(data.job);
+          setRecording(data.job || data); // Accept both {job: ...} and direct job
           setIsLoading(false);
           return true;
         }
@@ -70,13 +59,10 @@ export function RecordingDetailsPageWrapper({
 
     const getRecordingFromCache = () => {
       try {
-        // Try to get the recording from the cached data
         const cachedJobs = safeGetLocalStorage("cachedJobs");
-
         if (cachedJobs) {
           const jobs = JSON.parse(cachedJobs) as Array<AudioRecording>;
           const job = jobs.find((job: AudioRecording) => job.id === actualId);
-
           if (job) {
             setRecording(job);
             setIsLoading(false);
@@ -91,21 +77,16 @@ export function RecordingDetailsPageWrapper({
     };
 
     const loadRecording = async () => {
-      // Try first from cache
-      const foundInCache = getRecordingFromCache();
-      if (foundInCache) return;
-
-      // If not in cache, try from API
+      // Try API first
       const foundFromApi = await fetchRecordingById(actualId);
       if (foundFromApi) return;
-
-      // If we've reached here, we couldn't find the recording
+      // If not in API, try from cache
+      const foundInCache = getRecordingFromCache();
+      if (foundInCache) return;
       setError(
         "Recording not found. Please try again from the recordings list.",
       );
       setIsLoading(false);
-
-      // Optional: Redirect back after a delay
       setTimeout(() => {
         router.navigate({ to: "/audio-recordings" });
       }, 3000);

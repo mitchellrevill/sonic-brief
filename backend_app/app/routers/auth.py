@@ -87,6 +87,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any
     cosmos_db = CosmosDB(config)
 
     try:
+        logger.debug("Attempting to decode JWT token")
         payload = jwt.decode(
             token,
             config.auth["jwt_secret_key"],
@@ -94,18 +95,25 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any
         )
         email: str = payload.get("sub")
         if email is None:
+            logger.error("No email found in JWT payload")
             raise credentials_exception
+        logger.debug(f"JWT decoded successfully for email: {email}")
         token_data = TokenData(email=email)
-    except JWTError:
+    except JWTError as e:
+        logger.error(f"JWT decode error: {str(e)}")
         raise credentials_exception
 
     try:
         # Await the async call to `get_user_by_email`
+        logger.debug(f"Looking up user by email: {token_data.email}")
         user = await cosmos_db.get_user_by_email(email=token_data.email)
         if user is None:
+            logger.error(f"User not found in database: {token_data.email}")
             raise credentials_exception
+        logger.debug(f"User found successfully: {user.get('id', 'unknown')}")
         return user
     except Exception as e:
+        logger.error(f"Database error during user lookup: {str(e)}")
         raise credentials_exception
 
 
