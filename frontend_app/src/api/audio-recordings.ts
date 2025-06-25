@@ -24,8 +24,12 @@ export interface AudioRecording {
 
 export async function getAudioRecordings(filters?: AudioListValues) {
   // Use the new /jobs/my endpoint for user jobs
+  const cleanFilters = filters ? Object.fromEntries(
+    Object.entries(filters).filter(([_, value]) => value !== null && value !== undefined && value !== '')
+  ) : undefined;
+  
   const response = await httpClient.get(`${JOBS_API}/my`, {
-    params: filters,
+    params: cleanFilters,
   });
 
   return response.data.jobs as Array<AudioRecording>;

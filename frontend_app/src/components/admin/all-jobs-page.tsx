@@ -264,13 +264,13 @@ export function AdminAllJobsPage() {
                 </p>
               </CardContent>
             </Card>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          ) : (            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredJobs.map((job) => (
                 <JobCard
                   key={job.id}
                   job={job}
                   userMap={userMap}
+                  allJobs={filteredJobs}
                 />
               ))}
             </div>
@@ -284,11 +284,13 @@ export function AdminAllJobsPage() {
 interface JobCardProps {
   job: Job;
   userMap: Record<string, { email: string; name?: string }>;
+  allJobs: Job[];
 }
 
 function JobCard({ 
   job, 
-  userMap
+  userMap,
+  allJobs
 }: JobCardProps) {
   // Get user display info from the map
   const ownerInfo = job.user_id ? userMap[job.user_id] : null;
@@ -333,15 +335,14 @@ function JobCard({
             <User className="h-3 w-3" />
             Owner: <span className="font-medium">{ownerDisplay}</span>
           </div>
-        </div>
-
-        {/* View Details Link */}        <div className="flex gap-2 pt-2 border-t">
+        </div>        {/* View Details Link */}        <div className="flex gap-2 pt-2 border-t">
           <Button
             variant="outline"
             size="sm"
-            className="flex-1 w-full"
-            onClick={() => {
-              // Navigate programmatically
+            className="flex-1 w-full"            onClick={() => {
+              // Store all jobs data in localStorage for access on detail page
+              localStorage.setItem("cachedJobs", JSON.stringify(allJobs));
+              localStorage.setItem("current_recording_id", job.id);
               window.location.href = `/audio-recordings/${job.id}`;
             }}
           >

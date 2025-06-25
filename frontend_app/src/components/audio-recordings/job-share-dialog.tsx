@@ -68,11 +68,9 @@ export function JobShareDialog({
     },
   });
   const shareJobMutation = useMutation({
-    mutationFn: (data: JobShareFormData) => shareJob(jobId, data),
-    onSuccess: () => {
-      toast.success(`${jobTitle} shared successfully!`);
+    mutationFn: (data: JobShareFormData) => shareJob(jobId, data),    onSuccess: () => {
+      toast.success(`${jobTitle} shared successfully!`);      queryClient.invalidateQueries({ queryKey: ["jobSharingInfo", jobId] });
       queryClient.invalidateQueries({ queryKey: ["sharedJobs"] });
-      queryClient.invalidateQueries({ queryKey: ["jobSharingInfo", jobId] });
       queryClient.invalidateQueries({ queryKey: ["audioRecordings"] });
       form.reset();
       onOpenChange(false);

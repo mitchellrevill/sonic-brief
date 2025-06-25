@@ -99,8 +99,12 @@ export function JobSharingInfo({ jobId, jobTitle = "Recording" }: JobSharingInfo
       </Card>
     );
   }
-
   if (error) {
+    // If access is denied, don't show the component at all
+    if (error.message.includes("403") || error.message.includes("Access denied")) {
+      return null;
+    }
+    
     return (
       <Card>
         <CardContent className="p-6">

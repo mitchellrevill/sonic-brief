@@ -11,6 +11,7 @@ import {
 import { queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
 
 function sortAudioRecordings(data: Array<AudioRecording>) {
+  if (!data || !Array.isArray(data)) return [];
   return data.sort(
     (a, b) =>
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
@@ -19,9 +20,12 @@ function sortAudioRecordings(data: Array<AudioRecording>) {
 
 export function getAudioRecordingsQuery(filters?: AudioListValues) {
   return queryOptions({
-    queryKey: ["sonic-brief", "audio-recordings", filters],
-    queryFn: () => getAudioRecordings(filters),
-    select: (data) => sortAudioRecordings(data),
+    queryKey: ["sonic-brief", "audio-recordings", filters || {}],
+    queryFn: async () => {
+      const data = await getAudioRecordings(filters);
+      return data || []; // Ensure we always return an array
+    },
+    select: (data) => sortAudioRecordings(data || []),
   });
 }
 

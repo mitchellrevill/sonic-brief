@@ -382,8 +382,7 @@ async def get_jobs(
                     path_parts = urlparse(file_path).path.strip("/").split("/")
                     job["file_name"] = path_parts[-1] if path_parts else None
                     job["file_path"] = storage_service.add_sas_token_to_url(file_path)
-                    if job.get("transcription_file_path"):
-                        job["transcription_file_path"] = (
+                    if job.get("transcription_file_path"):                        job["transcription_file_path"] = (
                             storage_service.add_sas_token_to_url(
                                 job["transcription_file_path"]
                             )
@@ -402,9 +401,316 @@ async def get_jobs(
         except Exception as e:
             logger.error(f"Error querying jobs: {str(e)}")
             return {"status": 500, "message": f"Error retrieving jobs: {str(e)}"}
-
+            
     except Exception as e:
         logger.error(f"Unexpected error getting jobs: {str(e)}", exc_info=True)
+        return {"status": 500, "message": f"An unexpected error occurred: {str(e)}"}
+
+
+@router.get("/jobs/my")
+async def get_my_jobs(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Get only the jobs owned by the current user (for user's audio recording page).
+    """
+    try:
+        config = AppConfig()
+        try:
+            cosmos_db = CosmosDB(config)
+            logger.debug("CosmosDB client initialized for my jobs query")
+        except DatabaseError as e:
+            logger.error(f"Database initialization failed: {str(e)}")
+            return {"status": 503, "message": "Database service unavailable"}
+
+        storage_service = StorageService(config)
+
+        query = "SELECT * FROM c WHERE c.type = 'job' AND c.user_id = @user_id AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+        parameters = [{"name": "@user_id", "value": current_user["id"]}]
+
+        try:
+            jobs = list(
+                cosmos_db.jobs_container.query_items(
+                    query=query,
+                    parameters=parameters,
+                    enable_cross_partition_query=True,
+                )
+            )
+            for job in jobs:
+                job["is_owned"] = True
+                job["user_permission"] = get_user_job_permission(job, current_user)
+                job["shared_with_count"] = len(job.get("shared_with", []))
+                if job.get("file_path"):
+                    file_path = job["file_path"]
+                    path_parts = urlparse(file_path).path.strip("/").split("/")
+                    job["file_name"] = path_parts[-1] if path_parts else None
+                    job["file_path"] = storage_service.add_sas_token_to_url(file_path)
+                    if job.get("transcription_file_path"):
+                        job["transcription_file_path"] = storage_service.add_sas_token_to_url(job["transcription_file_path"])
+                    if job.get("analysis_file_path"):
+                        job["analysis_file_path"] = storage_service.add_sas_token_to_url(job["analysis_file_path"])
+            return {
+                "status": 200,
+                "message": "User jobs retrieved successfully",
+                "count": len(jobs),
+                "jobs": jobs,
+            }
+        except Exception as e:
+            logger.error(f"Error querying my jobs: {str(e)}")
+            return {"status": 500, "message": f"Error retrieving jobs: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unexpected error getting my jobs: {str(e)}", exc_info=True)
+        return {"status": 500, "message": f"An unexpected error occurred: {str(e)}"}
+
+
+@router.get("/jobs/shared")
+async def get_shared_jobs(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Get all jobs shared with the current user and jobs owned by current user that are shared with others.
+    """
+    # Add immediate logging to confirm endpoint is being reached
+    logger.error("=== SHARED JOBS ENDPOINT CALLED ===")
+    logger.error(f"Current user: {current_user}")
+    logger.error(f"User ID: {current_user.get('id')}")
+    logger.error(f"User Email: {current_user.get('email')}")
+    
+    try:
+        logger.error("=== INITIALIZING SERVICES ===")
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        storage_service = StorageService(config)
+        logger.error("=== SERVICES INITIALIZED SUCCESSFULLY ===")        # Query for jobs shared with current user
+        logger.error("=== STARTING SHARED JOBS QUERY ===")
+        shared_query = """
+        SELECT * FROM c 
+        WHERE c.type = 'job' 
+        AND ARRAY_CONTAINS(c.shared_with, {'user_id': @user_id}, false)
+        AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)
+        """
+        shared_parameters = [{"name": "@user_id", "value": current_user["id"]}]
+        
+        logger.error(f"Query: {shared_query}")
+        logger.error(f"Parameters: {shared_parameters}")
+        
+        shared_jobs = list(
+            cosmos_db.jobs_container.query_items(
+                query=shared_query,
+                parameters=shared_parameters,
+                enable_cross_partition_query=True,
+            )
+        )
+        
+        logger.error(f"=== SHARED JOBS QUERY RESULT: {len(shared_jobs)} jobs found ===")
+        
+        # Try alternative query if first one fails
+        if len(shared_jobs) == 0:
+            logger.error("=== TRYING ALTERNATIVE SHARED JOBS QUERY ===")
+            alt_shared_query = """
+            SELECT * FROM c 
+            WHERE c.type = 'job'
+            AND IS_DEFINED(c.shared_with)
+            AND EXISTS(SELECT VALUE s FROM s IN c.shared_with WHERE s.user_id = @user_id)
+            AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)
+            """
+            logger.error(f"Alternative query: {alt_shared_query}")
+            
+            shared_jobs = list(
+                cosmos_db.jobs_container.query_items(
+                    query=alt_shared_query,
+                    parameters=shared_parameters,
+                    enable_cross_partition_query=True,
+                )
+            )
+            logger.error(f"=== ALTERNATIVE SHARED JOBS QUERY RESULT: {len(shared_jobs)} jobs found ===")
+        
+        # Let's also try a simpler query to debug
+        logger.error("=== RUNNING DEBUG QUERY ===")
+        debug_query = """
+        SELECT c.id, c.shared_with FROM c 
+        WHERE c.type = 'job' 
+        AND IS_DEFINED(c.shared_with)
+        AND ARRAY_LENGTH(c.shared_with) > 0
+        """
+        
+        debug_jobs = list(
+            cosmos_db.jobs_container.query_items(
+                query=debug_query,
+                enable_cross_partition_query=True,
+            )
+        )
+        logger.error(f"=== DEBUG QUERY RESULT: {len(debug_jobs)} jobs with sharing found ===")
+        
+        for i, job in enumerate(debug_jobs[:3]):  # Log first 3 for debugging
+            logger.error(f"DEBUG Job {i+1}: {job.get('id')} shared_with: {job.get('shared_with')}")
+            # Check if current user is in any of these
+            for j, share in enumerate(job.get('shared_with', [])):
+                logger.error(f"  Share {j+1}: user_id='{share.get('user_id')}' vs current='{current_user['id']}'")
+                if share.get('user_id') == current_user['id']:
+                    logger.error(f"*** MATCH FOUND! Current user {current_user['id']} is in job {job.get('id')} ***")
+                else:
+                    logger.error(f"No match: '{share.get('user_id')}' != '{current_user['id']}'")
+                    
+            # Also check if this specific job should be in shared_jobs
+            should_match = any(str(s.get('user_id')) == str(current_user['id']) for s in job.get('shared_with', []))
+            if should_match:
+                logger.error(f"*** JOB {job.get('id')} SHOULD BE IN SHARED_JOBS BUT QUERY MISSED IT ***")
+        
+        # Query for jobs owned by current user that are shared with others
+        logger.error("=== STARTING OWNED SHARED JOBS QUERY ===")
+        owned_shared_query = """
+        SELECT * FROM c 
+        WHERE c.type = 'job' 
+        AND c.user_id = @user_id 
+        AND IS_DEFINED(c.shared_with) 
+        AND ARRAY_LENGTH(c.shared_with) > 0
+        AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)
+        """
+        owned_shared_parameters = [{"name": "@user_id", "value": current_user["id"]}]
+        
+        logger.error(f"Owned query: {owned_shared_query}")
+        logger.error(f"Owned parameters: {owned_shared_parameters}")
+        
+        owned_shared_jobs = list(
+            cosmos_db.jobs_container.query_items(
+                query=owned_shared_query,
+                parameters=owned_shared_parameters,
+                enable_cross_partition_query=True,
+            )
+        )
+        
+        logger.error(f"=== OWNED SHARED JOBS QUERY RESULT: {len(owned_shared_jobs)} jobs found ===")
+        
+        # Add SAS tokens and enhance job data
+        logger.error("=== ADDING SAS TOKENS ===")
+        for job in shared_jobs + owned_shared_jobs:
+            if job.get("file_path"):
+                file_path = job["file_path"]
+                path_parts = urlparse(file_path).path.strip("/").split("/")
+                job["file_name"] = path_parts[-1] if path_parts else None
+                job["file_path"] = storage_service.add_sas_token_to_url(file_path)
+                
+                if job.get("transcription_file_path"):
+                    job["transcription_file_path"] = storage_service.add_sas_token_to_url(
+                        job["transcription_file_path"]
+                    )
+                if job.get("analysis_file_path"):
+                    job["analysis_file_path"] = storage_service.add_sas_token_to_url(
+                        job["analysis_file_path"]
+                    )
+        
+        logger.error(f"=== FINAL RESULT: {len(shared_jobs)} shared + {len(owned_shared_jobs)} owned = {len(shared_jobs) + len(owned_shared_jobs)} total ===")
+        
+        result = {
+            "status": 200,
+            "message": "Shared jobs retrieved successfully",
+            "count": len(shared_jobs) + len(owned_shared_jobs),
+            "shared_jobs": shared_jobs,
+            "owned_jobs_shared_with_others": owned_shared_jobs
+        }
+        
+        logger.error(f"=== RETURNING RESULT: {result} ===")
+        return result
+        
+    except Exception as e:
+        logger.error(f"=== EXCEPTION IN SHARED JOBS ENDPOINT: {str(e)} ===", exc_info=True)
+        return {"status": 500, "message": f"Error retrieving shared jobs: {str(e)}"}
+
+
+@router.get("/jobs/{job_id}")
+async def get_job_by_id(
+    job_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Get a single job by ID with proper access control.
+    Admins can access any job, regular users can only access jobs they own or have shared access to.
+    """
+    try:
+        config = AppConfig()
+        try:
+            cosmos_db = CosmosDB(config)
+            logger.debug(f"CosmosDB client initialized for job query: {job_id}")
+        except DatabaseError as e:
+            logger.error(f"Database initialization failed: {str(e)}")
+            return {"status": 503, "message": "Database service unavailable"}
+
+        storage_service = StorageService(config)
+
+        # Check if user is admin
+        is_admin = False
+        if "permission" in current_user:
+            is_admin = str(current_user["permission"]).lower() == "admin"
+        elif "permissions" in current_user:
+            perms = current_user["permissions"]
+            if isinstance(perms, list):
+                is_admin = any(str(p).lower() == "admin" for p in perms)
+
+        # Build query based on user permissions
+        if is_admin:
+            # Admin can access any job
+            query = "SELECT * FROM c WHERE c.type = 'job' AND c.id = @job_id"
+            parameters = [{"name": "@job_id", "value": job_id}]
+        else:
+            # Regular user can only access owned jobs or jobs shared with them
+            query = """SELECT * FROM c WHERE c.type = 'job' AND c.id = @job_id 
+                      AND (c.user_id = @user_id OR ARRAY_CONTAINS(c.shared_with, {'user_id': @user_id}, true))
+                      AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"""
+            parameters = [
+                {"name": "@job_id", "value": job_id},
+                {"name": "@user_id", "value": current_user["id"]}
+            ]
+
+        try:
+            jobs = list(
+                cosmos_db.jobs_container.query_items(
+                    query=query,
+                    parameters=parameters,
+                    enable_cross_partition_query=True,
+                )
+            )
+
+            if not jobs:
+                return {
+                    "status": 404,
+                    "message": "Job not found or access denied"
+                }
+
+            job = jobs[0]
+
+            # Add sharing metadata
+            job["is_owned"] = job["user_id"] == current_user["id"]
+            job["user_permission"] = get_user_job_permission(job, current_user)
+            job["shared_with_count"] = len(job.get("shared_with", []))
+
+            # Add SAS tokens to file paths
+            if job.get("file_path"):
+                file_path = job["file_path"]
+                path_parts = urlparse(file_path).path.strip("/").split("/")
+                job["file_name"] = path_parts[-1] if path_parts else None
+                job["file_path"] = storage_service.add_sas_token_to_url(file_path)
+                if job.get("transcription_file_path"):
+                    job["transcription_file_path"] = storage_service.add_sas_token_to_url(
+                        job["transcription_file_path"]
+                    )
+                if job.get("analysis_file_path"):
+                    job["analysis_file_path"] = storage_service.add_sas_token_to_url(
+                        job["analysis_file_path"]
+                    )
+
+            return {
+                "status": 200,
+                "message": "Job retrieved successfully",
+                "job": job,
+            }
+
+        except Exception as e:
+            logger.error(f"Error querying job by ID: {str(e)}")
+            return {"status": 500, "message": f"Error retrieving job: {str(e)}"}
+
+    except Exception as e:
+        logger.error(f"Unexpected error getting job by ID: {str(e)}", exc_info=True)
         return {"status": 500, "message": f"An unexpected error occurred: {str(e)}"}
 
 
@@ -1065,86 +1371,6 @@ async def unshare_job(
         logger.error(f"Error unsharing job {job_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error unsharing job")
 
-@router.get("/jobs/shared")
-async def get_shared_jobs(
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> SharedJobsResponse:
-    """
-    Get all jobs shared with the current user and jobs owned by current user that are shared with others.
-    
-    Args:
-        current_user: Authenticated user from token
-        
-    Returns:
-        SharedJobsResponse containing shared jobs and owned shared jobs
-    """
-    try:
-        config = AppConfig()
-        cosmos_db = CosmosDB(config)
-        storage_service = StorageService(config)
-          # Query for jobs shared with current user
-        shared_query = """
-        SELECT * FROM c 
-        WHERE c.type = 'job' 
-        AND ARRAY_CONTAINS(c.shared_with, {'user_id': @user_id}, true)
-        AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)
-        """
-        shared_parameters = [{"name": "@user_id", "value": current_user["id"]}]
-        
-        shared_jobs = list(
-            cosmos_db.jobs_container.query_items(
-                query=shared_query,
-                parameters=shared_parameters,
-                enable_cross_partition_query=True,
-            )
-        )
-          # Query for jobs owned by current user that are shared with others
-        owned_shared_query = """
-        SELECT * FROM c 
-        WHERE c.type = 'job' 
-        AND c.user_id = @user_id 
-        AND IS_DEFINED(c.shared_with) 
-        AND ARRAY_LENGTH(c.shared_with) > 0
-        AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)
-        """
-        owned_shared_parameters = [{"name": "@user_id", "value": current_user["id"]}]
-        
-        owned_shared_jobs = list(
-            cosmos_db.jobs_container.query_items(
-                query=owned_shared_query,
-                parameters=owned_shared_parameters,
-                enable_cross_partition_query=True,
-            )
-        )
-        
-        # Add SAS tokens and enhance job data
-        for job in shared_jobs + owned_shared_jobs:
-            if job.get("file_path"):
-                file_path = job["file_path"]
-                path_parts = urlparse(file_path).path.strip("/").split("/")
-                job["file_name"] = path_parts[-1] if path_parts else None
-                job["file_path"] = storage_service.add_sas_token_to_url(file_path)
-                
-                if job.get("transcription_file_path"):
-                    job["transcription_file_path"] = storage_service.add_sas_token_to_url(
-                        job["transcription_file_path"]
-                    )
-                if job.get("analysis_file_path"):
-                    job["analysis_file_path"] = storage_service.add_sas_token_to_url(
-                        job["analysis_file_path"]
-                    )
-        
-        return SharedJobsResponse(
-            status="success",
-            message="Shared jobs retrieved successfully",
-            shared_jobs=shared_jobs,
-            owned_jobs_shared_with_others=owned_shared_jobs
-        )
-    
-    except Exception as e:
-        logger.error(f"Error retrieving shared jobs: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Error retrieving shared jobs")
-
 @router.get("/jobs/{job_id}/sharing-info")
 async def get_job_sharing_info(
     job_id: str,
@@ -1208,7 +1434,6 @@ async def get_job_sharing_info(
         raise HTTPException(status_code=500, detail="Error retrieving job sharing information")
 
 
-# Job Soft Delete Endpoints
 
 @router.delete("/jobs/{job_id}")
 async def soft_delete_job(
@@ -1445,23 +1670,27 @@ async def permanent_delete_job(
 def check_job_access(job: Dict[str, Any], current_user: Dict[str, Any], required_permission: str = "view") -> bool:
     """
     Check if user has access to a job with the required permission level.
-    
-    Args:
-        job: Job document
-        current_user: Current authenticated user
-        required_permission: Required permission level ("view", "edit", "admin")
-    
-    Returns:
-        Boolean indicating if user has access
+    Admins can access all jobs (except soft-deleted ones).
     """
     # Check if job is soft-deleted - only admins can access deleted jobs through admin endpoints
     if job.get("deleted", False):
         return False
-    
+
+    # Admins can access all jobs
+    is_admin = False
+    if "permission" in current_user:
+        is_admin = str(current_user["permission"]).lower() == "admin"
+    elif "permissions" in current_user:
+        perms = current_user["permissions"]
+        if isinstance(perms, list):
+            is_admin = any(str(p).lower() == "admin" for p in perms)
+    if is_admin:
+        return True
+
     # Job owner has all permissions
     if job["user_id"] == current_user["id"]:
         return True
-    
+
     # Check shared permissions
     if "shared_with" in job:
         for share in job["shared_with"]:
@@ -1500,57 +1729,7 @@ def get_user_job_permission(job: Dict[str, Any], current_user: Dict[str, Any]) -
     
     return None
 
-@router.get("/jobs/my")
-async def get_my_jobs(
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> Dict[str, Any]:
-    """
-    Get only the jobs owned by the current user (for user's audio recording page).
-    """
-    try:
-        config = AppConfig()
-        try:
-            cosmos_db = CosmosDB(config)
-            logger.debug("CosmosDB client initialized for my jobs query")
-        except DatabaseError as e:
-            logger.error(f"Database initialization failed: {str(e)}")
-            return {"status": 503, "message": "Database service unavailable"}
-
-        storage_service = StorageService(config)
-
-        query = "SELECT * FROM c WHERE c.type = 'job' AND c.user_id = @user_id AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
-        parameters = [{"name": "@user_id", "value": current_user["id"]}]
-
-        try:
-            jobs = list(
-                cosmos_db.jobs_container.query_items(
-                    query=query,
-                    parameters=parameters,
-                    enable_cross_partition_query=True,
-                )
-            )
-            for job in jobs:
-                job["is_owned"] = True
-                job["user_permission"] = get_user_job_permission(job, current_user)
-                job["shared_with_count"] = len(job.get("shared_with", []))
-                if job.get("file_path"):
-                    file_path = job["file_path"]
-                    path_parts = urlparse(file_path).path.strip("/").split("/")
-                    job["file_name"] = path_parts[-1] if path_parts else None
-                    job["file_path"] = storage_service.add_sas_token_to_url(file_path)
-                    if job.get("transcription_file_path"):
-                        job["transcription_file_path"] = storage_service.add_sas_token_to_url(job["transcription_file_path"])
-                    if job.get("analysis_file_path"):
-                        job["analysis_file_path"] = storage_service.add_sas_token_to_url(job["analysis_file_path"])
-            return {
-                "status": 200,
-                "message": "User jobs retrieved successfully",
-                "count": len(jobs),
-                "jobs": jobs,
-            }
-        except Exception as e:
-            logger.error(f"Error querying my jobs: {str(e)}")
-            return {"status": 500, "message": f"Error retrieving jobs: {str(e)}"}
-    except Exception as e:
-        logger.error(f"Unexpected error getting my jobs: {str(e)}", exc_info=True)
-        return {"status": 500, "message": f"An unexpected error occurred: {str(e)}"}
+@router.get("/jobs/shared/health")
+async def health_check_shared_jobs():
+    """Health check endpoint for shared jobs route"""
+    return {"status": "ok", "message": "Shared jobs route is accessible", "timestamp": datetime.now(timezone.utc).isoformat()}
