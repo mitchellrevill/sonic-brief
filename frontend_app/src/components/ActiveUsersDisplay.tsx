@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
 import { Users } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { getActiveUsers } from '@/lib/api';
 
 interface ActiveUsersProps {
@@ -7,39 +7,26 @@ interface ActiveUsersProps {
 }
 
 export function ActiveUsersDisplay({ refreshInterval = 300000 }: ActiveUsersProps) {
-  const [activeUsers, setActiveUsers] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchActiveUsers = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
+    queryKey: ['activeUsers', 5],
+    queryFn: async () => {
       const response = await getActiveUsers(5); // Users active in last 5 minutes
-      setActiveUsers(response.data.active_users);
-      setLastUpdated(new Date());
-    } catch (err) {
-      console.error('Failed to fetch active users:', err);
-      setError('Failed to load active users');
-    } finally {
-      setLoading(false);
-    }
-  };
+      return response.data.active_users;
+    },
+    refetchInterval: refreshInterval,
+    staleTime: refreshInterval,
+  });
 
-  useEffect(() => {
-    // Initial fetch
-    fetchActiveUsers();
-
-    // Set up refresh interval
-    const interval = setInterval(fetchActiveUsers, refreshInterval);
-
-    return () => clearInterval(interval);
-  }, [refreshInterval]);
+  const activeUsers = data ?? [];
 
   const getStatusColor = () => {
-    if (error) return 'bg-red-500';
-    if (loading) return 'bg-yellow-500';
+    if (isError) return 'bg-red-500';
+    if (isLoading) return 'bg-yellow-500';
     return 'bg-green-500';
   };
 
@@ -57,17 +44,10 @@ export function ActiveUsersDisplay({ refreshInterval = 300000 }: ActiveUsersProp
           <p className="text-lg font-bold">{activeUsers.length}</p>
           <p className="text-xs text-muted-foreground">online</p>
         </div>
-        {error && (
-          <p className="text-xs text-red-600 truncate">{error}</p>
+        {isError && (
+          <p className="text-xs text-red-600 truncate">{(error as Error).message || 'Failed to load active users'}</p>
         )}
-        {!error && lastUpdated && (
-          <p className="text-xs text-muted-foreground">
-            Updated {lastUpdated.toLocaleTimeString([], { 
-              hour: '2-digit', 
-              minute: '2-digit'
-            })}
-          </p>
-        )}
+        {/* Optionally, show last updated time if needed using query data */}
       </div>
     </div>
   );

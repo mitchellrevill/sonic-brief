@@ -5,9 +5,10 @@ import { ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, L
 interface AnalyticsChartProps {
   analyticsLoading: boolean;
   analyticsData: { date: string; totalMinutes: number; activeUsers: number }[];
+  analyticsPeriod: 7 | 30;
 }
 
-export function AnalyticsChart({ analyticsLoading, analyticsData }: AnalyticsChartProps) {
+export function AnalyticsChart({ analyticsLoading, analyticsData, analyticsPeriod }: AnalyticsChartProps) {
   return (
     <Card>
       <CardHeader>
@@ -16,7 +17,7 @@ export function AnalyticsChart({ analyticsLoading, analyticsData }: AnalyticsCha
           System Usage Analytics
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Daily transcription activity and user engagement over the last 7 days
+          Daily transcription activity and user engagement over the last {analyticsPeriod} days
         </p>
       </CardHeader>
       <CardContent>
