@@ -49,7 +49,7 @@ import {
   File,
   X,
   CheckCircle2,
-  AlertCircle,
+  AlertCircle
 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -508,7 +508,8 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
   const selectedCategoryData = categories?.find((cat) => cat.category_id === selectedCategory);
 
   const renderFileIcon = () => {
-    if (!fileType || fileType === "other") return <File className="h-8 w-8 text-muted-foreground" />;
+    if (!fileType || fileType === "other") 
+      return <File className="h-8 w-8 text-muted-foreground" />;
 
     const config = FILE_TYPES[fileType];
     const IconComponent = config.icon;
@@ -536,26 +537,28 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
     <div className="space-y-6">
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-          {/* File Upload Section */}
+          {/* Combined Upload and Prompt Selection Card */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Upload className="h-5 w-5" />
-                Upload Media File
+                Upload Media & Select Meeting Type
               </CardTitle>
               <CardDescription>
-                Select a file to upload or drag and drop it below. Support for audio, video, documents, transcripts, and images.
+                Upload your file and select the service area and meeting type for analysis.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-6">
+              {/* File Upload Section */}
               <FormField
                 control={form.control}
                 name="mediaFile"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Select File</FormLabel>
+                    <FormLabel>Media File</FormLabel>
                     <FormControl>
-                      <div className="space-y-4">                        {/* File Input */}                        <div
+                      <div className="space-y-4">
+                        <div
                           className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer hover:bg-muted/50 ${
                             isDragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25"
                           } ${field.value ? "border-green-500 bg-green-50 dark:bg-green-950" : ""}`}
@@ -576,7 +579,8 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                               if (file) handleFileSelect(file);
                             }}
                             className="hidden"
-                          />                          {field.value ? (
+                          />
+                          {field.value ? (
                             <div className="space-y-2">
                               <div className="flex items-center justify-center">{renderFileIcon()}</div>
                               <div className="space-y-1">
@@ -614,11 +618,11 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                               </div>
                             </div>
                           )}
-                        </div>                        {/* Transcript Input Option */}
+                        </div>
+                        {/* Transcript Input Option */}
                         <div className="flex items-center justify-center">
                           <span className="text-sm text-muted-foreground">or</span>
                         </div>
-
                         <div className="space-y-2">
                           {!showTranscriptInput ? (
                             <Button
@@ -671,25 +675,15 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                   </FormItem>
                 )}
               />
-            </CardContent>
-          </Card>          {/* Category Selection */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Analysis Configuration</CardTitle>
-              <CardDescription>
-                Select the category and subcategory for AI analysis prompts
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+              {/* Service Area and Meeting Type Selection */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Left Column - Category Selection */}
                 <div className="space-y-4">
                   <FormField
                     control={form.control}
                     name="promptCategory"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Prompt Category</FormLabel>
+                        <FormLabel>Service Area</FormLabel>
                         <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-2 gap-2 sm:gap-0">
                           <Select
                             value={selectedCategory || ""}
@@ -703,7 +697,7 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                           >
                             <FormControl>
                               <SelectTrigger className="w-full sm:w-64">
-                                <SelectValue placeholder="Select a category" />
+                                <SelectValue placeholder="Select a service area" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
@@ -731,13 +725,12 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                       </FormItem>
                     )}
                   />
-                  
                   <FormField
                     control={form.control}
                     name="promptSubcategory"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Prompt Subcategory</FormLabel>
+                        <FormLabel>Meeting Type</FormLabel>
                         <Select
                           value={selectedSubcategory || ""}
                           onValueChange={(value) => {
@@ -748,7 +741,7 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                         >
                           <FormControl>
                             <SelectTrigger className="w-full sm:w-64">
-                              <SelectValue placeholder="Select a subcategory" />
+                              <SelectValue placeholder="Select a meeting type" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
@@ -764,10 +757,9 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                     )}
                   />
                 </div>
-
                 {/* Right Column - Prompt Preview */}
                 <div className="space-y-2">
-                  <FormLabel htmlFor="prompt-preview">Selected Prompt Preview</FormLabel>
+                  <FormLabel htmlFor="prompt-preview">Prompt Preview</FormLabel>
                   <div className="h-[200px] border rounded-md bg-muted/50">
                     <Textarea
                       id="prompt-preview"
@@ -779,25 +771,26 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                           sub => sub.subcategory_id === selectedSubcategory
                         );
                         if (!subcategory?.prompts) {
-                          return "No prompts found for this subcategory.";
+                          return "No prompts found for this meeting type.";
                         }
                         // Format prompts for display
                         return Object.entries(subcategory.prompts)
                           .map(([key, value]) => `${key}:\n${value}`)
                           .join('\n\n---\n\n');
                       })()}
-                      placeholder="Select a category and subcategory to view the associated prompts..."
+                      placeholder="Select a service area and meeting type to view the associated prompts..."
                       readOnly
                       className="h-full resize-none bg-transparent border-none focus:ring-0 text-sm"
                     />
                   </div>
                   <FormDescription>
-                    This displays the prompts that will be used for AI analysis when you select a subcategory.
+                    This displays the prompts that will be used for AI analysis when you select a meeting type.
                   </FormDescription>
                 </div>
               </div>
             </CardContent>
-          </Card>{/* Processing Info */}
+          </Card>
+          {/* Processing Info */}
           {fileType && (
             <Card>
               <CardContent className="pt-6">
@@ -816,7 +809,9 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                 </div>
               </CardContent>
             </Card>
-          )}{/* Submit Button */}          <Button
+          )}
+          {/* Submit Button */}
+          <Button
             type="submit"
             disabled={isUploading || !form.formState.isValid || isConverting}
             className="w-full"
@@ -836,7 +831,6 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
           </Button>
         </form>
       </Form>
-
       {/* Conversion Progress Dialog */}
       <Dialog open={isConverting} onOpenChange={() => {}}>
         <DialogContent className="sm:max-w-md">

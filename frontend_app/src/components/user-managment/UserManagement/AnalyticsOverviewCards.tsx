@@ -8,11 +8,12 @@ interface AnalyticsOverviewCardsProps {
   analyticsLoading: boolean;
   systemAnalytics: SystemAnalytics | null;
   analyticsData: { activeUsers: number }[];
+  analyticsPeriod: 7 | 30;
 }
 
-export function AnalyticsOverviewCards({ analyticsLoading, systemAnalytics, analyticsData }: AnalyticsOverviewCardsProps) {
+export function AnalyticsOverviewCards({ analyticsLoading, systemAnalytics, analyticsData, analyticsPeriod }: AnalyticsOverviewCardsProps) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
       <Card>
         <CardContent className="p-4">
           <div className="flex items-center gap-3">
@@ -20,7 +21,7 @@ export function AnalyticsOverviewCards({ analyticsLoading, systemAnalytics, anal
               <TrendingUp className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Total Minutes (7d)</p>
+              <p className="text-xs text-muted-foreground">Total Minutes ({analyticsPeriod}d)</p>
               <p className="text-lg font-bold">
                 {analyticsLoading ? (
                   <Skeleton className="h-5 w-16" />

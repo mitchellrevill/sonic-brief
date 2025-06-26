@@ -94,16 +94,21 @@ interface JobSharingInfo {
 }
 
 export async function registerUser(email: string, password: string): Promise<RegisterResponse> {
+  const token = localStorage.getItem("token");
+  if (!token) {
+    throw new Error("You must be logged in as an admin to register a new user. Please log in and try again.");
+  }
   const response = await fetch(REGISTER_API, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ email, password }),
-  })
+  });
 
   if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`)
+    throw new Error(`HTTP error! status: ${response.status}`);
   }
 
   return await response.json()
