@@ -1,8 +1,8 @@
 import type { AudioRecording } from "@/components/audio-recordings/audio-recordings-context";
 import { useEffect, useState } from "react";
 import { RecordingDetailsPage } from "@/components/audio-recordings/recording-details-page";
-import { JOBS_API } from "@/lib/apiConstants";
 import { useRouter } from "@tanstack/react-router";
+import { fetchRecordingByIdApi } from "@/lib/api";
 
 interface RecordingDetailsPageWrapperProps {
   id: string;
@@ -37,20 +37,10 @@ export function RecordingDetailsPageWrapper({
         if (!token) {
           throw new Error("Authentication required");
         }
-        const response = await fetch(`${JOBS_API}/${recordingId}`, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setRecording(data.job || data); // Accept both {job: ...} and direct job
-          setIsLoading(false);
-          return true;
-        }
-        return false;
+        const data = await fetchRecordingByIdApi(token, recordingId);
+        setRecording(data);
+        setIsLoading(false);
+        return true;
       } catch (error) {
         console.error("Error fetching recording by ID:", error);
         return false;

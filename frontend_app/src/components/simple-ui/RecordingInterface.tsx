@@ -15,7 +15,7 @@ import {
   AlertCircle,
   Eye
 } from "lucide-react";
-import { uploadFile } from "@/api/prompt-management";
+import { uploadFile, fetchAudioBlob } from "@/lib/api";
 import { toast } from "sonner";
 import { useRouter } from "@tanstack/react-router";
 
@@ -139,8 +139,7 @@ export function RecordingInterface({
     setIsUploading(true);
     try {
       // Convert URL to File
-      const response = await fetch(audioURL);
-      const blob = await response.blob();
+      const blob = await fetchAudioBlob(audioURL);
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const fileName = `recording-${timestamp}.webm`;
       const file = new File([blob], fileName, { type: "audio/webm" });

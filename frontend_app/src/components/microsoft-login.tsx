@@ -4,6 +4,7 @@ import { PublicClientApplication } from "@azure/msal-browser";
 import { msalConfig, loginRequest } from "../msalConfig";
 import { toast } from "sonner";
 import { MicrosoftIcon } from "./MicrosoftIcon";
+import { microsoftSsoLogin } from "@/lib/api";
 
 const msalInstance = new PublicClientApplication(msalConfig);
 
@@ -39,14 +40,9 @@ export default function MicrosoftLogin() {
         access_token: response.accessToken,
         email: response.account?.username,
       };
-      const apiUrl = import.meta.env.VITE_API_URL || "";
-      const backendResponse = await fetch(`${apiUrl}/api/auth/microsoft-sso`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mappedResponse),
-      });
-      if (backendResponse.ok) {
-        const data = await backendResponse.json();
+      const backendResponse = await microsoftSsoLogin(mappedResponse);
+      if (backendResponse) {
+        const data = backendResponse;
         localStorage.setItem("token", data.access_token);
         if (data.permission) {
           localStorage.setItem("permission", data.permission);
@@ -54,8 +50,7 @@ export default function MicrosoftLogin() {
         toast.success("Login successful!");
         router.navigate({ to: "/audio-upload" });
       } else {
-        const errorData = await backendResponse.json();
-        toast.error(errorData.message || "Login failed");
+        toast.error("Login failed");
       }
     } catch (err) {
       console.error("Microsoft login error:", err);

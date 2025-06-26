@@ -5,7 +5,7 @@ import {
   useEffect,
   useState,
 } from "react";
-import { JOBS_API } from "@/lib/apiConstants";
+import { fetchAudioRecordingsApi } from "@/lib/api";
 
 export interface AudioRecording {
   id: string;
@@ -88,24 +88,8 @@ export function AudioRecordingsProvider({
       if (!token) {
         throw new Error("No authentication token found. Please log in again.");
       }
+      const data = await fetchAudioRecordingsApi(token);
 
-      const response = await fetch(JOBS_API, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("API response error:", response.status, errorText);
-        throw new Error(
-          `HTTP error! Status: ${response.status}, Message: ${errorText}`,
-        );
-      }
-
-      const data = await response.json();
       safeSetLocalStorage(
         "audioRecordingsData",
         JSON.stringify(data.jobs || []),

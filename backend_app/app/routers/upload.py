@@ -25,7 +25,9 @@ from app.core.config import AppConfig, CosmosDB, DatabaseError
 from app.services.storage_service import StorageService
 from app.services.analysis_refinement_service import AnalysisRefinementService
 from app.services.background_processing_service import get_background_service
+from app.services.analytics_service import AnalyticsService
 from app.routers.auth import get_current_user
+from app.utils.file_utils import FileUtils
 import logging
 import traceback
 from azure.core.exceptions import AzureError
@@ -184,7 +186,47 @@ async def upload_file(
             "created_at": timestamp,
             "updated_at": timestamp,
         }
-        job = cosmos_db.create_job(job_data)        # Get background service for task submission
+        job = cosmos_db.create_job(job_data)
+        
+        # Track job creation analytics - CRITICAL FOR ANALYTICS
+        try:
+            analytics_service = AnalyticsService(cosmos_db)
+            
+            # Calculate file size for analytics
+            file_size_bytes = 0
+            if file:
+                file_content = await file.read()
+                file_size_bytes = len(file_content)
+                await file.seek(0)  # Reset file position
+            elif text_content:
+                file_size_bytes = len(text_content.encode('utf-8'))
+            
+            event_id = await analytics_service.track_job_event(
+                job_id=job_id,
+                user_id=current_user["id"],
+                event_type="job_created",
+                metadata={
+                    "has_file": file is not None,
+                    "has_text": text_content is not None,
+                    "file_size_bytes": file_size_bytes,
+                    "prompt_category_id": prompt_category_id,
+                    "prompt_subcategory_id": prompt_subcategory_id,
+                    "job_status": job_status
+                }
+            )
+            
+            if event_id:
+                logger.info(f"✓ Job creation analytics tracked for job {job_id}")
+            else:
+                logger.error(f"✗ Failed to track job creation analytics for job {job_id}")
+                
+        except Exception as e:
+            logger.error(f"CRITICAL: Failed to track job creation analytics for job {job_id}: {str(e)}")
+            logger.error(f"  User: {current_user.get('id')}, Has file: {file is not None}")
+            import traceback
+            logger.error(f"  Traceback: {traceback.format_exc()}")
+        
+        # Get background service for task submission
         background_service = get_background_service()
 
         # Handle file upload or text content 
@@ -200,6 +242,23 @@ async def upload_file(
                 temp_file.write(content)
                 temp_file_path = temp_file.name
 
+            # Extract audio duration before uploading to storage
+            audio_duration_seconds = None
+            audio_duration_minutes = None
+            
+            try:
+                # Check if it's an audio file and extract duration
+                file_extension = FileUtils.get_extension(file.filename)
+                if file_extension.lower() in FileUtils.AUDIO_EXTENSIONS:
+                    audio_duration_seconds = FileUtils.get_audio_duration(temp_file_path)
+                    if audio_duration_seconds:
+                        audio_duration_minutes = audio_duration_seconds / 60.0
+                        logger.info(f"Extracted audio duration: {audio_duration_minutes:.2f} minutes for job {job_id}")
+                    else:
+                        logger.warning(f"Could not extract audio duration for file: {file.filename}")
+            except Exception as e:
+                logger.warning(f"Error extracting audio duration: {str(e)}")
+
             try:
                 # Upload file to blob storage synchronously
                 blob_url = storage_service.upload_file(temp_file_path, file.filename)
@@ -208,14 +267,59 @@ async def upload_file(
                 # Clean up temporary file
                 os.unlink(temp_file_path)
                 
-                # Update job with file path immediately
+                # Update job with file path and audio duration
                 update_fields = {
                     "status": "uploaded",
                     "message": "File uploaded successfully, processing in background",
                     "file_path": blob_url,
                     "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000),
                 }
+                
+                # Add audio duration fields if available
+                if audio_duration_seconds is not None:
+                    update_fields["audio_duration_seconds"] = audio_duration_seconds
+                    update_fields["audio_duration_minutes"] = audio_duration_minutes
+                
                 cosmos_db.update_job(job_id, update_fields)
+                
+                # Update analytics with audio duration - THIS IS CRITICAL FOR MINUTES TRACKING
+                try:
+                    analytics_service = AnalyticsService(cosmos_db)
+                    
+                    # Verify container is working before tracking
+                    container_working = await analytics_service.verify_events_container()
+                    if not container_working:
+                        logger.error("Analytics container verification failed - events may not be tracked")
+                    
+                    event_id = await analytics_service.track_job_event(
+                        job_id=job_id,
+                        user_id=current_user["id"],
+                        event_type="job_uploaded",
+                        metadata={
+                            "has_file": True,
+                            "file_size_bytes": len(content),
+                            "file_name": file.filename,
+                            "file_extension": file_extension,
+                            "audio_duration_seconds": audio_duration_seconds,
+                            "audio_duration_minutes": audio_duration_minutes,
+                            "prompt_category_id": prompt_category_id,
+                            "prompt_subcategory_id": prompt_subcategory_id,
+                            "job_status": "uploaded"
+                        }
+                    )
+                    
+                    if event_id:
+                        logger.info(f"✓ Analytics event tracked for job {job_id}: {audio_duration_minutes:.2f} minutes")
+                    else:
+                        logger.error(f"✗ Failed to track analytics event for job {job_id}")
+                        
+                except Exception as e:
+                    logger.error(f"CRITICAL: Failed to track job upload analytics for job {job_id}: {str(e)}")
+                    # Log additional details for debugging
+                    logger.error(f"  User: {current_user.get('id')}, Audio minutes: {audio_duration_minutes}")
+                    logger.error(f"  Exception type: {type(e).__name__}")
+                    import traceback
+                    logger.error(f"  Traceback: {traceback.format_exc()}")
                 
                 # Now submit any additional background processing if needed
                 # (like transcription or analysis) - for now we just mark as uploaded

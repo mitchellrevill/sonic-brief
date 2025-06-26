@@ -1,9 +1,8 @@
 // Enhanced Permission Hook for React Frontend
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useMemo } from 'react';
+import { getUserPermissions, getPermissionStats, getUsersByPermission, updateUserPermissionApi } from "@/lib/api";
 
-// Import the base URL from API constants
-const API_BASE_URL = import.meta.env.VITE_API_URL;
 
 export type PermissionLevel = 'Admin' | 'Editor' | 'User';
 
@@ -57,31 +56,7 @@ export const hasAnyPermission = (userPermission: PermissionLevel, requiredPermis
 export const useUserPermissions = () => {
   return useQuery<UserPermissions>({
     queryKey: ['user-permissions'],
-    queryFn: async () => {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
-      const response = await fetch(`${API_BASE_URL}/api/auth/users/me/permissions`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch user permissions');
-      }
-
-      const result = await response.json();
-      
-      // Handle backend response format
-      if (result.status === 200 && result.data) {
-        return result.data;
-      } else {
-        throw new Error(result.message || 'Failed to fetch user permissions');
-      }
-    },
+    queryFn: getUserPermissions,
     staleTime: 5 * 60 * 1000, // 5 minutes
     retry: 1,
   });
@@ -95,30 +70,7 @@ export const usePermissionStats = () => {
   
   return useQuery<PermissionStats>({
     queryKey: ['permission-stats'],
-    queryFn: async () => {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('No authentication token found');
-      }      const response = await fetch(`${API_BASE_URL}/api/auth/users/permission-stats`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch permission statistics');
-      }
-
-      const result = await response.json();
-      
-      // Handle backend response format
-      if (result.status === 200 && result.data) {
-        return result.data;
-      } else {
-        throw new Error(result.message || 'Failed to fetch permission statistics');
-      }
-    },
+    queryFn: getPermissionStats,
     enabled: userPermissions?.permission === 'Admin',
     staleTime: 10 * 60 * 1000, // 10 minutes
   });
@@ -132,30 +84,7 @@ export const useUsersByPermission = (permissionLevel: PermissionLevel, limit: nu
   
   return useQuery({
     queryKey: ['users-by-permission', permissionLevel, limit],
-    queryFn: async () => {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('No authentication token found');
-      }      const response = await fetch(`${API_BASE_URL}/api/auth/users/by-permission/${permissionLevel}?limit=${limit}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch users by permission');
-      }
-
-      const result = await response.json();
-      
-      // Handle backend response format
-      if (result.status === 200 && result.data) {
-        return result.data;
-      } else {
-        throw new Error(result.message || 'Failed to fetch users by permission');
-      }
-    },
+    queryFn: () => getUsersByPermission(permissionLevel, limit),
     enabled: userPermissions?.permission === 'Admin',
     staleTime: 5 * 60 * 1000,
   });
@@ -168,33 +97,7 @@ export const useUpdateUserPermission = () => {
   const queryClient = useQueryClient();
   
   return useMutation({
-    mutationFn: async ({ userId, newPermission }: { userId: string; newPermission: PermissionLevel }) => {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('No authentication token found');
-      }      const response = await fetch(`${API_BASE_URL}/api/auth/users/${userId}/permission`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ permission: newPermission }),
-      });
-
-      if (!response.ok) {
-        const result = await response.json();
-        throw new Error(result.detail || result.message || 'Failed to update user permission');
-      }
-
-      const result = await response.json();
-      
-      // Handle backend response format
-      if (result.status === 200) {
-        return result;
-      } else {
-        throw new Error(result.message || 'Failed to update user permission');
-      }
-    },
+    mutationFn: ({ userId, newPermission }: { userId: string; newPermission: PermissionLevel }) => updateUserPermissionApi(userId, newPermission),
     onSuccess: () => {
       // Invalidate relevant queries
       queryClient.invalidateQueries({ queryKey: ['users-by-permission'] });

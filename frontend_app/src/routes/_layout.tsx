@@ -1,5 +1,6 @@
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { SessionProvider } from "@/components/SessionProvider";
 import { getStorageItem } from "@/lib/storage";
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 
@@ -15,16 +16,18 @@ export const Route = createFileRoute("/_layout")({
 
 function RouteComponent() {
   return (
-    <div className="flex min-h-screen">
-      <AppSidebar />
-      <main className="min-h-screen flex-1">
-        <div className="container mx-auto p-4">
-          <div className="mb-4 flex justify-end">
-            <ThemeToggle />
+    <SessionProvider>
+      <div className="flex min-h-screen">
+        <AppSidebar />
+        <main className="min-h-screen flex-1">
+          <div className="container mx-auto p-4">
+            <div className="mb-4 flex justify-end">
+              <ThemeToggle />
+            </div>
+            <Outlet />
           </div>
-          <Outlet />
-        </div>
-      </main>
-    </div>
+        </main>
+      </div>
+    </SessionProvider>
   );
 }

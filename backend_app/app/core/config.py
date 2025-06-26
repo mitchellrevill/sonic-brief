@@ -128,9 +128,7 @@ class AppConfig:
         logger.debug("Initializing AppConfig")
         try:
             # Get the prefix first
-            prefix = os.getenv("AZURE_COSMOS_DB_PREFIX", "voice_")
-
-            # Initialize cosmos configuration
+            prefix = os.getenv("AZURE_COSMOS_DB_PREFIX", "voice_")            # Initialize cosmos configuration
             self.cosmos = {
                 "endpoint": get_required_env_var("AZURE_COSMOS_ENDPOINT"),
                 "database": os.getenv("AZURE_COSMOS_DB", "VoiceDB"),
@@ -138,6 +136,10 @@ class AppConfig:
                     "auth": f"{prefix}auth",
                     "jobs": f"{prefix}jobs",
                     "prompts": f"{prefix}prompts",
+                    # Analytics containers
+                    "analytics": f"{prefix}analytics",
+                    "events": f"{prefix}events",
+                    "user_sessions": f"{prefix}user_sessions",
                 },
             }
             logger.debug(f"Cosmos config initialized: {self.cosmos}")
@@ -221,14 +223,31 @@ class CosmosDB:
             self.jobs_container = self.database.get_container_client(
                 jobs_container_name
             )
-            self.logger.info(f"Jobs container {jobs_container_name} is ready")
-
-            # Prompts container
+            self.logger.info(f"Jobs container {jobs_container_name} is ready")            # Prompts container
             prompts_container_name = containers["prompts"]
             self.prompts_container = self.database.get_container_client(
                 prompts_container_name
             )
             self.logger.info(f"Prompts container {prompts_container_name} is ready")
+
+            # Analytics containers
+            analytics_container_name = containers["analytics"]
+            self.analytics_container = self.database.get_container_client(
+                analytics_container_name
+            )
+            self.logger.info(f"Analytics container {analytics_container_name} is ready")
+
+            events_container_name = containers["events"]
+            self.events_container = self.database.get_container_client(
+                events_container_name
+            )
+            self.logger.info(f"Events container {events_container_name} is ready")
+
+            sessions_container_name = containers["user_sessions"]
+            self.sessions_container = self.database.get_container_client(
+                sessions_container_name
+            )
+            self.logger.info(f"User sessions container {sessions_container_name} is ready")
 
         except KeyError as e:
             self.logger.error(f"Missing configuration key: {str(e)}")
@@ -700,6 +719,60 @@ class CosmosDB:
             
         except Exception as e:
             self.logger.error(f"Error getting user's shared jobs for user {user_id}: {str(e)}")
+            raise
+
+    async def delete_user(self, user_id: str):
+        """Delete user and invalidate related caches"""
+        try:
+            # First get the user to retrieve their information
+            query = "SELECT * FROM c WHERE c.id = @id AND c.type = 'user'"
+            parameters = [{"name": "@id", "value": user_id}]
+            results = list(
+                self.auth_container.query_items(
+                    query=query,
+                    parameters=parameters,
+                    enable_cross_partition_query=True,
+                )
+            )
+            if not results:
+                self.logger.error(f"User with id {user_id} not found.")
+                raise ValueError(f"User with id {user_id} not found.")
+
+            user = results[0]
+            user_permission = user.get("permission")
+            
+            # Debug: Log user document structure (remove sensitive data)
+            user_debug = {k: v for k, v in user.items() if k not in ['password', 'hashed_password']}
+            self.logger.info(f"User document structure for deletion: {user_debug}")
+
+            # Delete the user - try different partition key approaches
+            try:
+                # First try with email as partition key
+                self.auth_container.delete_item(item=user_id, partition_key=user["email"])
+            except Exception as e1:
+                self.logger.warning(f"Failed to delete with email partition key: {str(e1)}")
+                try:
+                    # Try with user_id as partition key
+                    self.auth_container.delete_item(item=user_id, partition_key=user_id)
+                except Exception as e2:
+                    self.logger.warning(f"Failed to delete with user_id partition key: {str(e2)}")
+                    try:
+                        # Try with id field as partition key
+                        self.auth_container.delete_item(item=user["id"], partition_key=user["id"])
+                    except Exception as e3:
+                        self.logger.error(f"All delete attempts failed: email={e1}, user_id={e2}, id={e3}")
+                        raise e3
+
+            # Invalidate related caches
+            await self.permission_cache.invalidate_user_cache(user_id)
+            if user_permission:
+                await self.permission_cache.invalidate_permission_level_cache(user_permission)
+
+            self.logger.info(f"User {user_id} deleted successfully")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error deleting user: {str(e)}")
             raise
 
 

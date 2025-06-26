@@ -41,7 +41,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { JOBS_API } from "@/lib/apiConstants";
+import { fetchJobDataApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
@@ -111,24 +111,7 @@ export function AudioRecordingsCombined({
     const token = safeGetLocalStorage("token");
     if (!token)
       throw new Error("No authentication token found. Please log in again.");
-
-    const params = new URLSearchParams({
-      job_id: filters?.job_id || "",
-      status: filters?.status && filters.status !== "all" ? filters.status : "",
-      created_at: filters?.created_at || "",
-    });
-
-    const response = await fetch(`${JOBS_API}?${params.toString()}`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    });
-
-    const data = await response.json();
-
-    return data.jobs || [];
+    return await fetchJobDataApi(token, filters);
   }, []);
 
   const {

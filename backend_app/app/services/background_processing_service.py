@@ -23,6 +23,7 @@ from fastapi import BackgroundTasks
 
 from app.core.config import AppConfig
 from app.services.storage_service import StorageService
+from app.services.analytics_service import AnalyticsService
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -318,13 +319,43 @@ class BackgroundProcessingService:
             result = await self.call_azure_function(function_url, payload, timeout=120)
             
             # Update job with results
+            start_time = job.get("created_at", 0)
+            end_time = int(datetime.now(timezone.utc).timestamp() * 1000)
+            duration_seconds = (end_time - start_time) / 1000.0 if start_time else 0
+            
             update_fields = {
                 "status": "completed",
                 "message": "Analysis completed successfully",
                 "analysis_result": result,
-                "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000),
+                "updated_at": end_time,
             }
             cosmos_db.update_job(job_id, update_fields)
+            
+            # Track job completion analytics
+            try:
+                analytics_service = AnalyticsService(cosmos_db)
+                
+                # Include audio duration in completion analytics if available
+                completion_metadata = {
+                    "duration_seconds": duration_seconds,
+                    "transcription_method": job.get("transcription_method", "unknown"),
+                    "content_length": len(job.get("content", "")),
+                    "analysis_type": "text"
+                }
+                
+                # Include audio duration if stored in job record
+                if job.get("audio_duration_seconds"):
+                    completion_metadata["audio_duration_seconds"] = job["audio_duration_seconds"]
+                    completion_metadata["audio_duration_minutes"] = job.get("audio_duration_minutes", job["audio_duration_seconds"] / 60.0)
+                
+                await analytics_service.track_job_event(
+                    job_id=job_id,
+                    user_id=job.get("user_id"),
+                    event_type="job_completed",
+                    metadata=completion_metadata
+                )
+            except Exception as e:
+                logger.warning(f"Failed to track job completion analytics: {str(e)}")
             
             logger.info(f"Text analysis completed for job {job_id}")
             

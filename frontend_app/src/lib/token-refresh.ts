@@ -1,4 +1,5 @@
-import { LOGIN_API } from "./apiConstants";
+
+import { loginUser } from "@/lib/api";
 
 interface TokenRefreshResponse {
     success: boolean;
@@ -25,21 +26,9 @@ export async function refreshToken(): Promise<TokenRefreshResponse> {
 
     try {
         console.log("Attempting to refresh token with stored credentials");
+        const data = await loginUser(storedEmail, storedPassword);
 
-        const response = await fetch(LOGIN_API, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                email: storedEmail,
-                password: storedPassword
-            }),
-        });
-
-        const data = await response.json();
-
-        if (!response.ok || !data.access_token) {
+        if (!data.access_token) {
             console.error("Token refresh failed:", data.message || "Unknown error");
             return {
                 success: false,
@@ -79,4 +68,4 @@ export function storeCredentialsForRefresh(email: string, password: string): voi
 export function clearStoredCredentials(): void {
     localStorage.removeItem("auth_email");
     localStorage.removeItem("auth_password");
-} 
+}

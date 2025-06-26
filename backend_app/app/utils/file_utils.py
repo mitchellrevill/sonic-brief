@@ -3,7 +3,19 @@ import mimetypes
 import os
 import shutil
 from datetime import datetime, timedelta
-from typing import Tuple
+from typing import Tuple, Optional
+
+# Audio processing for duration extraction
+try:
+    from mutagen import File as MutagenFile
+    from mutagen.mp3 import MP3
+    from mutagen.wave import WAVE
+    from mutagen.mp4 import MP4
+    from mutagen.flac import FLAC
+    from mutagen.oggvorbis import OggVorbis
+    MUTAGEN_AVAILABLE = True
+except ImportError:
+    MUTAGEN_AVAILABLE = False
 
 
 class FileUtils:
@@ -24,6 +36,64 @@ class FileUtils:
         """Get clean file extension without dot"""
         extension = filename.split(".")[-1].lower() if "." in filename else ""
         return extension.lstrip(".")
+
+    @classmethod
+    def get_audio_duration(cls, file_path: str) -> Optional[float]:
+        """
+        Extract audio duration in seconds from an audio file.
+
+        Args:
+            file_path: Path to the audio file
+
+        Returns:
+            Duration in seconds as float, or None if extraction fails
+        """
+        if not MUTAGEN_AVAILABLE:
+            logging.warning("Mutagen library not available for audio duration extraction")
+            return None
+
+        try:
+            if not os.path.exists(file_path):
+                logging.error(f"Audio file not found: {file_path}")
+                return None
+
+            # Use mutagen to extract audio metadata
+            audio_file = MutagenFile(file_path)
+
+            if audio_file is None:
+                logging.error(f"Unable to read audio file: {file_path}")
+                return None
+
+            if hasattr(audio_file, "info") and hasattr(audio_file.info, "length"):
+                duration = audio_file.info.length
+                if duration and duration > 0:
+                    logging.info(
+                        f"Extracted audio duration: {duration:.2f} seconds from {file_path}"
+                    )
+                    return float(duration)
+
+            logging.warning(f"No duration information found in audio file: {file_path}")
+            return None
+
+        except Exception as e:
+            logging.error(f"Error extracting audio duration from {file_path}: {str(e)}")
+            return None
+
+    @classmethod
+    def get_audio_duration_minutes(cls, file_path: str) -> Optional[float]:
+        """
+        Extract audio duration in minutes from an audio file.
+
+        Args:
+            file_path: Path to the audio file
+
+        Returns:
+            Duration in minutes as float, or None if extraction fails
+        """
+        duration_seconds = cls.get_audio_duration(file_path)
+        if duration_seconds is not None:
+            return duration_seconds / 60.0
+        return None
 
     @classmethod
     def clean_temp_files(cls, temp_dir: str, max_age_hours: int = 24) -> None:

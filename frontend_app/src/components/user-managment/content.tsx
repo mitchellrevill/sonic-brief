@@ -1,106 +1,80 @@
 import { useEffect, useState } from "react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuTrigger,
-  DropdownMenuSeparator 
-} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { 
-  Edit2, 
-  MoreVertical, 
-  KeyRound, 
-  Shield, 
-  ShieldCheck, 
-  User as UserIcon,
-  Calendar,
-  Mail,
-  Check,
-  X,
-  Mic,
-  CheckCircle2,
-  XCircle
-} from "lucide-react";
-import { fetchAllUsers, registerUser } from "@/lib/api"; 
-import type { User } from "@/lib/api";
-import { ChangePasswordDialog } from "./change-password-dialog";
-import { TranscriptionMethodDialog } from "./transcription-method-dialog";
-import { useUpdateUserPermission } from "@/hooks/usePermissions";
-
-const initialUsers: User[] = [
-  { id: "1", name: "", email: "", permission: "Admin" },
-];
-
-// Helper function to get user initials
-const getUserInitials = (email: string, name?: string) => {
-  if (name && name.trim()) {
-    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-  }
-  return email.split('@')[0].slice(0, 2).toUpperCase();
-};
-
-// Helper function to get permission badge variant and icon
-const getPermissionInfo = (permission: User["permission"]) => {
-  switch (permission) {
-    case "Admin":
-      return {
-        variant: "default" as const,
-        icon: Shield,
-        color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-      };
-    case "Editor":
-      return {
-        variant: "secondary" as const,
-        icon: ShieldCheck,
-        color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-      };
-    case "User":
-      return {
-        variant: "outline" as const,
-        icon: UserIcon,
-        color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
-      };
-    default:
-      return {
-        variant: "outline" as const,
-        icon: UserIcon,
-        color: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200"
-      };
-  }
-};
-
+import { fetchAllUsers, getSystemAnalytics } from "@/lib/api";
+import type { User, SystemAnalytics } from "@/lib/api";
+import { toast } from "sonner";
+import { RegisterUserDialog } from "./UserManagement/RegisterUserDialog";
+import { ExportCSVButton } from "./UserManagement/ExportCSVButton";
+import { AnalyticsOverviewCards } from "./UserManagement/AnalyticsOverviewCards";
+import { AnalyticsChart } from "./UserManagement/AnalyticsChart";
+import { SearchFilterControls } from "./UserManagement/SearchFilterControls";
+import { PaginationControls } from "./UserManagement/PaginationControls";
+import { UserCardList } from "./UserManagement/UserCardList";
+import { UserTable } from "./UserManagement/UserTable";
 
 export function UserManagementTable() {
-  const [users, setUsers] = useState<User[]>(initialUsers);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editPermission, setEditPermission] = useState<Record<string, "Admin" | "Editor" | "User">>({});
+  const [users, setUsers] = useState<User[]>([]);
+  const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
-  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
-  const [transcriptionDialogOpen, setTranscriptionDialogOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [registerEmail, setRegisterEmail] = useState("");
-  const [registerPassword, setRegisterPassword] = useState("");
-  const [registerLoading, setRegisterLoading] = useState(false);
-  const [registerError, setRegisterError] = useState("");
-  const [registerSuccess, setRegisterSuccess] = useState("");
+  const [analyticsData, setAnalyticsData] = useState<any[]>([]);
+  const [systemAnalytics, setSystemAnalytics] = useState<SystemAnalytics | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [showRegisterDialog, setShowRegisterDialog] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [usersPerPage] = useState(10);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterPermission, setFilterPermission] = useState<"All" | "Admin" | "Editor" | "User">("All");
 
-  const updateUserPermissionMutation = useUpdateUserPermission();
+  const indexOfLastUser = currentPage * usersPerPage;
+  const indexOfFirstUser = indexOfLastUser - usersPerPage;
+  const currentUsers = filteredUsers.slice(indexOfFirstUser, indexOfLastUser);
+  const totalPages = Math.ceil(filteredUsers.length / usersPerPage);
+
+  // Generate sample analytics data for fallback
+  const generateSampleAnalyticsData = () => {
+    const last7Days = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      last7Days.push({
+        date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        totalMinutes: Math.floor(Math.random() * 1000) + 200,
+        activeUsers: Math.floor(Math.random() * 50) + 10
+      });
+    }
+    return last7Days;
+  };
+
+  // Transform real analytics data for chart display
+  const transformAnalyticsData = (systemAnalytics: SystemAnalytics) => {
+    const dailyActiveUsers = systemAnalytics.analytics.trends.daily_active_users || {};
+    const dailyActivity = systemAnalytics.analytics.trends.daily_activity || {};
+    const transformedData = [];
+    const totalMinutes = systemAnalytics.analytics.overview.total_transcription_minutes || 0;
+    const today = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(today.getDate() - i);
+      const dateKey = date.toISOString().split('T')[0];
+      const displayDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const activeUsersCount = dailyActiveUsers[dateKey] || 0;
+      const dailyActivityCount = dailyActivity[dateKey] || 0;
+      let dailyMinutes = 0;
+      if (dailyActivityCount > 0 && totalMinutes > 0) {
+        const totalActivity = Object.values(dailyActivity).reduce((sum, count) => sum + count, 0);
+        dailyMinutes = totalActivity > 0 ? (dailyActivityCount / totalActivity) * totalMinutes : 0;
+      } else if (totalMinutes > 0) {
+        dailyMinutes = totalMinutes / systemAnalytics.period_days;
+      }
+      transformedData.push({
+        date: displayDate,
+        totalMinutes: Math.round(dailyMinutes * 10) / 10,
+        activeUsers: activeUsersCount
+      });
+    }
+    return transformedData;
+  };
 
   const fetchAllUsersApi = async () => {
     setLoading(true);
@@ -124,7 +98,6 @@ export function UserManagementTable() {
           const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
           dateStr = `${day}/${month}/${year} ${time}`;
         }
-        // Map 'Viewer' to 'User' for compatibility
         let permission: "Admin" | "Editor" | "User" =
           u.permission === "Admin" ? "Admin" :
           u.permission === "Editor" ? "Editor" :
@@ -138,114 +111,83 @@ export function UserManagementTable() {
         };
       });
       setUsers(mappedUsers);
+      setFilteredUsers(mappedUsers);
     } catch (err) {
       console.error(err);
+      toast.error("Failed to fetch users");
     } finally {
       setLoading(false);
     }
   };
 
+  const fetchAnalyticsData = async () => {
+    setAnalyticsLoading(true);
+    try {
+      const systemAnalyticsData = await getSystemAnalytics(7);
+      setSystemAnalytics(systemAnalyticsData);
+      const transformedData = transformAnalyticsData(systemAnalyticsData);
+      setAnalyticsData(transformedData);
+    } catch (err) {
+      const sampleData = generateSampleAnalyticsData();
+      setAnalyticsData(sampleData);
+      setSystemAnalytics(null);
+      toast.error("Failed to load analytics data, showing sample data");
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchAllUsersApi();
+    fetchAnalyticsData();
   }, []);
- 
-  const startEdit = (user: User) => {
-    setEditingId(String(user.id));
-    setEditPermission(prev => ({ ...prev, [String(user.id)]: user.permission }));
-  };
 
-  const saveEdit = async (id: string) => {
-    try {
-      const permission = editPermission[id];
-      await updateUserPermissionMutation.mutateAsync({ userId: id, newPermission: permission });
-      await fetchAllUsersApi();
-    } catch (err) {
-      console.error("Failed to update user permission:", err);
-    } finally {
-      setEditingId(null);
+  useEffect(() => {
+    let filtered = users;
+    if (searchTerm) {
+      filtered = filtered.filter(user => 
+        user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (user.name && user.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        user.id.toString().includes(searchTerm)
+      );
     }
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditPermission({});
-  };  const handleChangePassword = (user: User) => {
-    setSelectedUser(user);
-    setPasswordDialogOpen(true);
-  };
-
-  const handleClosePasswordDialog = () => {
-    setPasswordDialogOpen(false);
-    setSelectedUser(null);
-  };
-
-  const handleChangeTranscriptionMethod = (user: User) => {
-    setSelectedUser(user);
-    setTranscriptionDialogOpen(true);
-  };
-
-  const handleCloseTranscriptionDialog = () => {
-    setTranscriptionDialogOpen(false);
-    setSelectedUser(null);
-  };
-
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setRegisterLoading(true);
-    setRegisterError("");
-    setRegisterSuccess("");
-    try {
-      await registerUser(registerEmail, registerPassword);
-      setRegisterSuccess("User registered successfully.");
-      setRegisterEmail("");
-      setRegisterPassword("");
-      fetchAllUsersApi();
-    } catch (err: any) {
-      setRegisterError(err.message || "Failed to register user.");
-    } finally {
-      setRegisterLoading(false);
+    if (filterPermission !== "All") {
+      filtered = filtered.filter(user => user.permission === filterPermission);
     }
+    setFilteredUsers(filtered);
+    setCurrentPage(1);
+  }, [users, searchTerm, filterPermission]);
+
+  const handleUserRowClick = (userId: string) => {
+    window.location.href = `/admin/users/${userId}`;
   };
 
-  const renderPermissionBadge = (permission: User["permission"]) => {
-    const permissionInfo = getPermissionInfo(permission);
-    const IconComponent = permissionInfo.icon;
-    
-    return (
-      <Badge variant={permissionInfo.variant} className={`${permissionInfo.color} font-medium`}>
-        <IconComponent className="w-3 h-3 mr-1" />
-        {permission}
-      </Badge>
-    );
+  const handleRegisterSuccess = async () => {
+    await fetchAllUsersApi();
   };
 
-  const renderLoadingSkeleton = () => (
-    <div className="space-y-4">
-      {[...Array(3)].map((_, i) => (
-        <div key={i} className="flex items-center space-x-4 p-4">
-          <Skeleton className="h-12 w-12 rounded-full" />
-          <div className="space-y-2 flex-1">
-            <Skeleton className="h-4 w-[200px]" />
-            <Skeleton className="h-4 w-[150px]" />
-          </div>
-          <Skeleton className="h-8 w-[100px]" />
-          <Skeleton className="h-8 w-8" />
-        </div>
-      ))}
-    </div>
-  );
-
-  if (loading && users.length === 1 && users[0].email === "") {
+  if (loading && users.length === 0) {
     return (
       <Card className="w-full">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <UserIcon className="h-5 w-5" />
             User Management
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {renderLoadingSkeleton()}
+          <div className="space-y-4">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="flex items-center space-x-4 p-4">
+                <Skeleton className="h-12 w-12 rounded-full" />
+                <div className="space-y-2 flex-1">
+                  <Skeleton className="h-4 w-[200px]" />
+                  <Skeleton className="h-4 w-[150px]" />
+                </div>
+                <Skeleton className="h-8 w-[100px]" />
+                <Skeleton className="h-8 w-8" />
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
     );
@@ -253,318 +195,54 @@ export function UserManagementTable() {
 
   return (
     <div className="space-y-6">
-      {/* Register New User Form */}
-      <Card className="max-w-md mb-4 bg-muted/40 border border-muted-foreground/10 shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <UserIcon className="h-5 w-5 text-primary" />
-            Register New User (Outside Tenant)
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleRegister} className="space-y-4">
-            <div>
-              <Label htmlFor="register-email">Email</Label>
-              <Input
-                id="register-email"
-                type="email"
-                value={registerEmail}
-                onChange={e => setRegisterEmail(e.target.value)}
-                required
-                autoComplete="off"
-                placeholder="user@email.com"
-              />
-            </div>
-            <div>
-              <Label htmlFor="register-password">Password</Label>
-              <Input
-                id="register-password"
-                type="password"
-                value={registerPassword}
-                onChange={e => setRegisterPassword(e.target.value)}
-                required
-                autoComplete="new-password"
-                placeholder="Password"
-              />
-            </div>
-            {registerError && (
-              <div className="flex items-center gap-2 text-red-600 text-sm">
-                <XCircle className="h-4 w-4" />
-                {registerError}
-              </div>
-            )}
-            {registerSuccess && (
-              <div className="flex items-center gap-2 text-green-600 text-sm">
-                <CheckCircle2 className="h-4 w-4" />
-                {registerSuccess}
-              </div>
-            )}
-            <Button type="submit" disabled={registerLoading} className="w-full">
-              {registerLoading ? "Registering..." : "Register User"}
-            </Button>
-          </form>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h1 className="text-2xl font-bold">User Management</h1>
+        <div className="flex items-center gap-2">
+          <RegisterUserDialog open={showRegisterDialog} setOpen={setShowRegisterDialog} onRegisterSuccess={handleRegisterSuccess} />
+          <ExportCSVButton />
+        </div>
+      </div>
+      <AnalyticsOverviewCards analyticsLoading={analyticsLoading} systemAnalytics={systemAnalytics} analyticsData={analyticsData} />
+      <AnalyticsChart analyticsLoading={analyticsLoading} analyticsData={analyticsData} />
+      <Card>
+        <CardContent className="pt-6">
+          <SearchFilterControls 
+            searchTerm={searchTerm} 
+            setSearchTerm={setSearchTerm} 
+            filterPermission={filterPermission} 
+            setFilterPermission={setFilterPermission} 
+          />
         </CardContent>
       </Card>
-      {/* Mobile: Card Layout */}
-      <div className="block lg:hidden space-y-4">
-        {users.map(user => {
-          const userId = String(user.id);
-          const isEditing = editingId === userId;
-          
-          return (
-            <Card key={user.id} className="transition-all hover:shadow-md border-l-4 border-l-primary/20">
-              <CardContent className="p-4">
-                <div className="flex items-start gap-3">
-                  <Avatar className="h-12 w-12">
-                    <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-                      {getUserInitials(user.email, user.name)}
-                    </AvatarFallback>
-                  </Avatar>
-                  
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-semibold text-sm truncate">{user.email}</h3>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => startEdit(user)}>
-                            <Edit2 className="mr-2 h-4 w-4" />
-                            Edit Permissions
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleChangeTranscriptionMethod(user)}>
-                            <Mic className="mr-2 h-4 w-4" />
-                            Transcription Method
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleChangePassword(user)}>
-                            <KeyRound className="mr-2 h-4 w-4" />
-                            Change Password
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Mail className="h-3 w-3" />
-                        ID: {user.id}
-                      </div>
-                      
-                      {user.date && (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Calendar className="h-3 w-3" />
-                          {user.date}
-                        </div>
-                      )}
-                      
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-muted-foreground">Permission:</span>
-                        {isEditing ? (
-                          <div className="flex items-center gap-2">
-                            <Select
-                              value={editPermission[userId] ?? user.permission}
-                              onValueChange={(value) =>
-                                setEditPermission(prev => ({
-                                  ...prev,
-                                  [userId]: value as User["permission"],
-                                }))
-                              }
-                            >
-                              <SelectTrigger className="w-[120px] h-8">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="Admin">
-                                  <div className="flex items-center gap-2">
-                                    <Shield className="h-3 w-3" />
-                                    Admin
-                                  </div>
-                                </SelectItem>
-                                <SelectItem value="Editor">
-                                  <div className="flex items-center gap-2">
-                                    <ShieldCheck className="h-3 w-3" />
-                                    Editor
-                                  </div>
-                                </SelectItem>
-                                <SelectItem value="User">
-                                  <div className="flex items-center gap-2">
-                                    <UserIcon className="h-3 w-3" />
-                                    User
-                                  </div>
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <Button size="sm" variant="ghost" onClick={() => saveEdit(userId)} className="h-8 w-8 p-0">
-                              <Check className="h-4 w-4 text-green-600" />
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={cancelEdit} className="h-8 w-8 p-0">
-                              <X className="h-4 w-4 text-red-600" />
-                            </Button>
-                          </div>
-                        ) : (
-                          renderPermissionBadge(user.permission)
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* Desktop: Table Layout */}
-      <div className="hidden lg:block">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <UserIcon className="h-5 w-5" />
-              User Management
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-b">
-                  <TableHead className="text-left font-semibold">User</TableHead>
-                  <TableHead className="text-left font-semibold">Permission</TableHead>
-                  <TableHead className="text-left font-semibold">Date Created</TableHead>
-                  <TableHead className="text-right font-semibold">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.map(user => {
-                  const userId = String(user.id);
-                  const isEditing = editingId === userId;
-                  
-                  return (
-                    <TableRow key={user.id} className="hover:bg-muted/50 transition-colors">
-                      <TableCell className="py-4">
-                        <div className="flex items-center gap-3">
-                          <Avatar className="h-10 w-10">
-                            <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-                              {getUserInitials(user.email, user.name)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <div className="font-medium">{user.email}</div>
-                            <div className="text-sm text-muted-foreground">ID: {user.id}</div>
-                          </div>
-                        </div>
-                      </TableCell>
-                      
-                      <TableCell>
-                        {isEditing ? (
-                          <div className="flex items-center gap-2">
-                            <Select
-                              value={editPermission[userId] ?? user.permission}
-                              onValueChange={(value) =>
-                                setEditPermission(prev => ({
-                                  ...prev,
-                                  [userId]: value as User["permission"],
-                                }))
-                              }
-                            >
-                              <SelectTrigger className="w-[140px]">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="Admin">
-                                  <div className="flex items-center gap-2">
-                                    <Shield className="h-3 w-3" />
-                                    Admin
-                                  </div>
-                                </SelectItem>
-                                <SelectItem value="Editor">
-                                  <div className="flex items-center gap-2">
-                                    <ShieldCheck className="h-3 w-3" />
-                                    Editor
-                                  </div>
-                                </SelectItem>
-                                <SelectItem value="User">
-                                  <div className="flex items-center gap-2">
-                                    <UserIcon className="h-3 w-3" />
-                                    User
-                                  </div>
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <Button size="sm" variant="ghost" onClick={() => saveEdit(userId)}>
-                              <Check className="h-4 w-4 text-green-600" />
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={cancelEdit}>
-                              <X className="h-4 w-4 text-red-600" />
-                            </Button>
-                          </div>
-                        ) : (
-                          renderPermissionBadge(user.permission)
-                        )}
-                      </TableCell>
-                      
-                      <TableCell>
-                        <div className="text-sm">{user.date || "—"}</div>
-                      </TableCell>
-                        <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleChangeTranscriptionMethod(user)}
-                            className="h-8"
-                          >
-                            <Mic className="mr-2 h-3 w-3" />
-                            Transcription
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleChangePassword(user)}
-                            className="h-8"
-                          >
-                            <KeyRound className="mr-2 h-3 w-3" />
-                            Change Password
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => startEdit(user)}
-                            disabled={isEditing}
-                            className="h-8"
-                          >
-                            <Edit2 className="mr-2 h-3 w-3" />
-                            Edit
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>          </CardContent>
+      <UserCardList users={currentUsers} onUserClick={handleUserRowClick} />
+      {totalPages > 1 && (
+        <Card className="block lg:hidden">
+          <CardContent className="p-4">
+            <PaginationControls
+              indexOfFirstUser={indexOfFirstUser}
+              indexOfLastUser={indexOfLastUser}
+              filteredUsersLength={filteredUsers.length}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              setCurrentPage={setCurrentPage}
+            />
+          </CardContent>
         </Card>
-      </div>
-        {/* Change Password Dialog */}
-      {selectedUser && (
-        <ChangePasswordDialog
-          isOpen={passwordDialogOpen}
-          onClose={handleClosePasswordDialog}
-          userEmail={selectedUser.email}
-          userId={String(selectedUser.id)}
-        />
       )}
-      
-      {/* Transcription Method Dialog */}
-      {selectedUser && (
-        <TranscriptionMethodDialog
-          isOpen={transcriptionDialogOpen}
-          onClose={handleCloseTranscriptionDialog}
-          user={selectedUser}
-          onUpdate={fetchAllUsersApi}
-        />
+      <UserTable users={currentUsers} onUserClick={handleUserRowClick} totalUsers={filteredUsers.length} />
+      {totalPages > 1 && (
+        <div className="hidden lg:block">
+          <div className="p-4 border-t">
+            <PaginationControls
+              indexOfFirstUser={indexOfFirstUser}
+              indexOfLastUser={indexOfLastUser}
+              filteredUsersLength={filteredUsers.length}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              setCurrentPage={setCurrentPage}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

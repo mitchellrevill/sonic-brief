@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-
+import { fetchTranscriptionText } from "@/lib/api";
 
 // Add the analysis_text property to extend the AudioRecording type
 interface ExtendedAudioRecording extends AudioRecording {
@@ -57,10 +57,9 @@ export function ViewDetailsDialog({
 
   useEffect(() => {
     if (!recording.transcription_file_path) return;
-    fetch(recording.transcription_file_path)
-      .then((response) => response.text())
-      .then((text) => setTranscriptionText(text))
-      .catch(() => setTranscriptionText("⚠️ Failed to load transcription."));
+    fetchTranscriptionText(recording.transcription_file_path)
+      .then(setTranscriptionText)
+      .catch(() => setTranscriptionText(null));
   }, [recording.transcription_file_path]);
 
   return (

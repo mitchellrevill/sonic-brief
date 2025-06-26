@@ -1,10 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { logoutUser } from "@/lib/api";
 
 function LogoutPage() {
-
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_URL}/logout`, { method: "POST", credentials: "include" })
+    logoutUser()
       .finally(() => {
         localStorage.clear();
         sessionStorage.clear();
@@ -13,7 +13,6 @@ function LogoutPage() {
             dbs.forEach(db => db.name && indexedDB.deleteDatabase(db.name));
           });
         }
-
       });
   }, []);
 
