@@ -25,7 +25,7 @@ import {
   User,
   Clock,
 } from "lucide-react";
-import { fetchAllUsers } from "@/lib/api";
+import { fetchAllUsers, fetchAllJobsApi } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useState, useMemo } from "react";
@@ -75,21 +75,7 @@ export function AdminAllJobsPage() {
   const fetchAllJobs = async () => {
     const token = localStorage.getItem("token");
     if (!token) throw new Error("No authentication token found. Please log in again.");
-
-    // Use the admin endpoint for all jobs
-    const response = await fetch(`${import.meta.env.VITE_API_URL}/api/jobs`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    return await response.json();
+    return await fetchAllJobsApi(token);
   };
 
   const {

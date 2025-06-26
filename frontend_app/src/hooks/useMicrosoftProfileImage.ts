@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { fetchMicrosoftProfileImage } from "@/lib/api";
 
 // Fetches the Microsoft profile image using the access token
 export function useMicrosoftProfileImage(accessToken?: string | null): string | null {
@@ -10,24 +11,9 @@ export function useMicrosoftProfileImage(accessToken?: string | null): string | 
 
     const fetchImage = async () => {
       try {
-        // Check localStorage cache first
-        const cached = localStorage.getItem("ms_profile_image");
-        if (cached) {
-          setImageUrl(cached);
-          return;
-        }
-        const res = await fetch("https://graph.microsoft.com/v1.0/me/photo/$value", {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (!res.ok) throw new Error("No profile image");
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        if (isMounted) {
-          setImageUrl(url);
-          localStorage.setItem("ms_profile_image", url);
-        }
+        const url = await fetchMicrosoftProfileImage(accessToken);
+        setImageUrl(url);
       } catch {
-        // No image or error, fallback to initials
         if (isMounted) setImageUrl(null);
       }
     };

@@ -15,7 +15,6 @@ import { Route as LogoutImport } from './routes/logout'
 import { Route as LoginImport } from './routes/login'
 import { Route as LayoutImport } from './routes/_layout'
 import { Route as IndexImport } from './routes/index'
-import { Route as LayoutUserManagementIndexImport } from './routes/_layout/user-management/index'
 import { Route as LayoutUnauthorisedIndexImport } from './routes/_layout/unauthorised/index'
 import { Route as LayoutSimpleUploadIndexImport } from './routes/_layout/simple-upload/index'
 import { Route as LayoutPromptManagementIndexImport } from './routes/_layout/prompt-management/index'
@@ -28,6 +27,7 @@ import { Route as LayoutAudioRecordingsSharedIndexImport } from './routes/_layou
 import { Route as LayoutAdminUserManagementIndexImport } from './routes/_layout/admin/user-management/index'
 import { Route as LayoutAdminDeletedJobsIndexImport } from './routes/_layout/admin/deleted-jobs/index'
 import { Route as LayoutAdminAllJobsIndexImport } from './routes/_layout/admin/all-jobs/index'
+import { Route as LayoutAdminUsersUserIdImport } from './routes/_layout/admin/users/$userId'
 
 // Create/Update Routes
 
@@ -52,12 +52,6 @@ const IndexRoute = IndexImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRoute,
-} as any)
-
-const LayoutUserManagementIndexRoute = LayoutUserManagementIndexImport.update({
-  id: '/user-management/',
-  path: '/user-management/',
-  getParentRoute: () => LayoutRoute,
 } as any)
 
 const LayoutUnauthorisedIndexRoute = LayoutUnauthorisedIndexImport.update({
@@ -135,6 +129,12 @@ const LayoutAdminDeletedJobsIndexRoute =
 const LayoutAdminAllJobsIndexRoute = LayoutAdminAllJobsIndexImport.update({
   id: '/admin/all-jobs/',
   path: '/admin/all-jobs/',
+  getParentRoute: () => LayoutRoute,
+} as any)
+
+const LayoutAdminUsersUserIdRoute = LayoutAdminUsersUserIdImport.update({
+  id: '/admin/users/$userId',
+  path: '/admin/users/$userId',
   getParentRoute: () => LayoutRoute,
 } as any)
 
@@ -226,11 +226,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutUnauthorisedIndexImport
       parentRoute: typeof LayoutImport
     }
-    '/_layout/user-management/': {
-      id: '/_layout/user-management/'
-      path: '/user-management'
-      fullPath: '/user-management'
-      preLoaderRoute: typeof LayoutUserManagementIndexImport
+    '/_layout/admin/users/$userId': {
+      id: '/_layout/admin/users/$userId'
+      path: '/admin/users/$userId'
+      fullPath: '/admin/users/$userId'
+      preLoaderRoute: typeof LayoutAdminUsersUserIdImport
       parentRoute: typeof LayoutImport
     }
     '/_layout/admin/all-jobs/': {
@@ -275,7 +275,7 @@ interface LayoutRouteChildren {
   LayoutPromptManagementIndexRoute: typeof LayoutPromptManagementIndexRoute
   LayoutSimpleUploadIndexRoute: typeof LayoutSimpleUploadIndexRoute
   LayoutUnauthorisedIndexRoute: typeof LayoutUnauthorisedIndexRoute
-  LayoutUserManagementIndexRoute: typeof LayoutUserManagementIndexRoute
+  LayoutAdminUsersUserIdRoute: typeof LayoutAdminUsersUserIdRoute
   LayoutAdminAllJobsIndexRoute: typeof LayoutAdminAllJobsIndexRoute
   LayoutAdminDeletedJobsIndexRoute: typeof LayoutAdminDeletedJobsIndexRoute
   LayoutAdminUserManagementIndexRoute: typeof LayoutAdminUserManagementIndexRoute
@@ -291,7 +291,7 @@ const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutPromptManagementIndexRoute: LayoutPromptManagementIndexRoute,
   LayoutSimpleUploadIndexRoute: LayoutSimpleUploadIndexRoute,
   LayoutUnauthorisedIndexRoute: LayoutUnauthorisedIndexRoute,
-  LayoutUserManagementIndexRoute: LayoutUserManagementIndexRoute,
+  LayoutAdminUsersUserIdRoute: LayoutAdminUsersUserIdRoute,
   LayoutAdminAllJobsIndexRoute: LayoutAdminAllJobsIndexRoute,
   LayoutAdminDeletedJobsIndexRoute: LayoutAdminDeletedJobsIndexRoute,
   LayoutAdminUserManagementIndexRoute: LayoutAdminUserManagementIndexRoute,
@@ -314,7 +314,7 @@ export interface FileRoutesByFullPath {
   '/prompt-management': typeof LayoutPromptManagementIndexRoute
   '/simple-upload': typeof LayoutSimpleUploadIndexRoute
   '/unauthorised': typeof LayoutUnauthorisedIndexRoute
-  '/user-management': typeof LayoutUserManagementIndexRoute
+  '/admin/users/$userId': typeof LayoutAdminUsersUserIdRoute
   '/admin/all-jobs': typeof LayoutAdminAllJobsIndexRoute
   '/admin/deleted-jobs': typeof LayoutAdminDeletedJobsIndexRoute
   '/admin/user-management': typeof LayoutAdminUserManagementIndexRoute
@@ -334,7 +334,7 @@ export interface FileRoutesByTo {
   '/prompt-management': typeof LayoutPromptManagementIndexRoute
   '/simple-upload': typeof LayoutSimpleUploadIndexRoute
   '/unauthorised': typeof LayoutUnauthorisedIndexRoute
-  '/user-management': typeof LayoutUserManagementIndexRoute
+  '/admin/users/$userId': typeof LayoutAdminUsersUserIdRoute
   '/admin/all-jobs': typeof LayoutAdminAllJobsIndexRoute
   '/admin/deleted-jobs': typeof LayoutAdminDeletedJobsIndexRoute
   '/admin/user-management': typeof LayoutAdminUserManagementIndexRoute
@@ -355,7 +355,7 @@ export interface FileRoutesById {
   '/_layout/prompt-management/': typeof LayoutPromptManagementIndexRoute
   '/_layout/simple-upload/': typeof LayoutSimpleUploadIndexRoute
   '/_layout/unauthorised/': typeof LayoutUnauthorisedIndexRoute
-  '/_layout/user-management/': typeof LayoutUserManagementIndexRoute
+  '/_layout/admin/users/$userId': typeof LayoutAdminUsersUserIdRoute
   '/_layout/admin/all-jobs/': typeof LayoutAdminAllJobsIndexRoute
   '/_layout/admin/deleted-jobs/': typeof LayoutAdminDeletedJobsIndexRoute
   '/_layout/admin/user-management/': typeof LayoutAdminUserManagementIndexRoute
@@ -377,7 +377,7 @@ export interface FileRouteTypes {
     | '/prompt-management'
     | '/simple-upload'
     | '/unauthorised'
-    | '/user-management'
+    | '/admin/users/$userId'
     | '/admin/all-jobs'
     | '/admin/deleted-jobs'
     | '/admin/user-management'
@@ -396,7 +396,7 @@ export interface FileRouteTypes {
     | '/prompt-management'
     | '/simple-upload'
     | '/unauthorised'
-    | '/user-management'
+    | '/admin/users/$userId'
     | '/admin/all-jobs'
     | '/admin/deleted-jobs'
     | '/admin/user-management'
@@ -415,7 +415,7 @@ export interface FileRouteTypes {
     | '/_layout/prompt-management/'
     | '/_layout/simple-upload/'
     | '/_layout/unauthorised/'
-    | '/_layout/user-management/'
+    | '/_layout/admin/users/$userId'
     | '/_layout/admin/all-jobs/'
     | '/_layout/admin/deleted-jobs/'
     | '/_layout/admin/user-management/'
@@ -467,7 +467,7 @@ export const routeTree = rootRoute
         "/_layout/prompt-management/",
         "/_layout/simple-upload/",
         "/_layout/unauthorised/",
-        "/_layout/user-management/",
+        "/_layout/admin/users/$userId",
         "/_layout/admin/all-jobs/",
         "/_layout/admin/deleted-jobs/",
         "/_layout/admin/user-management/",
@@ -512,8 +512,8 @@ export const routeTree = rootRoute
       "filePath": "_layout/unauthorised/index.tsx",
       "parent": "/_layout"
     },
-    "/_layout/user-management/": {
-      "filePath": "_layout/user-management/index.tsx",
+    "/_layout/admin/users/$userId": {
+      "filePath": "_layout/admin/users/$userId.tsx",
       "parent": "/_layout"
     },
     "/_layout/admin/all-jobs/": {

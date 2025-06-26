@@ -12,6 +12,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 import uuid
 from app.core.config import AppConfig, CosmosDB, DatabaseError
+from app.services.analytics_service import AnalyticsService
 from app.middleware.permission_middleware import (
     PermissionLevel, 
     PermissionChecker,
@@ -157,12 +158,37 @@ async def login_for_access_token(request: Request):
             user = await authenticate_user(cosmos_db, email, password)  # Await here
             if not user:
                 logger.warning(f"Failed login attempt for email: {email}")
-                return {"status": 401, "message": "Incorrect email or password"}
-
-            # Generate access token
+                return {"status": 401, "message": "Incorrect email or password"}            # Generate access token
             access_token = create_access_token(
                 data={"sub": user["email"]}, config=config
             )
+            
+            # Track login analytics
+            try:
+                analytics_service = AnalyticsService(cosmos_db)
+                # Track as both session and event
+                await analytics_service.track_user_session(
+                    user_id=user["id"],
+                    action="login",
+                    metadata={
+                        "email": user["email"],
+                        "login_method": "password",
+                        "permission": user.get("permission", "Unknown")
+                    }
+                )
+                # Also track as event for analytics aggregation
+                await analytics_service.track_event(
+                    event_type="user_login",
+                    user_id=user["id"],
+                    metadata={
+                        "email": user["email"],
+                        "login_method": "password",
+                        "permission": user.get("permission", "Unknown")
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Failed to track login analytics: {str(e)}")
+            
             logger.info(f"Successful login for user: {email}")
             return {
                 "status": 200,
@@ -190,6 +216,40 @@ async def get_all_users():
     except Exception as e:
         logger.error(f"Error fetching users: {str(e)}", exc_info=True)
         return {"status": 500, "message": f"Error fetching users: {str(e)}"}
+
+@router.get("/users/{user_id}")
+async def get_user_by_id(
+    user_id: str,
+    current_user: Dict[str, Any] = Depends(require_admin_user)
+):
+    """
+    Get a specific user by ID (Admin only)
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        
+        # Get user by ID
+        user = await cosmos_db.get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Remove sensitive info
+        user.pop("hashed_password", None)
+        
+        return {"status": 200, "user": user}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching user by ID: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching user: {str(e)}"
+        )
 
 @router.patch("/users/{user_id}")
 async def update_user_permission(user_id: str, update_data: dict = Body(...)):
@@ -706,6 +766,37 @@ async def microsoft_sso_auth(request: Request):
 
         # Generate app access token
         app_access_token = create_access_token(data={"sub": email}, config=config)
+        
+        # Track Microsoft SSO login analytics
+        try:
+            analytics_service = AnalyticsService(cosmos_db)
+            # Track as both session and event
+            await analytics_service.track_user_session(
+                user_id=user["id"],
+                action="login",
+                metadata={
+                    "email": user["email"],
+                    "login_method": "microsoft_sso",
+                    "permission": user.get("permission", "User"),
+                    "tenant_id": tenant_id,
+                    "full_name": full_name
+                }
+            )
+            # Also track as event for analytics aggregation
+            await analytics_service.track_event(
+                event_type="user_login",
+                user_id=user["id"],
+                metadata={
+                    "email": user["email"],
+                    "login_method": "microsoft_sso",
+                    "permission": user.get("permission", "User"),
+                    "tenant_id": tenant_id,
+                    "full_name": full_name
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to track Microsoft SSO login analytics: {str(e)}")
+        
         return {
             "status": 200,
             "message": "Microsoft SSO login successful",
@@ -720,3 +811,69 @@ async def microsoft_sso_auth(request: Request):
         }
     except Exception as e:
         return JSONResponse(status_code=500, content={"message": f"Unexpected error: {str(e)}"})
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    current_user: Dict[str, Any] = Depends(require_admin_user)
+):
+    """
+    Delete a user account. Admin only.
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        
+        # Get current user data to verify user exists
+        user_to_delete = await cosmos_db.get_user_by_id(user_id)
+        if not user_to_delete:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Prevent admin from deleting themselves
+        if user_to_delete["email"] == current_user["email"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete your own account"
+            )
+        
+        # Delete the user
+        try:
+            await cosmos_db.delete_user(user_id)
+        except ValueError as ve:
+            # User not found error
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(ve)
+            )
+        except Exception as de:
+            # Other deletion errors
+            logger.error(f"Error in delete operation for user {user_id}: {str(de)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to delete user: {str(de)}"
+            )
+        
+        logger.info(f"User {user_id} ({user_to_delete['email']}) deleted by {current_user.get('email')}")
+        
+        return {
+            "status": 200,
+            "message": f"User {user_to_delete['email']} has been successfully deleted",
+            "data": {
+                "deleted_user_id": user_id,
+                "deleted_user_email": user_to_delete["email"],
+                "deleted_at": datetime.now(timezone.utc).isoformat(),
+                "deleted_by": current_user.get("email")
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting user {user_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error deleting user: {str(e)}"
+        )
