@@ -445,6 +445,8 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
       setFileType(null);
       setTranscriptText("");
       setShowTranscriptInput(false);
+      setSelectedCategory(null); // Reset category selection
+      setSelectedSubcategory(null); // Reset subcategory selection
       console.log("✨ Form reset completed successfully!");
     },
     [form, uploadMediaMutation, fileType]
@@ -702,7 +704,7 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                             </FormControl>
                             <SelectContent>
                               {categories?.map((category) => (
-                                <SelectItem key={category.category_id} value={category.category_id}>
+                                <SelectItem key={category.category_id} value={category.category_id} className="!bg-background !text-foreground hover:!bg-muted">
                                   {category.category_name}
                                 </SelectItem>
                               ))}
@@ -746,7 +748,7 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
                           </FormControl>
                           <SelectContent>
                             {selectedCategoryData?.subcategories.map((subcategory) => (
-                              <SelectItem key={subcategory.subcategory_id} value={subcategory.subcategory_id}>
+                              <SelectItem key={subcategory.subcategory_id} value={subcategory.subcategory_id} className="!bg-background !text-foreground hover:!bg-muted">
                                 {subcategory.subcategory_name}
                               </SelectItem>
                             ))}

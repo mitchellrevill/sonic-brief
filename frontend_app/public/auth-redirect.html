@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Microsoft Auth Redirect</title>
+  <style>
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Segoe UI', 'SegoeUI', 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #f3f4f6 0%, #e6eaf8 100%);
+    }
+    .msg {
+      background: #fff;
+      padding: 2.5rem 2rem;
+      border-radius: 1.25rem;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.10);
+      max-width: 90vw;
+      width: 350px;
+      text-align: center;
+      border-top: 6px solid #0078d4;
+      position: relative;
+    }
+    .ms-logo {
+      width: 48px;
+      height: 48px;
+      margin-bottom: 1.2rem;
+      display: inline-block;
+    }
+    h2 {
+      color: #0078d4;
+      font-size: 1.35rem;
+      margin-bottom: 0.5rem;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+    p {
+      color: #333;
+      font-size: 1rem;
+      margin: 0 0 0.5rem 0;
+    }
+    @media (max-width: 480px) {
+      .msg {
+        padding: 1.5rem 0.5rem;
+        width: 98vw;
+        min-width: unset;
+      }
+      h2 {
+        font-size: 1.1rem;
+      }
+      .ms-logo {
+        width: 36px;
+        height: 36px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="msg">
+    <svg class="ms-logo" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg"><g><rect fill="#f25022" x="2" y="2" width="20" height="20"/><rect fill="#7fba00" x="26" y="2" width="20" height="20"/><rect fill="#00a4ef" x="2" y="26" width="20" height="20"/><rect fill="#ffb900" x="26" y="26" width="20" height="20"/></g></svg>
+    <h2>Signing you in to Microsoft...</h2>
+    <p>Please wait while we complete your sign-in. You will be redirected shortly.</p>
+    <p>If this page does not redirect, you may safely close it and return to your application.</p>
+  </div>
+  <script>
+    // Let MSAL process the hash, then optionally redirect back to the app
+    setTimeout(function() {
+      // You can change this to your app's main page if you want an auto-redirect
+      window.location.replace('/');
+    }, 2000);
+  </script>
+</body>
+</html>

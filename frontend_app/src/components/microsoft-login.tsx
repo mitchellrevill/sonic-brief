@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { PublicClientApplication } from "@azure/msal-browser";
 import { msalConfig, loginRequest } from "../msalConfig";
@@ -12,18 +12,42 @@ export default function MicrosoftLogin() {
   const router = useRouter();
   const [isInitialized, setIsInitialized] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [consoleLogs, setConsoleLogs] = useState<string[]>([]);
+  const logsRef = useRef<string[]>([]);
 
   useEffect(() => {
     const initializeMsal = async () => {
       try {
         await msalInstance.initialize();
         setIsInitialized(true);
-      } catch (error) {
+      } catch (error: any) {
         console.error("MSAL initialization failed:", error);
+        setErrorMessage(error?.message || String(error));
         toast.error("Authentication service initialization failed");
       }
     };
     initializeMsal();
+  }, []);
+
+  // Patch console.log and console.error to capture logs
+  useEffect(() => {
+    const origLog = console.log;
+    const origError = console.error;
+    console.log = (...args) => {
+      logsRef.current = [...logsRef.current, args.map(String).join(" ")];
+      setConsoleLogs([...logsRef.current]);
+      origLog(...args);
+    };
+    console.error = (...args) => {
+      logsRef.current = [...logsRef.current, args.map(String).join(" ")];
+      setConsoleLogs([...logsRef.current]);
+      origError(...args);
+    };
+    return () => {
+      console.log = origLog;
+      console.error = origError;
+    };
   }, []);
 
   const handleLogin = async () => {
@@ -32,6 +56,7 @@ export default function MicrosoftLogin() {
       return;
     }
     setLoading(true);
+    setErrorMessage(null);
     try {
       const response = await msalInstance.loginPopup(loginRequest);
       const mappedResponse = {
@@ -50,10 +75,13 @@ export default function MicrosoftLogin() {
         toast.success("Login successful!");
         router.navigate({ to: "/audio-upload" });
       } else {
+        setErrorMessage("Login failed");
+        console.error("Microsoft login error: Login failed");
         toast.error("Login failed");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Microsoft login error:", err);
+      setErrorMessage(err?.message || String(err));
       toast.error("Microsoft login failed. Please try again.");
     } finally {
       setLoading(false);
@@ -93,6 +121,21 @@ export default function MicrosoftLogin() {
           "Initializing..."
         )}
       </button>
+      {errorMessage && (
+        <div className="mt-4 w-full max-w-xs text-red-700 text-sm break-words" style={{background: 'none', border: 'none', boxShadow: 'none', padding: 0}}>
+          <strong>Microsoft Login Error:</strong> {errorMessage}
+        </div>
+      )}
+      {consoleLogs.length > 0 && (
+        <div className="mt-4 w-full max-w-xs text-gray-800 text-xs break-words" style={{background: 'none', border: 'none', boxShadow: 'none', padding: 0, maxHeight: 200, overflowY: 'auto'}}>
+          <strong>Console Output:</strong>
+          <ul className="list-disc pl-4">
+            {consoleLogs.slice(-10).map((log, idx) => (
+              <li key={idx}>{log}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
