@@ -7,19 +7,105 @@ from pydantic import BaseModel
 from app.core.config import AppConfig, CosmosDB, DatabaseError
 from app.services.analytics_service import AnalyticsService
 from app.services.export_service import ExportService
+from app.services.system_health_service import SystemHealthService
 from app.models.analytics_models import (
     AnalyticsEventRequest,
     UserAnalyticsResponse,
     SystemAnalyticsResponse,
     UserDetailsResponse,
     ExportRequest,
-    ExportResponse
+    ExportResponse,
+    SystemHealthResponse
 )
-from app.routers.auth import get_current_user, require_admin_user
+from app.routers.auth import get_current_user, require_analytics_access, require_user_view_access
+from app.middleware.permission_middleware import get_current_user_id
+from app.services.permissions import permission_service
+from app.models.permissions import PermissionLevel
 import os
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["analytics"])
+
+
+# Custom admin dependency that returns full user object
+async def require_admin_user(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """
+    Require admin permission and return the full user object
+    """
+    user_permission = current_user.get("permission")
+    if not permission_service.has_permission_level(user_permission, PermissionLevel.ADMIN):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Admin permission required"
+        )
+    return current_user
+
+
+# Capability-based dependencies for analytics access
+async def require_analytics_access(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """
+    Require analytics viewing capability and return the full user object
+    """
+    from app.models.permissions import PermissionCapability
+    from app.services.permissions import permission_service
+    
+    user_permission = current_user.get("permission")
+    custom_capabilities = current_user.get("custom_capabilities", {})
+    
+    # Get effective capabilities (base + custom)
+    effective_capabilities = permission_service.get_user_capabilities(user_permission, custom_capabilities)
+    
+    # Check if user has analytics access
+    if not effective_capabilities.get(PermissionCapability.CAN_VIEW_ANALYTICS, False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Analytics access required. You need the 'can_view_analytics' capability."
+        )
+    return current_user
+
+
+async def require_system_management_access(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """
+    Require system management capability and return the full user object
+    """
+    from app.models.permissions import PermissionCapability
+    from app.services.permissions import permission_service
+    
+    user_permission = current_user.get("permission")
+    custom_capabilities = current_user.get("custom_capabilities", {})
+    
+    # Get effective capabilities (base + custom)
+    effective_capabilities = permission_service.get_user_capabilities(user_permission, custom_capabilities)
+    
+    # Check if user has system management access
+    if not effective_capabilities.get(PermissionCapability.CAN_MANAGE_SYSTEM, False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="System management access required. You need the 'can_manage_system' capability."
+        )
+    return current_user
+
+
+async def require_user_management_access(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """
+    Require user viewing capability and return the full user object
+    """
+    from app.models.permissions import PermissionCapability
+    from app.services.permissions import permission_service
+    
+    user_permission = current_user.get("permission")
+    custom_capabilities = current_user.get("custom_capabilities", {})
+    
+    # Get effective capabilities (base + custom)
+    effective_capabilities = permission_service.get_user_capabilities(user_permission, custom_capabilities)
+    
+    # Check if user has user management access
+    if not effective_capabilities.get(PermissionCapability.CAN_VIEW_USERS, False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="User management access required. You need the 'can_view_users' capability."
+        )
+    return current_user
 
 
 @router.post("/analytics/event")
@@ -61,7 +147,7 @@ async def track_analytics_event(
 async def get_user_analytics(
     user_id: str,
     days: int = Query(30, ge=1, le=365),
-    current_user: Dict[str, Any] = Depends(require_admin_user)
+    current_user: Dict[str, Any] = Depends(require_user_management_access)
 ):
     """
     Get analytics for a specific user (Admin only)
@@ -86,7 +172,7 @@ async def get_user_analytics(
 @router.get("/analytics/system", response_model=SystemAnalyticsResponse)
 async def get_system_analytics(
     days: int = Query(30, ge=1, le=365),
-    current_user: Dict[str, Any] = Depends(require_admin_user)
+    current_user: Dict[str, Any] = Depends(require_analytics_access)
 ):
     """
     Get system-wide analytics (Admin only)
@@ -112,7 +198,7 @@ async def get_system_analytics(
 async def get_user_details(
     user_id: str,
     include_analytics: bool = Query(True),
-    current_user: Dict[str, Any] = Depends(require_admin_user)
+    current_user: Dict[str, Any] = Depends(require_user_management_access)
 ):
     """
     Get detailed information about a specific user (Admin only)
@@ -171,7 +257,7 @@ async def get_user_details(
 async def export_users(
     format: str,
     export_request: Optional[ExportRequest] = None,
-    current_user: Dict[str, Any] = Depends(require_admin_user)
+    current_user: Dict[str, Any] = Depends(require_user_management_access)
 ):
     """
     Export users data in specified format (Admin only)
@@ -228,7 +314,7 @@ async def export_users(
 async def export_user_details_pdf(
     user_id: str,
     include_analytics: bool = Query(True),
-    current_user: Dict[str, Any] = Depends(require_admin_user)
+    current_user: Dict[str, Any] = Depends(require_user_view_access)
 ):
     """
     Export individual user details as PDF (Admin only)
@@ -267,7 +353,7 @@ async def export_user_details_pdf(
 @router.get("/analytics/dashboard")
 async def get_analytics_dashboard(
     days: int = Query(30, ge=1, le=365),
-    current_user: Dict[str, Any] = Depends(require_admin_user)
+    current_user: Dict[str, Any] = Depends(require_analytics_access)
 ):
     """
     Get comprehensive analytics dashboard data (Admin only)
@@ -361,7 +447,7 @@ async def track_session_event(
 @router.get("/analytics/active-users")
 async def get_active_users(
     minutes: int = Query(default=5, description="Minutes to look back for active users"),
-    current_user: Dict[str, Any] = Depends(require_admin_user)
+    current_user: Dict[str, Any] = Depends(require_analytics_access)
 ):
     """
     Get list of currently active users (users with recent session activity)
@@ -395,7 +481,7 @@ async def get_active_users(
 async def get_user_session_duration(
     user_id: str,
     days: int = Query(default=1, description="Number of days to look back"),
-    current_user: Dict[str, Any] = Depends(require_admin_user)
+    current_user: Dict[str, Any] = Depends(require_analytics_access)
 ):
     """
     Get total session duration for a specific user
@@ -430,7 +516,7 @@ async def get_user_session_duration(
 
 @router.get("/analytics/debug/container-status")
 async def check_analytics_container_status(
-    current_user: Dict[str, Any] = Depends(require_admin_user)
+    current_user: Dict[str, Any] = Depends(require_analytics_access)
 ):
     """
     Check if the analytics events container is working properly (Admin only)
@@ -472,7 +558,7 @@ async def check_analytics_container_status(
 @router.post("/analytics/debug/backfill-events")
 async def backfill_analytics_events(
     limit: int = Query(default=10, description="Maximum number of jobs to backfill"),
-    current_user: Dict[str, Any] = Depends(require_admin_user)
+    current_user: Dict[str, Any] = Depends(require_analytics_access)
 ):
     """
     Backfill analytics events for existing jobs (Admin only)
@@ -498,4 +584,25 @@ async def backfill_analytics_events(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error backfilling events: {str(e)}"
+        )
+
+
+@router.get("/system/health", response_model=SystemHealthResponse)
+async def get_system_health(
+    current_user: Dict[str, Any] = Depends(require_analytics_access)
+):
+    """
+    Get comprehensive system health metrics (Admin only)
+    """
+    try:
+        health_service = SystemHealthService()
+        health_data = await health_service.get_system_health()
+        
+        return health_data
+        
+    except Exception as e:
+        logger.error(f"Error getting system health: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting system health: {str(e)}"
         )

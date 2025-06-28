@@ -79,3 +79,20 @@ class ExportResponse(BaseModel):
     message: str
     download_url: Optional[str] = None
     filename: Optional[str] = None
+
+
+class SystemHealthMetrics(BaseModel):
+    api_response_time_ms: float
+    database_response_time_ms: float
+    storage_response_time_ms: float
+    uptime_percentage: float
+    active_connections: int
+    memory_usage_percentage: float
+    disk_usage_percentage: float
+
+
+class SystemHealthResponse(BaseModel):
+    status: str
+    timestamp: str
+    metrics: SystemHealthMetrics
+    services: Dict[str, str]  # service_name: status

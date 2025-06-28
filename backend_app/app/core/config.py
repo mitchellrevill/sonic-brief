@@ -12,87 +12,6 @@ import asyncio
 # Import permission utilities
 from app.utils.permission_queries import PermissionQueryOptimizer
 
-# Simple in-memory cache for permissions (Redis replacement)
-class SimplePermissionCache:
-    """Simple in-memory cache for permissions to replace Redis dependency"""
-    
-    def __init__(self):
-        self._cache = {}
-        import time
-        self._time = time
-    
-    async def get_user_permission(self, user_id: str) -> Optional[str]:
-        """Get cached user permission"""
-        cache_key = f"user:{user_id}:permission"
-        data = self._cache.get(cache_key)
-        if data and self._time.time() - data['timestamp'] < 300:  # 5 min TTL
-            return data['value']
-        return None
-    
-    async def set_user_permission(self, user_id: str, permission: str):
-        """Cache user permission"""
-        cache_key = f"user:{user_id}:permission"
-        self._cache[cache_key] = {
-            'value': permission,
-            'timestamp': self._time.time()
-        }
-    
-    async def get_users_by_permission(self, permission: str) -> Optional[List[Dict[str, Any]]]:
-        """Get cached users by permission"""
-        cache_key = f"permission:{permission}:users"
-        data = self._cache.get(cache_key)
-        if data and self._time.time() - data['timestamp'] < 300:
-            return data['value']
-        return None
-    
-    async def set_users_by_permission(self, permission: str, users: List[Dict[str, Any]]):
-        """Cache users by permission"""
-        cache_key = f"permission:{permission}:users"
-        self._cache[cache_key] = {
-            'value': users,
-            'timestamp': self._time.time()
-        }
-    
-    async def get_permission_stats(self) -> Optional[Dict[str, Any]]:
-        """Get cached permission statistics"""
-        cache_key = "permission:stats"
-        data = self._cache.get(cache_key)
-        if data and self._time.time() - data['timestamp'] < 300:
-            return data['value']
-        return None
-    
-    async def set_permission_stats(self, stats: Dict[str, Any]):
-        """Cache permission statistics"""
-        cache_key = "permission:stats"
-        self._cache[cache_key] = {
-            'value': stats,
-            'timestamp': self._time.time()
-        }
-    
-    async def get_multiple_permissions(self, user_ids: List[str]) -> Dict[str, Optional[str]]:
-        """Get multiple user permissions from cache"""
-        result = {}
-        for user_id in user_ids:
-            result[user_id] = await self.get_user_permission(user_id)
-        return result
-    
-    async def set_multiple_permissions(self, permissions: Dict[str, str]):
-        """Set multiple user permissions in cache"""
-        for user_id, permission in permissions.items():
-            await self.set_user_permission(user_id, permission)
-    
-    async def invalidate_user_cache(self, user_id: str):
-        """Invalidate all cache entries for a user"""
-        keys_to_remove = [key for key in self._cache.keys() if f"user:{user_id}" in key]
-        for key in keys_to_remove:
-            self._cache.pop(key, None)
-    
-    async def invalidate_permission_level_cache(self, permission: str):
-        """Invalidate cache for a permission level"""
-        keys_to_remove = [key for key in self._cache.keys() if f"permission:{permission}" in key]
-        for key in keys_to_remove:
-            self._cache.pop(key, None)
-
 # Load environment variables
 load_dotenv()
 
@@ -261,7 +180,29 @@ class CosmosDB:
 
         # Initialize permission utilities
         self._permission_optimizer = None
-        self._permission_cache = None
+        
+        # Initialize permission cache using new settings
+        from app.utils.permission_cache import get_permission_cache
+        try:
+            from app.core.settings import get_settings
+            settings = get_settings()
+            self.permission_cache = get_permission_cache(settings)
+        except Exception as e:
+            # Fallback to default cache if settings are not available
+            self.logger.warning(f"Using default permission cache due to settings error: {e}")
+            self.permission_cache = get_permission_cache()
+        
+        # Initialize permission service with this CosmosDB instance
+        self._initialize_permission_service()
+
+    def _initialize_permission_service(self):
+        """Initialize permission service with this CosmosDB instance"""
+        try:
+            from app.services.permissions import permission_service
+            permission_service.set_cosmos_db(self)
+            self.logger.info("Permission service initialized with CosmosDB integration")
+        except Exception as e:
+            self.logger.warning(f"Failed to initialize permission service: {e}")
 
     @property
     def permission_optimizer(self) -> PermissionQueryOptimizer:
@@ -273,13 +214,6 @@ class CosmosDB:
                 self.config.cosmos["containers"]["auth"],
             )
         return self._permission_optimizer
-
-    @property
-    def permission_cache(self) -> SimplePermissionCache:
-        """Lazy initialization of permission cache"""
-        if self._permission_cache is None:
-            self._permission_cache = SimplePermissionCache()
-        return self._permission_cache
 
     async def get_all_users(self):
         """Get all users from the auth container, regardless of type."""
@@ -299,11 +233,14 @@ class CosmosDB:
     async def create_user(self, user_data: dict):
         """Create user with default permission level and caching support"""
         try:
+            # Import here to avoid circular imports
+            from app.models.permissions import PermissionLevel
+            
             user_data["type"] = "user"
 
-            # Set default permission if not specified
+            # Set default permission if not specified - using proper PermissionLevel.USER now
             if "permission" not in user_data:
-                user_data["permission"] = "Viewer"  # Default permission level
+                user_data["permission"] = PermissionLevel.USER
 
             # Add permission tracking fields
             user_data["permission_changed_at"] = datetime.now(timezone.utc).isoformat()

@@ -14,12 +14,13 @@ import uuid
 from app.core.config import AppConfig, CosmosDB, DatabaseError
 from app.services.analytics_service import AnalyticsService
 from app.middleware.permission_middleware import (
-    PermissionLevel, 
-    PermissionChecker,
-    require_admin_user,
-    require_user_user
+    PermissionLevel,
+    require_user,
+    get_current_user_id
 )
 from app.utils.permission_queries import PermissionQueryOptimizer
+from app.models.permissions import PermissionLevel
+from app.services.permissions import permission_service, require_admin_permission
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -118,6 +119,89 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any
         raise credentials_exception
 
 
+# Custom admin dependency that returns full user object
+async def require_admin_user(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """
+    Require admin permission and return the full user object
+    """
+    from app.services.permissions import permission_service
+    user_permission = current_user.get("permission")
+    if not permission_service.has_permission_level(user_permission, PermissionLevel.ADMIN):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Admin permission required"
+        )
+    return current_user
+
+
+# Capability-based dependencies for user management
+async def require_user_view_access(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """
+    Require user viewing capability and return the full user object
+    """
+    from app.models.permissions import PermissionCapability
+    from app.services.permissions import permission_service
+    
+    user_permission = current_user.get("permission")
+    custom_capabilities = current_user.get("custom_capabilities", {})
+    
+    # Get effective capabilities (base + custom)
+    effective_capabilities = permission_service.get_user_capabilities(user_permission, custom_capabilities)
+    
+    # Check if user has user viewing access
+    if not effective_capabilities.get(PermissionCapability.CAN_VIEW_USERS, False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="User viewing access required. You need the 'can_view_users' capability."
+        )
+    return current_user
+
+
+async def require_user_edit_access(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """
+    Require user editing capability and return the full user object
+    """
+    from app.models.permissions import PermissionCapability
+    from app.services.permissions import permission_service
+    
+    user_permission = current_user.get("permission")
+    custom_capabilities = current_user.get("custom_capabilities", {})
+    
+    # Get effective capabilities (base + custom)
+    effective_capabilities = permission_service.get_user_capabilities(user_permission, custom_capabilities)
+    
+    # Check if user has user editing access
+    if not effective_capabilities.get(PermissionCapability.CAN_EDIT_USERS, False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="User editing access required. You need the 'can_edit_users' capability."
+        )
+    return current_user
+
+
+async def require_analytics_access(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """
+    Require analytics viewing capability and return the full user object
+    """
+    from app.models.permissions import PermissionCapability
+    from app.services.permissions import permission_service
+    
+    user_permission = current_user.get("permission")
+    custom_capabilities = current_user.get("custom_capabilities", {})
+    
+    # Get effective capabilities (base + custom)
+    effective_capabilities = permission_service.get_user_capabilities(user_permission, custom_capabilities)
+    
+    # Check if user has analytics viewing access (admin or specific analytics capability)
+    if not (effective_capabilities.get(PermissionCapability.CAN_VIEW_ANALYTICS, False) or 
+            user_permission == PermissionLevel.ADMIN):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Analytics access required. You need admin permission or the 'can_view_analytics' capability."
+        )
+    return current_user
+
+
 async def authenticate_user(
     cosmos_db: CosmosDB, email: str, password: str
 ) -> Dict[str, Any] | bool:
@@ -205,7 +289,10 @@ async def login_for_access_token(request: Request):
         return {"status": 500, "message": f"An unexpected error occurred: {str(e)}"}
 
 @router.get("/users")
-async def get_all_users():
+async def get_all_users(current_user: Dict[str, Any] = Depends(require_user_view_access)):
+    """
+    Get all users (requires user viewing capability)
+    """
     try:
         config = AppConfig()
         cosmos_db = CosmosDB(config)
@@ -220,7 +307,7 @@ async def get_all_users():
 @router.get("/users/{user_id}")
 async def get_user_by_id(
     user_id: str,
-    current_user: Dict[str, Any] = Depends(require_admin_user)
+    current_user: Dict[str, Any] = Depends(require_user_view_access)
 ):
     """
     Get a specific user by ID (Admin only)
@@ -353,7 +440,7 @@ async def register_user(request: Request, current_user: Dict[str, Any] = Depends
 async def get_users_by_permission(
     permission_level: str,
     limit: int = Query(default=100, le=1000),
-    current_user: Dict[str, Any] = Depends(require_admin_user)
+    current_user: Dict[str, Any] = Depends(require_user_view_access)
 ):
     """
     Get users by permission level. Admin only.
@@ -382,7 +469,7 @@ async def get_users_by_permission(
 
 @router.get("/users/permission-stats")
 async def get_permission_statistics(
-    current_user: Dict[str, Any] = Depends(require_admin_user)
+    current_user: Dict[str, Any] = Depends(require_user_view_access)
 ):
     """
     Get permission distribution statistics. Admin only.
@@ -566,13 +653,18 @@ async def get_my_permissions(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
-    Get current user's permission information.
+    Get current user's permission information including custom capabilities.
     """
     try:
         permission = current_user.get("permission", PermissionLevel.USER)
-          # Get permission capabilities using the utility function
-        from app.middleware.permission_middleware import get_user_capabilities
-        capabilities = get_user_capabilities(permission)
+        custom_capabilities = current_user.get("custom_capabilities", {})
+        
+        # Get permission capabilities using the utility function
+        from app.middleware.permission_middleware import get_permission_service
+        permission_service = get_permission_service()
+        
+        # Get effective capabilities (base + custom)
+        capabilities = permission_service.get_user_capabilities(permission, custom_capabilities)
         
         return {
             "status": 200,
@@ -580,7 +672,8 @@ async def get_my_permissions(
                 "user_id": current_user.get("id"),
                 "email": current_user.get("email"),
                 "permission": permission,
-                "capabilities": capabilities
+                "capabilities": capabilities,
+                "custom_capabilities": custom_capabilities
             }
         }
         
@@ -877,3 +970,193 @@ async def delete_user(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error deleting user: {str(e)}"
         )
+
+# NEW CAPABILITY-BASED ENDPOINTS
+
+@router.get("/users/{user_id}/capabilities")
+async def get_user_capabilities(
+    user_id: str,
+    current_user: Dict[str, Any] = Depends(require_user_view_access)
+):
+    """
+    Get user's effective capabilities (base + custom). Admin only.
+    """
+    try:
+        from app.services.permissions import permission_service
+        from app.models.permissions import get_user_capabilities, merge_custom_capabilities
+        
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        
+        # Get user data
+        user = await cosmos_db.get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Get base capabilities from permission level
+        base_permission = user.get("permission", PermissionLevel.USER)
+        base_capabilities = get_user_capabilities(base_permission)
+        
+        # Get custom capabilities override
+        custom_capabilities = user.get("custom_capabilities", {})
+        
+        # Merge capabilities
+        effective_capabilities = merge_custom_capabilities(base_capabilities, custom_capabilities)
+        
+        return {
+            "status": 200,
+            "data": {
+                "user_id": user_id,
+                "base_permission": base_permission,
+                "base_capabilities": base_capabilities,
+                "custom_capabilities": custom_capabilities,
+                "effective_capabilities": effective_capabilities
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting user capabilities: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting capabilities: {str(e)}"
+        )
+
+@router.patch("/users/{user_id}/capabilities")
+async def update_user_capabilities(
+    user_id: str,
+    capability_data: Dict[str, Any] = Body(...),
+    current_user: Dict[str, Any] = Depends(require_user_edit_access)
+):
+    """
+    Update user's custom capabilities. Admin only.
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = CosmosDB(config)
+        
+        # Get current user data
+        user = await cosmos_db.get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Validate capability data
+        new_permission = capability_data.get("permission")
+        custom_capabilities = capability_data.get("custom_capabilities", {})
+        
+        # Prepare update data with audit trail
+        update_data = {
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "permission_changed_at": datetime.now(timezone.utc).isoformat(),
+            "permission_changed_by": current_user.get("email", "unknown"),
+        }
+        
+        # Update permission level if provided
+        if new_permission:
+            old_permission = user.get("permission")
+            update_data["permission"] = new_permission
+            
+            # Add to permission history
+            permission_history = user.get("permission_history", [])
+            permission_history.append({
+                "old_permission": old_permission,
+                "new_permission": new_permission,
+                "changed_at": update_data["permission_changed_at"],
+                "changed_by": update_data["permission_changed_by"]
+            })
+            update_data["permission_history"] = permission_history
+        
+        # Update custom capabilities if provided
+        if custom_capabilities:
+            update_data["custom_capabilities"] = custom_capabilities
+            update_data["custom_capabilities_changed_at"] = datetime.now(timezone.utc).isoformat()
+            update_data["custom_capabilities_changed_by"] = current_user.get("email", "unknown")
+        
+        # Update user
+        updated_user = await cosmos_db.update_user(user_id, update_data)
+        
+        # Clear permission cache for this user
+        if hasattr(cosmos_db, 'permission_cache'):
+            await cosmos_db.permission_cache.invalidate_user_cache(user_id)
+        
+        # Remove sensitive information from response
+        updated_user.pop("hashed_password", None)
+        
+        logger.info(f"Capabilities updated for user {user_id} by {current_user.get('email')}")
+        
+        return {
+            "status": 200,
+            "message": "User capabilities updated successfully",
+            "data": {
+                "user_id": user_id,
+                "permission": updated_user.get("permission"),
+                "custom_capabilities": updated_user.get("custom_capabilities", {}),
+                "updated_at": update_data["permission_changed_at"]
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating user capabilities: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating capabilities: {str(e)}"
+        )
+
+@router.get("/capabilities/definitions")
+async def get_capability_definitions(
+    current_user: Dict[str, Any] = Depends(require_admin_user)
+):
+    """
+    Get all available capability definitions and their descriptions. Admin only.
+    """
+    try:
+        from app.models.permissions import PermissionCapability, PERMISSION_CAPABILITIES
+        
+        capability_definitions = {}
+        for capability in PermissionCapability:
+            capability_definitions[capability.value] = {
+                "name": capability.value,
+                "description": capability.value.replace("_", " ").title(),
+                "category": _categorize_capability(capability.value)
+            }
+        
+        return {
+            "status": 200,
+            "data": {
+                "capabilities": capability_definitions,
+                "permission_levels": PERMISSION_CAPABILITIES
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting capability definitions: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting capabilities: {str(e)}"
+        )
+
+def _categorize_capability(capability: str) -> str:
+    """Helper function to categorize capabilities for UI grouping"""
+    if capability.startswith("can_view_") or capability.startswith("can_create_") or \
+       capability.startswith("can_edit_") or capability.startswith("can_delete_"):
+        if "job" in capability:
+            return "job_management"
+        elif "user" in capability:
+            return "user_management"
+        elif "prompt" in capability:
+            return "prompt_management"
+    elif "upload" in capability or "download" in capability or "export" in capability or "import" in capability:
+        return "file_operations"
+    elif "setting" in capability or "system" in capability or "analytic" in capability:
+        return "system_administration"
+    else:
+        return "general"
