@@ -1,11 +1,11 @@
-# Simple Permission Middleware (No Redis)
-from enum import Enum
+# Simple Permission Middleware (Refactored)
 from functools import wraps
 from typing import Callable, Optional, Dict, Any
 from fastapi import HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
 import logging
+from app.models.permissions import PermissionLevel, PermissionCapability
+from app.utils.audit_logger import audit_logger, AuditEventType
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -13,67 +13,19 @@ logger = logging.getLogger(__name__)
 # OAuth2 scheme for token extraction
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-class PermissionLevel(str, Enum):
-    """Permission levels in hierarchical order"""
-    USER = "User"
-    EDITOR = "Editor"
-    ADMIN = "Admin"
-
-# Permission hierarchy (higher number = more permissions)
-PERMISSION_HIERARCHY = {
-    PermissionLevel.USER: 1,
-    PermissionLevel.EDITOR: 2,
-    PermissionLevel.ADMIN: 3,
-}
-
-class PermissionChecker:
-    """Simple permission checker that queries Cosmos DB directly"""
-    
-    def __init__(self):
-        from app.core.config import config, CosmosDB
-        self.cosmos_db = CosmosDB(config)
-    
-    async def get_user_permission(self, user_id: str) -> Optional[str]:
-        """Get user permission directly from Cosmos DB with fallback caching"""
-        try:
-            user = await self.cosmos_db.get_user_by_id(user_id)
-            if user:
-                return user.get("permission", "User")
-            return None
-        except Exception as e:
-            logger.error(f"Error getting user permission for {user_id}: {str(e)}")
-            return None
-    
-    async def check_permission(self, user_id: str, required_permission: PermissionLevel) -> bool:
-        """Check if user has required permission level or higher"""
-        try:
-            user_permission = await self.get_user_permission(user_id)
-            if not user_permission:
-                return False
-            
-            user_level = PERMISSION_HIERARCHY.get(user_permission, 0)
-            required_level = PERMISSION_HIERARCHY.get(required_permission, 0)
-            
-            return user_level >= required_level
-        except Exception as e:
-            logger.error(f"Error checking permission for {user_id}: {str(e)}")
-            return False
-
-# Global permission checker instance
-permission_checker = PermissionChecker()
-
+# Dependency to extract user_id from JWT token (to be updated to use new settings)
 async def get_current_user_id(token: str = Depends(oauth2_scheme)) -> str:
-    """Extract user ID from JWT token"""
-    from app.core.config import config
-    
+    from jose import jwt, JWTError
+    import os
+    jwt_secret_key = os.getenv("JWT_SECRET_KEY")
+    jwt_algorithm = os.getenv("JWT_ALGORITHM", "HS256")
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    
     try:
-        payload = jwt.decode(token, config.auth["jwt_secret_key"], algorithms=[config.auth["jwt_algorithm"]])
+        payload = jwt.decode(token, jwt_secret_key, algorithms=[jwt_algorithm])
         user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception
@@ -81,139 +33,69 @@ async def get_current_user_id(token: str = Depends(oauth2_scheme)) -> str:
     except JWTError:
         raise credentials_exception
 
-async def get_current_user_permission(user_id: str = Depends(get_current_user_id)) -> str:
-    """Get current user's permission level"""
-    permission = await permission_checker.get_user_permission(user_id)
-    if not permission:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-    return permission
-
-# Permission requirement decorators
-def require_permission(required_permission: PermissionLevel):
-    """Decorator to require specific permission level"""
-    def decorator(func: Callable):
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            # Extract user_id from function dependencies
-            user_id = None
-            for key, value in kwargs.items():
-                if key == "current_user_id" or (hasattr(value, '__class__') and 'user' in str(value.__class__).lower()):
-                    user_id = value if isinstance(value, str) else getattr(value, 'id', None)
-                    break
-            
-            if not user_id:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="User authentication required"
-                )
-            
-            has_permission = await permission_checker.check_permission(user_id, required_permission)
-            if not has_permission:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Insufficient permissions. Required: {required_permission.value}"
-                )
-            
-            return await func(*args, **kwargs)
-        return wrapper
-    return decorator
-
-# Convenience decorators for common permission levels
-def require_admin_permission(func: Callable):
-    """Require Admin permission"""
-    return require_permission(PermissionLevel.ADMIN)(func)
-
-def require_editor_permission(func: Callable):
-    """Require Editor permission or higher"""
-    return require_permission(PermissionLevel.EDITOR)(func)
-
-def require_user_permission(func: Callable):
-    """Require User permission or higher"""
-    return require_permission(PermissionLevel.USER)(func)
+# Import permission service after defining dependencies to avoid circular imports
+def get_permission_service():
+    from app.services.permissions import permission_service
+    return permission_service
 
 # FastAPI dependencies for permission checking
-async def require_admin(current_user_id: str = Depends(get_current_user_id)) -> str:
-    """FastAPI dependency to require admin permission"""
-    has_permission = await permission_checker.check_permission(current_user_id, PermissionLevel.ADMIN)
-    if not has_permission:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin permission required"
+async def require_admin(user_id: str = Depends(get_current_user_id)) -> str:
+    permission_service = get_permission_service()
+    perm = await permission_service.get_user_permission(user_id)
+    if not permission_service.has_permission_level(perm, PermissionLevel.ADMIN):
+        # Log access denied
+        await audit_logger.log_access_denied(
+            user_id=user_id,
+            resource_type="endpoint",
+            resource_id="admin_endpoint",
+            required_capability=PermissionCapability.CAN_MANAGE_USERS,
+            user_permission=perm or "None"
         )
-    return current_user_id
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail=f"Admin permission required. Current permission: {perm or 'None'}"
+        )
+    return user_id
 
-async def require_editor(current_user_id: str = Depends(get_current_user_id)) -> str:
-    """FastAPI dependency to require editor permission or higher"""
-    has_permission = await permission_checker.check_permission(current_user_id, PermissionLevel.EDITOR)
-    if not has_permission:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Editor permission or higher required"
+async def require_editor(user_id: str = Depends(get_current_user_id)) -> str:
+    permission_service = get_permission_service()
+    perm = await permission_service.get_user_permission(user_id)
+    if not permission_service.has_permission_level(perm, PermissionLevel.EDITOR):
+        await audit_logger.log_access_denied(
+            user_id=user_id,
+            resource_type="endpoint",
+            resource_id="editor_endpoint",
+            required_capability="editor_or_higher",
+            user_permission=perm or "None"
         )
-    return current_user_id
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail=f"Editor permission or higher required. Current permission: {perm or 'None'}"
+        )
+    return user_id
 
-async def require_user(current_user_id: str = Depends(get_current_user_id)) -> str:
-    """FastAPI dependency to require user permission or higher"""
-    has_permission = await permission_checker.check_permission(current_user_id, PermissionLevel.USER)
-    if not has_permission:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User permission or higher required"
+async def require_user(user_id: str = Depends(get_current_user_id)) -> str:
+    permission_service = get_permission_service()
+    perm = await permission_service.get_user_permission(user_id)
+    if not permission_service.has_permission_level(perm, PermissionLevel.USER):
+        await audit_logger.log_access_denied(
+            user_id=user_id,
+            resource_type="endpoint", 
+            resource_id="user_endpoint",
+            required_capability="user_or_higher",
+            user_permission=perm or "None"
         )
-    return current_user_id
-
-# FastAPI dependencies that return full user objects with permission checks
-async def require_admin_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:
-    """FastAPI dependency to require admin permission and return full user object"""
-    from app.routers.auth import get_current_user
-    
-    # Get the full user object
-    current_user = await get_current_user(token)
-    
-    # Check admin permission
-    has_permission = await permission_checker.check_permission(current_user["id"], PermissionLevel.ADMIN)
-    if not has_permission:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin permission required"
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail=f"User permission or higher required. Current permission: {perm or 'None'}"
         )
-    return current_user
-
-async def require_user_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:
-    """FastAPI dependency to require user permission and return full user object"""
-    from app.routers.auth import get_current_user
-    
-    # Get the full user object
-    current_user = await get_current_user(token)
-    
-    # Check user permission
-    has_permission = await permission_checker.check_permission(current_user["id"], PermissionLevel.USER)
-    if not has_permission:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User permission or higher required"
-        )
-    return current_user
+    return user_id
 
 # Utility functions for permission checks
 def has_permission_level(user_permission: str, required_permission: PermissionLevel) -> bool:
-    """Check if a permission level meets requirements"""
-    user_level = PERMISSION_HIERARCHY.get(user_permission, 0)
-    required_level = PERMISSION_HIERARCHY.get(required_permission, 0)
-    return user_level >= required_level
+    permission_service = get_permission_service()
+    return permission_service.has_permission_level(user_permission, required_permission)
 
 def get_user_capabilities(permission: str) -> dict:
-    """Get user capabilities based on permission level"""
-    permission_level = PERMISSION_HIERARCHY.get(permission, 0)
-    
-    return {
-        "can_view": permission_level >= 1,
-        "can_edit": permission_level >= 2,
-        "can_admin": permission_level >= 3,
-        "can_manage_users": permission_level >= 3,
-        "can_create_content": permission_level >= 2,
-        "can_delete_content": permission_level >= 3,
-    }
+    permission_service = get_permission_service()
+    return permission_service.get_user_capabilities(permission)

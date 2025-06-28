@@ -6,6 +6,11 @@ from azure.cosmos.exceptions import CosmosResourceNotFoundError
 import time
 from functools import lru_cache
 import json
+import logging
+from app.utils.permission_cache import get_permission_cache
+from app.models.permissions import PermissionLevel, PERMISSION_HIERARCHY
+
+logger = logging.getLogger(__name__)
 
 class PermissionQueryOptimizer:
     """
@@ -13,41 +18,45 @@ class PermissionQueryOptimizer:
     Includes caching, indexing strategies, and efficient query patterns.
     """
     
-    def __init__(self, cosmos_client: CosmosClient, database_name: str, container_name: str):
+    def __init__(self, cosmos_client: CosmosClient = None, database_name: str = None, container_name: str = None):
+        """Initialize with optional parameters for dependency injection"""
         self.client = cosmos_client
-        self.database = self.client.get_database_client(database_name)
-        self.container = self.database.get_container_client(container_name)
-        self._permission_cache = {}
-        self._cache_ttl = 300  # 5 minutes cache TTL
+        self.database = self.client.get_database_client(database_name) if cosmos_client and database_name else None
+        self.container = self.database.get_container_client(container_name) if self.database and container_name else None
+        self._permission_cache = get_permission_cache()
+        self.logger = logging.getLogger(__name__)
     
-    # 1. OPTIMIZED PERMISSION QUERIES
+    def build_user_permission_query(self, user_id: str) -> tuple[str, List[Dict[str, Any]]]:
+        """
+        Build optimized query for getting user permission
+        
+        Args:
+            user_id: The user ID to query
+            
+        Returns:
+            Tuple of (query_string, parameters)
+        """
+        query = "SELECT c.permission FROM c WHERE c.id = @user_id AND c.type = 'user'"
+        parameters = [{"name": "@user_id", "value": user_id}]
+        return query, parameters
     
-    async def get_users_by_permission(self, permission_level: str, limit: int = 100) -> List[Dict]:
+    def build_users_by_permission_query(self, permission: str, limit: Optional[int] = None) -> tuple[str, List[Dict[str, Any]]]:
         """
-        Efficiently query users by permission level.
-        Uses indexed queries for optimal performance.
+        Build optimized query for getting users by permission level
+        
+        Args:
+            permission: The permission level to filter by
+            limit: Optional limit on number of results
+            
+        Returns:
+            Tuple of (query_string, parameters)
         """
-        query = """
-        SELECT u.id, u.email, u.first_name, u.last_name, u.permission, u.created_at
-        FROM users u 
-        WHERE u.permission = @permission_level
-        ORDER BY u.created_at DESC
-        OFFSET 0 LIMIT @limit
-        """
-        
-        parameters = [
-            {"name": "@permission_level", "value": permission_level},
-            {"name": "@limit", "value": limit}
-        ]
-        
-        items = list(self.container.query_items(
-            query=query,
-            parameters=parameters,
-            enable_cross_partition_query=True,
-            max_item_count=limit
-        ))
-        
-        return items
+        query = "SELECT c.id, c.email, c.permission, c.created_at FROM c WHERE c.permission = @permission AND c.type = 'user'"
+        if limit:
+            query += f" OFFSET 0 LIMIT {limit}"
+            
+        parameters = [{"name": "@permission", "value": permission}]
+        return query, parameters
     
     async def get_permission_counts(self) -> Dict[str, int]:
         """
@@ -72,13 +81,11 @@ class PermissionQueryOptimizer:
         Check user permission with caching for frequently accessed users.
         """
         cache_key = f"permission_{user_id}"
-        current_time = time.time()
         
         # Check cache first
-        if cache_key in self._permission_cache:
-            cached_data = self._permission_cache[cache_key]
-            if current_time - cached_data['timestamp'] < self._cache_ttl:
-                return cached_data['permission']
+        cached_data = self._permission_cache.get(cache_key)
+        if cached_data:
+            return cached_data
         
         # Query from database
         try:
@@ -86,10 +93,7 @@ class PermissionQueryOptimizer:
             permission = user.get('permission', 'Viewer')
             
             # Cache the result
-            self._permission_cache[cache_key] = {
-                'permission': permission,
-                'timestamp': current_time
-            }
+            self._permission_cache.set(cache_key, permission)
             
             return permission
         except CosmosResourceNotFoundError:
@@ -220,23 +224,16 @@ class PermissionQueryOptimizer:
         """Clear permission cache for specific user or all users."""
         if user_id:
             cache_key = f"permission_{user_id}"
-            self._permission_cache.pop(cache_key, None)
+            self._permission_cache.delete(cache_key)
         else:
             self._permission_cache.clear()
     
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache statistics."""
-        current_time = time.time()
-        valid_entries = sum(
-            1 for data in self._permission_cache.values()
-            if current_time - data['timestamp'] < self._cache_ttl
-        )
-        
+        # Note: Implementing cache stats would depend on the underlying cache implementation
+        # For example, if using Redis, you could query Redis for info
         return {
-            "total_entries": len(self._permission_cache),
-            "valid_entries": valid_entries,
-            "expired_entries": len(self._permission_cache) - valid_entries,
-            "cache_ttl_seconds": self._cache_ttl
+            "note": "Cache statistics implementation depends on the underlying cache system."
         }
 
 # Usage Examples:

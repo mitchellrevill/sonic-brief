@@ -27,6 +27,8 @@ from app.services.analysis_refinement_service import AnalysisRefinementService
 from app.services.background_processing_service import get_background_service
 from app.services.analytics_service import AnalyticsService
 from app.routers.auth import get_current_user
+from app.services.permissions import permission_service
+from app.models.permissions import PermissionLevel, PermissionCapability
 from app.utils.file_utils import FileUtils
 import logging
 import traceback
@@ -447,18 +449,15 @@ async def get_jobs(
                     "message": "Invalid created_at date. Expected format: YYYY-MM-DD.",
                 }
 
-        # Only apply user access filter if not admin
-        is_admin = False
-        if "permission" in current_user:
-            # Accepts 'Admin' or 'admin' (case-insensitive)
-            is_admin = str(current_user["permission"]).lower() == "admin"
-        elif "permissions" in current_user:
-            # Some user objects may use 'permissions' as a list
-            perms = current_user["permissions"]
-            if isinstance(perms, list):
-                is_admin = any(str(p).lower() == "admin" for p in perms)
+        # Check if user can view all jobs (admin capability)
+        user_permission = current_user.get("permission", PermissionLevel.USER)
+        can_view_all = permission_service.has_capability(
+            user_permission, 
+            current_user.get("custom_capabilities", {}),
+            PermissionCapability.CAN_VIEW_ALL_JOBS
+        )
 
-        if not is_admin:
+        if not can_view_all:
             user_access_filter = f" AND (c.user_id = @user_id OR ARRAY_CONTAINS(c.shared_with, {{'user_id': @user_id}}, true))"
             query += user_access_filter
             parameters.append({"name": "@user_id", "value": current_user["id"]})
@@ -742,17 +741,16 @@ async def get_job_by_id(
 
         storage_service = StorageService(config)
 
-        # Check if user is admin
-        is_admin = False
-        if "permission" in current_user:
-            is_admin = str(current_user["permission"]).lower() == "admin"
-        elif "permissions" in current_user:
-            perms = current_user["permissions"]
-            if isinstance(perms, list):
-                is_admin = any(str(p).lower() == "admin" for p in perms)
+        # Check if user can view all jobs (admin capability)
+        user_permission = current_user.get("permission", PermissionLevel.USER)
+        can_view_all = permission_service.has_capability(
+            user_permission, 
+            current_user.get("custom_capabilities", {}),
+            PermissionCapability.CAN_VIEW_ALL_JOBS
+        )
 
         # Build query based on user permissions
-        if is_admin:
+        if can_view_all:
             # Admin can access any job
             query = "SELECT * FROM c WHERE c.type = 'job' AND c.id = @job_id"
             parameters = [{"name": "@job_id", "value": job_id}]
@@ -1567,9 +1565,9 @@ async def soft_delete_job(
         if job.get("deleted"):
             raise HTTPException(status_code=400, detail="Job is already deleted")
         
-        # Verify user ownership - only job owner can delete
-        if job["user_id"] != current_user["id"]:
-            raise HTTPException(status_code=403, detail="Only job owner can delete this job")
+        # Check if user has permission to delete this job
+        if not check_job_access_permission(current_user, job, PermissionCapability.CAN_DELETE_OWN_JOBS):
+            raise HTTPException(status_code=403, detail="Permission denied - cannot delete this job")
         
         # Soft delete the job
         timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -1807,6 +1805,50 @@ def check_job_access(job: Dict[str, Any], current_user: Dict[str, Any], required
                 required_level = permission_levels.get(required_permission, 0)
                 
                 return user_level >= required_level
+    
+    return False
+
+def check_job_access_permission(
+    current_user: Dict[str, Any], 
+    job: Dict[str, Any], 
+    required_capability: PermissionCapability
+) -> bool:
+    """
+    Check if user has permission to access/modify a job based on ownership, sharing, and capabilities.
+    
+    Args:
+        current_user: Current authenticated user
+        job: Job document
+        required_capability: The capability required for this action
+    
+    Returns:
+        True if user has permission, False otherwise
+    """
+    user_permission = current_user.get("permission", PermissionLevel.USER)
+    custom_capabilities = current_user.get("custom_capabilities", {})
+    
+    # Check if user has the capability to operate on all jobs
+    if permission_service.has_capability(user_permission, custom_capabilities, required_capability):
+        return True
+    
+    # Check if user owns the job
+    if job.get("user_id") == current_user.get("id"):
+        # Owner has basic access rights
+        return True
+    
+    # Check if job is shared with user with appropriate permission
+    if "shared_with" in job:
+        for share in job["shared_with"]:
+            if share.get("user_id") == current_user.get("id"):
+                share_permission = share.get("permission_level", "view")
+                # For now, allow edit if shared with edit permission
+                if required_capability in [
+                    PermissionCapability.CAN_EDIT_SHARED_JOBS,
+                    PermissionCapability.CAN_DELETE_SHARED_JOBS
+                ] and share_permission in ["edit", "admin"]:
+                    return True
+                elif required_capability == PermissionCapability.CAN_VIEW_SHARED_JOBS:
+                    return True
     
     return False
 
