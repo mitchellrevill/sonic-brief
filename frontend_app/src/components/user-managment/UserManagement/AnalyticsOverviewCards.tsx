@@ -8,7 +8,7 @@ interface AnalyticsOverviewCardsProps {
   analyticsLoading: boolean;
   systemAnalytics: SystemAnalytics | null;
   analyticsData: { activeUsers: number }[];
-  analyticsPeriod: 7 | 30;
+  analyticsPeriod: 7 | 30 | 180 | 365 | 'total';
 }
 
 export function AnalyticsOverviewCards({ analyticsLoading, systemAnalytics, analyticsData, analyticsPeriod }: AnalyticsOverviewCardsProps) {
@@ -21,7 +21,12 @@ export function AnalyticsOverviewCards({ analyticsLoading, systemAnalytics, anal
               <TrendingUp className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Total Minutes ({analyticsPeriod}d)</p>
+              <p className="text-xs text-muted-foreground">Total Minutes ({
+                analyticsPeriod === 'total' ? 'All Time' : 
+                analyticsPeriod === 365 ? '12mo' :
+                analyticsPeriod === 180 ? '6mo' :
+                `${analyticsPeriod}d`
+              })</p>
               <p className="text-lg font-bold">
                 {analyticsLoading ? (
                   <Skeleton className="h-5 w-16" />

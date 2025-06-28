@@ -1,62 +1,62 @@
-// Enhanced Permission Hook for React Frontend
+// Enhanced Permission Hook for React Frontend - Resource-based permission system
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { getUserPermissions, getPermissionStats, getUsersByPermission, updateUserPermissionApi } from "@/lib/api";
+import { 
+  Capability,
+  PermissionLevel,
+  hasCapability,
+  hasAnyCapability,
+  hasAllCapabilities,
+  getCapabilitiesForPermission
+} from "@/types/permissions";
+import type { UserCapabilities } from "@/types/permissions";
 
-
-export type PermissionLevel = 'Admin' | 'Editor' | 'User';
-
-export interface UserPermissions {
+// Backend user interface
+interface BackendUser {
   user_id: string;
   email: string;
   permission: PermissionLevel;
-  capabilities: {
-    can_view: boolean;
-    can_edit: boolean;
-    can_admin: boolean;
-    can_manage_users: boolean;
-    can_create_content: boolean;
-    can_delete_content: boolean;
-  };
-  transcription_method?: "AZURE_AI_SPEECH" | "GPT4O_AUDIO";
+  capabilities?: string[];
+  custom_capabilities?: UserCapabilities;
 }
 
-export interface PermissionStats {
-  counts: Record<PermissionLevel, number>;
-  percentages: Record<PermissionLevel, number>;
+// Frontend user interface  
+interface FrontendUser {
+  user_id: string;
+  email: string;
+  permission: PermissionLevel;
+  capabilities: UserCapabilities;
+  effective_capabilities: UserCapabilities;
+}
+
+interface PermissionStats {
   total_users: number;
+  by_permission: Record<PermissionLevel, number>;
 }
-
-// Permission hierarchy for frontend validation
-const PERMISSION_HIERARCHY: Record<PermissionLevel, number> = {
-  'User': 1,
-  'Editor': 2,
-  'Admin': 3,
-};
-
-/**
- * Check if user has required permission level (hierarchical)
- */
-export const hasPermission = (userPermission: PermissionLevel, requiredPermission: PermissionLevel): boolean => {
-  const userLevel = PERMISSION_HIERARCHY[userPermission] || 0;
-  const requiredLevel = PERMISSION_HIERARCHY[requiredPermission] || 0;
-  return userLevel >= requiredLevel;
-};
-
-/**
- * Check if user has any of the required permissions
- */
-export const hasAnyPermission = (userPermission: PermissionLevel, requiredPermissions: PermissionLevel[]): boolean => {
-  return requiredPermissions.some(required => hasPermission(userPermission, required));
-};
 
 /**
  * Get user's current permissions from API
  */
 export const useUserPermissions = () => {
-  return useQuery<UserPermissions>({
+  return useQuery<FrontendUser>({
     queryKey: ['user-permissions'],
-    queryFn: getUserPermissions,
+    queryFn: async () => {
+      const backendUser: BackendUser = await getUserPermissions();
+      
+      // Get base capabilities from permission level
+      const baseCapabilities = getCapabilitiesForPermission(backendUser.permission);
+      
+      // Merge with custom capabilities if available
+      const customCapabilities = backendUser.custom_capabilities || {};
+      const effectiveCapabilities = { ...baseCapabilities, ...customCapabilities };
+      
+      return {
+        ...backendUser,
+        capabilities: effectiveCapabilities,
+        effective_capabilities: effectiveCapabilities
+      };
+    },
     staleTime: 5 * 60 * 1000, // 5 minutes
     retry: 1,
   });
@@ -71,7 +71,7 @@ export const usePermissionStats = () => {
   return useQuery<PermissionStats>({
     queryKey: ['permission-stats'],
     queryFn: getPermissionStats,
-    enabled: userPermissions?.permission === 'Admin',
+    enabled: hasCapability(userPermissions?.capabilities || {}, Capability.CAN_MANAGE_SYSTEM),
     staleTime: 10 * 60 * 1000, // 10 minutes
   });
 };
@@ -85,7 +85,7 @@ export const useUsersByPermission = (permissionLevel: PermissionLevel, limit: nu
   return useQuery({
     queryKey: ['users-by-permission', permissionLevel, limit],
     queryFn: () => getUsersByPermission(permissionLevel, limit),
-    enabled: userPermissions?.permission === 'Admin',
+    enabled: hasCapability(userPermissions?.capabilities || {}, Capability.CAN_VIEW_USERS),
     staleTime: 5 * 60 * 1000,
   });
 };
@@ -97,7 +97,8 @@ export const useUpdateUserPermission = () => {
   const queryClient = useQueryClient();
   
   return useMutation({
-    mutationFn: ({ userId, newPermission }: { userId: string; newPermission: PermissionLevel }) => updateUserPermissionApi(userId, newPermission),
+    mutationFn: ({ userId, newPermission }: { userId: string; newPermission: PermissionLevel }) => 
+      updateUserPermissionApi(userId, newPermission),
     onSuccess: () => {
       // Invalidate relevant queries
       queryClient.invalidateQueries({ queryKey: ['users-by-permission'] });
@@ -108,120 +109,97 @@ export const useUpdateUserPermission = () => {
 };
 
 /**
- * Custom hook for permission-based UI control
+ * Custom hook for capability-based UI control
  */
-export const usePermissionGuard = () => {
+export const useCapabilityGuard = () => {
   const { data: userPermissions, isLoading, error } = useUserPermissions();
   
-  const permissionGuard = useMemo(() => ({
-    // Permission checks
-    hasPermission: (requiredPermission: PermissionLevel) => {
-      if (!userPermissions) return false;
-      return hasPermission(userPermissions.permission, requiredPermission);
-    },
+  const capabilityGuard = useMemo(() => {
+    const capabilities = userPermissions?.capabilities || {};
     
-    hasAnyPermission: (requiredPermissions: PermissionLevel[]) => {
-      if (!userPermissions) return false;
-      return hasAnyPermission(userPermissions.permission, requiredPermissions);
-    },
-    
-    // Capability checks
-    canView: userPermissions?.capabilities.can_view || false,
-    canEdit: userPermissions?.capabilities.can_edit || false,
-    canAdmin: userPermissions?.capabilities.can_admin || false,
-    canManageUsers: userPermissions?.capabilities.can_manage_users || false,
-    canCreateContent: userPermissions?.capabilities.can_create_content || false,
-    canDeleteContent: userPermissions?.capabilities.can_delete_content || false,
-    
-    // User info
-    currentPermission: userPermissions?.permission || 'User',
-    userEmail: userPermissions?.email,
-    userId: userPermissions?.user_id,
-    
-    // Loading state
-    isLoading,
-    error,
-  }), [userPermissions, isLoading, error]);
+    return {
+      // Core capability checks
+      hasCapability: (capability: Capability) => hasCapability(capabilities, capability),
+      hasAnyCapability: (caps: Capability[]) => hasAnyCapability(capabilities, caps),
+      hasAllCapabilities: (caps: Capability[]) => hasAllCapabilities(capabilities, caps),
+      
+      // Specific capability shortcuts
+      canViewTranscriptions: hasCapability(capabilities, Capability.CAN_VIEW_OWN_JOBS),
+      canCreateTranscriptions: hasCapability(capabilities, Capability.CAN_CREATE_JOBS),
+      canEditTranscriptions: hasCapability(capabilities, Capability.CAN_EDIT_OWN_JOBS),
+      canDeleteTranscriptions: hasCapability(capabilities, Capability.CAN_DELETE_OWN_JOBS),
+      
+      canViewUsers: hasCapability(capabilities, Capability.CAN_VIEW_USERS),
+      canCreateUsers: hasCapability(capabilities, Capability.CAN_CREATE_USERS),
+      canEditUsers: hasCapability(capabilities, Capability.CAN_EDIT_USERS),
+      canDeleteUsers: hasCapability(capabilities, Capability.CAN_DELETE_USERS),
+      
+      canViewSettings: hasCapability(capabilities, Capability.CAN_VIEW_SETTINGS),
+      canEditSettings: hasCapability(capabilities, Capability.CAN_EDIT_SETTINGS),
+      
+      canManageSystem: hasCapability(capabilities, Capability.CAN_MANAGE_SYSTEM),
+      canViewAnalytics: hasCapability(capabilities, Capability.CAN_VIEW_ANALYTICS),
+      
+      canExportData: hasCapability(capabilities, Capability.CAN_EXPORT_DATA),
+      canImportData: hasCapability(capabilities, Capability.CAN_IMPORT_DATA),
+      
+      // User info
+      currentPermission: userPermissions?.permission || PermissionLevel.USER,
+      userEmail: userPermissions?.email,
+      userId: userPermissions?.user_id,
+      capabilities,
+      
+      // Loading state
+      isLoading,
+      error,
+    };
+  }, [userPermissions, isLoading, error]);
   
-  return permissionGuard;
+  return capabilityGuard;
 };
 
 /**
- * Permission-based route guard component
+ * Legacy permission hook for backward compatibility during transition
  */
-interface PermissionGuardProps {
-  requiredPermission?: PermissionLevel;
-  requiredPermissions?: PermissionLevel[];
-  fallback?: React.ReactNode;
-  children: React.ReactNode;
-}
-
-export const PermissionGuard: React.FC<PermissionGuardProps> = ({
-  requiredPermission,
-  requiredPermissions,
-  fallback = <div>Access Denied: Insufficient permissions</div>,
-  children,
-}) => {
-  const { hasPermission: checkPermission, hasAnyPermission: checkAnyPermission, isLoading } = usePermissionGuard();
-  
-  if (isLoading) {
-    return <div>Loading permissions...</div>;
-  }
-  
-  // Check single permission
-  if (requiredPermission && !checkPermission(requiredPermission)) {
-    return <>{fallback}</>;
-  }
-  
-  // Check multiple permissions (any)
-  if (requiredPermissions && !checkAnyPermission(requiredPermissions)) {
-    return <>{fallback}</>;
-  }
-  
-  return <>{children}</>;
-};
+export const usePermissionGuard = useCapabilityGuard;
 
 /**
- * Permission-based component visibility hook
+ * Capability-based component visibility hook
  */
 export const useConditionalRender = () => {
-  const permissionGuard = usePermissionGuard();
+  const capabilityGuard = useCapabilityGuard();
   
   return {
-    // Show component only for specific permission
-    showForPermission: (requiredPermission: PermissionLevel, component: React.ReactNode) => {
-      return permissionGuard.hasPermission(requiredPermission) ? component : null;
+    // Show component only for specific capability
+    showForCapability: (capability: Capability, component: React.ReactNode) => {
+      return capabilityGuard.hasCapability(capability) ? component : null;
     },
     
-    // Show component for any of the specified permissions
-    showForAnyPermission: (requiredPermissions: PermissionLevel[], component: React.ReactNode) => {
-      return permissionGuard.hasAnyPermission(requiredPermissions) ? component : null;
+    // Show component for any of the specified capabilities
+    showForAnyCapability: (capabilities: Capability[], component: React.ReactNode) => {
+      return capabilityGuard.hasAnyCapability(capabilities) ? component : null;
     },
     
-    // Show component based on capability
-    showForCapability: (capability: keyof typeof permissionGuard, component: React.ReactNode) => {
-      return permissionGuard[capability] ? component : null;
+    // Show component for all specified capabilities
+    showForAllCapabilities: (capabilities: Capability[], component: React.ReactNode) => {
+      return capabilityGuard.hasAllCapabilities(capabilities) ? component : null;
     },
     
-    ...permissionGuard,
+    ...capabilityGuard,
   };
 };
 
-// Export permission levels for use in components
-export const PERMISSION_LEVELS = {
-  ADMIN: 'Admin' as const,
-  EDITOR: 'Editor' as const,
-  USER: 'User' as const,
-};
+// Export capability values for use in components
+export const CAPABILITIES = Capability;
 
 // Utility function to get permission badge color
 export const getPermissionBadgeColor = (permission: PermissionLevel): string => {
   switch (permission) {
-    case 'Admin':
+    case PermissionLevel.ADMIN:
       return 'bg-red-100 text-red-800 border-red-200';
-    case 'Editor':
+    case PermissionLevel.EDITOR:
       return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-    case 'User':
+    case PermissionLevel.USER:
       return 'bg-blue-100 text-blue-800 border-blue-200';
     default:
       return 'bg-gray-100 text-gray-800 border-gray-200';
@@ -231,12 +209,12 @@ export const getPermissionBadgeColor = (permission: PermissionLevel): string => 
 // Utility function to get permission icon
 export const getPermissionIcon = (permission: PermissionLevel): string => {
   switch (permission) {
-    case 'Admin':
+    case PermissionLevel.ADMIN:
       return '👑'; // Crown
-    case 'Editor':
+    case PermissionLevel.EDITOR:
       return '✏️'; // Pencil
-    case 'User':
-      return '🔧'; // Wrench
+    case PermissionLevel.USER:
+      return '👤'; // User
     default:
       return '❓'; // Question mark
   }

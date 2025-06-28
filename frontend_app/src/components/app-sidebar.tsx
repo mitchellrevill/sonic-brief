@@ -29,7 +29,8 @@ import {
   Upload,
 } from "lucide-react";
 import { getStorageItem, setStorageItem } from "@/lib/storage";
-import { usePermissionGuard, useUserPermissions } from "@/hooks/usePermissions";
+import { useUserPermissions, useCapabilityGuard } from "@/hooks/usePermissions";
+import { Capability } from "@/types/permissions";
 import { queryClient } from "@/queryClient";
 
 interface MenuItem {
@@ -48,7 +49,6 @@ const menuItems: Array<MenuItem> = [
 const adminMenuItems: Array<MenuItem> = [
   { icon: FileAudio, label: "All Recordings", to: "/admin/all-jobs" },
   { icon: Trash2, label: "Deleted Recordings", to: "/admin/deleted-jobs" },
-  { icon: UserCog, label: "User Management", to: "/admin/user-management" },
 ];
 
 interface AppSidebarProps {
@@ -65,10 +65,8 @@ export function AppSidebar({ children }: AppSidebarProps) {
     return saved; // "left" for vertical sidebar, "top" for horizontal
   });
   
-  const { currentPermission } = usePermissionGuard();
-  const isAdmin = currentPermission === "Admin";
+  const guard = useCapabilityGuard();
   const { data: userPermissions } = useUserPermissions();
-
   const router = useRouter();
   const { setTheme } = useTheme();
 
@@ -80,12 +78,12 @@ export function AppSidebar({ children }: AppSidebarProps) {
 
   const getPermissionColor = (permission?: string) => {
     switch (permission) {
-      case "Admin":
+      case "manage":
         return "bg-red-100 text-red-800 border-red-200";
-      case "User":
+      case "edit":
+        return "bg-yellow-100 text-yellow-800 border-yellow-200";
+      case "view":
         return "bg-blue-100 text-blue-800 border-blue-200";
-      case "Viewer":
-        return "bg-gray-100 text-gray-800 border-gray-200";
       default:
         return "bg-gray-100 text-gray-800 border-gray-200";
     }
@@ -204,8 +202,8 @@ export function AppSidebar({ children }: AppSidebarProps) {
                   </DropdownMenuItem>
                 ))}
 
-                {/* Admin/User permission items */}
-                {(currentPermission === "Admin" || currentPermission === "User") && (
+                {/* Capability-based menu items */}
+                {guard.hasCapability(Capability.CREATE_TRANSCRIPTIONS) && (
                   <DropdownMenuItem asChild>
                     <Link to="/prompt-management" className="flex items-center">
                       <FileText className="mr-2 h-4 w-4" />
@@ -214,15 +212,30 @@ export function AppSidebar({ children }: AppSidebarProps) {
                   </DropdownMenuItem>
                 )}
 
-                {/* Admin items if admin */}
-                {isAdmin && adminMenuItems.map((item) => (
-                  <DropdownMenuItem key={item.to} asChild>
-                    <Link to={item.to} className="flex items-center">
-                      <item.icon className="mr-2 h-4 w-4" />
-                      <span>{item.label}</span>
-                    </Link>
-                  </DropdownMenuItem>
-                ))}
+                {/* Admin items - grouped together */}
+                {(guard.hasCapability(Capability.CAN_VIEW_USERS) || guard.hasCapability(Capability.CAN_VIEW_ALL_JOBS)) && (
+                  <>
+                    {/* User Management - under admin */}
+                    {guard.hasCapability(Capability.CAN_VIEW_USERS) && (
+                      <DropdownMenuItem asChild>
+                        <Link to="/admin/user-management" className="flex items-center">
+                          <UserCog className="mr-2 h-4 w-4" />
+                          <span>User Management</span>
+                        </Link>
+                      </DropdownMenuItem>
+                    )}
+
+                    {/* Admin items for job management */}
+                    {guard.hasCapability(Capability.CAN_VIEW_ALL_JOBS) && adminMenuItems.map((item) => (
+                      <DropdownMenuItem key={item.to} asChild>
+                        <Link to={item.to} className="flex items-center">
+                          <item.icon className="mr-2 h-4 w-4" />
+                          <span>{item.label}</span>
+                        </Link>
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                )}
 
                 {/* Settings items */}
                 <DropdownMenuItem asChild>
@@ -264,7 +277,7 @@ export function AppSidebar({ children }: AppSidebarProps) {
                     !isOpen && "items-center"
                   )
             )}
-          >{/* Regular menu items */}
+          >            {/* Regular menu items */}
             {menuItems.map((item) => (
               <Link
                 key={item.to}
@@ -287,8 +300,8 @@ export function AppSidebar({ children }: AppSidebarProps) {
               </Link>
             ))}
 
-            {/* Admin/User permission items */}
-            {(currentPermission === "Admin" || currentPermission === "User") && (
+            {/* Capability-based menu items */}
+            {guard.hasCapability(Capability.CREATE_TRANSCRIPTIONS) && (
               <Link
                 to="/prompt-management"
                 className={cn(
@@ -309,8 +322,8 @@ export function AppSidebar({ children }: AppSidebarProps) {
               </Link>
             )}
 
-            {/* Admin-only menu items */}
-            {isAdmin && (
+            {/* Admin section - User Management and Job Management */}
+            {(guard.hasCapability(Capability.CAN_VIEW_USERS) || guard.hasCapability(Capability.CAN_VIEW_ALL_JOBS)) && (
               <>
                 {/* Admin section divider - only show when sidebar is expanded in left mode */}
                 {sidebarLayout === "left" && isOpen && (
@@ -322,8 +335,31 @@ export function AppSidebar({ children }: AppSidebarProps) {
                     <div className="h-px bg-gray-700 flex-grow" />
                   </div>
                 )}
+
+                {/* User Management - under admin section */}
+                {guard.hasCapability(Capability.CAN_VIEW_USERS) && (
+                  <Link
+                    to="/admin/user-management"
+                    className={cn(
+                      "flex items-center rounded-lg p-2 transition-colors hover:bg-gray-800",
+                      sidebarLayout === "left" && "w-full"
+                    )}
+                    activeProps={{ className: "bg-gray-800" }}
+                  >
+                    <UserCog className="h-5 w-5" />
+                    <span
+                      className={cn(
+                        "ml-3 hidden",
+                        sidebarLayout === "top" ? "inline" : isOpen && "inline"
+                      )}
+                    >
+                      User Management
+                    </span>
+                  </Link>
+                )}
                 
-                {adminMenuItems.map((item) => (
+                {/* Admin job management items */}
+                {guard.hasCapability(Capability.CAN_VIEW_ALL_JOBS) && adminMenuItems.map((item) => (
                   <Link
                     key={item.to}
                     to={item.to}

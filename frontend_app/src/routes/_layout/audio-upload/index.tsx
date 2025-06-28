@@ -4,6 +4,7 @@ import { AudioRecordingModal } from "@/components/audio-recorder/AudioRecordingM
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { PermissionGuard } from "@/lib/permission";
+import { Capability } from "@/types/permissions";
 
 export const Route = createFileRoute("/_layout/audio-upload/")({
   component: MediaUploadPage,
@@ -19,8 +20,8 @@ function MediaUploadPage() {
   };
 
   return (
-    // Allow Admin, Editor, and User roles
-    <PermissionGuard required={["Admin", "Editor", "User"]}>
+    // Allow users with upload capability
+    <PermissionGuard requiredCapability={Capability.CREATE_TRANSCRIPTIONS}>
       <div className="flex-1 space-y-6 p-4 pt-6 md:p-8">
         <MediaUploadHeader onStartRecording={() => setIsModalOpen(true)} />
         <MediaUploadForm mediaFile={audioFile} />

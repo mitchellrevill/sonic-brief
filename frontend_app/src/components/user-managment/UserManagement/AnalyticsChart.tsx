@@ -4,8 +4,13 @@ import { ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, L
 
 interface AnalyticsChartProps {
   analyticsLoading: boolean;
-  analyticsData: { date: string; totalMinutes: number; activeUsers: number }[];
-  analyticsPeriod: 7 | 30;
+  analyticsData: { 
+    date: string; 
+    totalMinutes: number; 
+    activeUsers: number;
+    totalJobs?: number; 
+  }[];
+  analyticsPeriod: 7 | 30 | 180 | 365 | 'total';
 }
 
 export function AnalyticsChart({ analyticsLoading, analyticsData, analyticsPeriod }: AnalyticsChartProps) {
@@ -17,7 +22,12 @@ export function AnalyticsChart({ analyticsLoading, analyticsData, analyticsPerio
           System Usage Analytics
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Daily transcription activity and user engagement over the last {analyticsPeriod} days
+          Daily transcription activity and user engagement over the {
+            analyticsPeriod === 'total' ? 'entire system history' : 
+            analyticsPeriod === 365 ? 'last 12 months' :
+            analyticsPeriod === 180 ? 'last 6 months' :
+            `last ${analyticsPeriod} days`
+          }. Shows daily job counts and active users.
         </p>
       </CardHeader>
       <CardContent>
@@ -33,10 +43,12 @@ export function AnalyticsChart({ analyticsLoading, analyticsData, analyticsPerio
               <YAxis />
               <Tooltip 
                 formatter={(value, name) => {
-                  if (name === 'totalMinutes') return [`${value} min`, 'Daily Minutes'];
+                  if (name === 'totalMinutes') return [`${value} jobs`, 'Daily Jobs'];
                   if (name === 'activeUsers') return [`${value} users`, 'Active Users'];
+                  if (name === 'totalJobs') return [`${value} jobs`, 'Daily Jobs'];
                   return [value, name];
                 }}
+                labelFormatter={(label) => `Date: ${label}`}
               />
               <Line 
                 type="monotone" 
