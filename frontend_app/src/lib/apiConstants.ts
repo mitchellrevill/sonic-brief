@@ -18,6 +18,7 @@ export const ANALYTICS_API = `${BASE_URL}/api/analytics`;
 export const USER_ANALYTICS_API = `${BASE_URL}/api/analytics/users`;
 export const SYSTEM_ANALYTICS_API = `${BASE_URL}/api/analytics/system`;
 export const ANALYTICS_DASHBOARD_API = `${BASE_URL}/api/analytics/dashboard`;
+export const SYSTEM_HEALTH_API = `${BASE_URL}/api/system/health`;
 
 // Export APIs
 export const EXPORT_USERS_API = `${BASE_URL}/api/export/users`;

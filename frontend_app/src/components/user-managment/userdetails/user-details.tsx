@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-
 import { 
   User as UserIcon,
   Shield,
   ShieldCheck,
-  Activity
+  Activity,
+  Settings,
+  UserPlus
 } from "lucide-react";
 import { 
   fetchUserById, 
@@ -16,9 +17,12 @@ import {
   updateUserPermission, 
   changeUserPassword, 
   deleteUser,
+  updateUserCapabilities,
   type UserAnalytics 
 } from "@/lib/api";
 import type { User } from "@/lib/api";
+import { PermissionLevel, type UserCapabilities } from "@/types/permissions";
+import { UserCapabilityManager } from "../UserManagement/UserCapabilityManager";
 import { toast } from "sonner";
 import { UserDetailsHeader } from "./UserDetailsHeader";
 import { UserInfoCard } from "./UserInfoCard";
@@ -46,7 +50,7 @@ export function UserDetailsPage() {
   const [showPermissionDialog, setShowPermissionDialog] = useState(false);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [newPermission, setNewPermission] = useState<"User" | "Admin" | "Editor">("User");
+  const [newPermission, setNewPermission] = useState<PermissionLevel>(PermissionLevel.USER);
   const [newPassword, setNewPassword] = useState("");
 
   useEffect(() => {
@@ -341,13 +345,110 @@ export function UserDetailsPage() {
           </CardContent>
         </Card>
       ) : (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <Activity className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Analytics Available</h3>
-            <p className="text-muted-foreground">Analytics data is not available for this user.</p>
-          </CardContent>
-        </Card>
+        <div className="text-center text-muted-foreground">
+          No analytics data available for this user.
+        </div>
+      )}
+      
+      {/* User Capability Management */}
+      {user && (
+        <div className="space-y-6">
+          {/* Permission Overview */}
+          <Card className="bg-card/80 border border-muted-foreground/10 rounded-xl shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg font-semibold">
+                <Shield className="h-5 w-5" />
+                Permission Overview
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="text-center p-4 border rounded-lg">
+                  <div className="text-lg font-semibold">{user.permission}</div>
+                  <div className="text-sm text-muted-foreground">Current Level</div>
+                </div>
+                <div className="text-center p-4 border rounded-lg">
+                  <div className="text-lg font-semibold">
+                    {user.custom_capabilities ? Object.values(user.custom_capabilities).filter(Boolean).length : 0}
+                  </div>
+                  <div className="text-sm text-muted-foreground">Custom Capabilities</div>
+                </div>
+                <div className="text-center p-4 border rounded-lg">
+                  <div className="text-lg font-semibold">
+                    {user.date ? new Date(user.date).toLocaleDateString() : 'N/A'}
+                  </div>
+                  <div className="text-sm text-muted-foreground">Permission Set Date</div>
+                </div>
+              </div>
+              
+              {/* Quick Actions */}
+              <div className="flex flex-wrap gap-2">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setShowPermissionDialog(true)}
+                  className="flex items-center gap-2"
+                >
+                  <Settings className="h-4 w-4" />
+                  Change Permission Level
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setShowPasswordDialog(true)}
+                  className="flex items-center gap-2"
+                >
+                  <Shield className="h-4 w-4" />
+                  Reset Password
+                </Button>
+                <Button 
+                  variant="destructive" 
+                  size="sm" 
+                  onClick={() => setShowDeleteDialog(true)}
+                  className="flex items-center gap-2"
+                >
+                  <UserPlus className="h-4 w-4" />
+                  Delete User
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Detailed Capability Management */}
+          <Card className="bg-card/80 border border-muted-foreground/10 rounded-xl shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg font-semibold">
+                <Shield className="h-5 w-5" />
+                Detailed Permission Capabilities
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Manage granular permissions and capabilities for this user
+              </p>
+            </CardHeader>
+            <CardContent>
+              <UserCapabilityManager
+                user={{
+                  id: user.id,
+                  email: user.email,
+                  permission: user.permission,
+                  custom_capabilities: user.custom_capabilities,
+                  created_at: user.date || new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                }}
+                onUpdateCapabilities={async (userId: string, capabilities: UserCapabilities) => {
+                  try {
+                    await updateUserCapabilities(userId, { custom_capabilities: capabilities });
+                    // Refresh user data
+                    const updatedUser = await fetchUserById(userId);
+                    setUser(updatedUser);
+                  } catch (error: any) {
+                    throw new Error(error.message || "Failed to update capabilities");
+                  }
+                }}
+              />
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   );

@@ -7,14 +7,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { User as UserIcon, Mail, Calendar, Shield, Edit, Key, Trash2, AlertTriangle } from "lucide-react";
 import type { User } from "@/lib/api";
+import { PermissionLevel } from "@/types/permissions";
 
 interface UserInfoCardProps {
   user: User;
   userDate?: string;
   permissionInfo: any;
   PermissionIcon: any;
-  newPermission: "User" | "Admin" | "Editor";
-  setNewPermission: (p: "User" | "Admin" | "Editor") => void;
+  newPermission: PermissionLevel;
+  setNewPermission: (p: PermissionLevel) => void;
   newPassword: string;
   setNewPassword: (p: string) => void;
   showPermissionDialog: boolean;
@@ -70,14 +71,14 @@ export function UserInfoCard(props: UserInfoCardProps) {
                 <div className="space-y-4">
                   <div>
                     <Label htmlFor="permission">Permission Level</Label>
-                    <Select value={newPermission} onValueChange={(value: "User" | "Admin" | "Editor") => setNewPermission(value)}>
+                    <Select value={newPermission} onValueChange={(value: PermissionLevel) => setNewPermission(value)}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="User">User</SelectItem>
-                        <SelectItem value="Editor">Editor</SelectItem>
-                        <SelectItem value="Admin">Admin</SelectItem>
+                        <SelectItem value={PermissionLevel.USER}>User</SelectItem>
+                        <SelectItem value={PermissionLevel.EDITOR}>Editor</SelectItem>
+                        <SelectItem value={PermissionLevel.ADMIN}>Admin</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

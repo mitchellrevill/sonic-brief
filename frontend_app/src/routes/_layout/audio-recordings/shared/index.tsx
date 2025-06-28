@@ -1,4 +1,6 @@
 import { SharedJobsPage } from "@/components/audio-recordings/shared-jobs-page";
+import { PermissionGuard } from "@/lib/permission";
+import { Capability } from "@/types/permissions";
 import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_layout/audio-recordings/shared/")({
@@ -6,5 +8,9 @@ export const Route = createFileRoute("/_layout/audio-recordings/shared/")({
 });
 
 function SharedRecordingsRoute() {
-  return <SharedJobsPage />;
+  return (
+    <PermissionGuard requiredCapability={Capability.VIEW_TRANSCRIPTIONS}>
+      <SharedJobsPage />
+    </PermissionGuard>
+  );
 }

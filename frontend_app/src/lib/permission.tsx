@@ -1,31 +1,64 @@
 import { useEffect } from "react";
 import { useRouter } from "@tanstack/react-router";
-import { usePermissionGuard } from "@/hooks/usePermissions";
+import { useCapabilityGuard } from "@/hooks/usePermissions";
+import { Capability, PermissionLevel, hasPermissionLevel } from "@/types/permissions";
 
 interface PermissionGuardProps {
-  required: Array<"Admin" | "User" | "Editor">;
+  requiredPermission?: PermissionLevel;
+  requiredCapability?: Capability;
+  requiredCapabilities?: Capability[];
+  requireAllCapabilities?: boolean; // If true, user must have ALL capabilities, otherwise ANY
+  fallback?: React.ReactNode;
   children: React.ReactNode;
 }
 
-export function PermissionGuard({ required, children }: PermissionGuardProps) {
+export function PermissionGuard({ 
+  requiredPermission, 
+  requiredCapability, 
+  requiredCapabilities,
+  requireAllCapabilities = false,
+  fallback = null, 
+  children 
+}: PermissionGuardProps) {
   const router = useRouter();
-  const { currentPermission, isLoading, error } = usePermissionGuard();
+  const guard = useCapabilityGuard();
 
-  // Handle navigation in useEffect to avoid setState during render
+  // Check access based on different criteria
+  const hasAccess = (() => {
+    // If specific capability is required
+    if (requiredCapability) {
+      return guard.hasCapability(requiredCapability);
+    }
+    
+    // If multiple capabilities are required
+    if (requiredCapabilities && requiredCapabilities.length > 0) {
+      return requireAllCapabilities 
+        ? guard.hasAllCapabilities(requiredCapabilities)
+        : guard.hasAnyCapability(requiredCapabilities);
+    }
+    
+    // Permission level check using hierarchy
+    if (requiredPermission) {
+      return hasPermissionLevel(guard.currentPermission, requiredPermission);
+    }
+    
+    // If no requirements specified, default to allowing access
+    return true;
+  })();
+
+  // Redirect if not authorized
   useEffect(() => {
-    if (!isLoading && (error || !currentPermission || !required.includes(currentPermission as any))) {
+    if (!guard.isLoading && (!hasAccess || guard.error)) {
       router.navigate({ to: "/unauthorised" });
     }
-  }, [isLoading, error, currentPermission, required, router]);
+  }, [guard.isLoading, guard.error, hasAccess, router]);
 
-  // Show loading state while checking permissions
-  if (isLoading) {
+  if (guard.isLoading) {
     return <div>Loading permissions...</div>;
   }
 
-  // If there's an error or no permission, show nothing while navigating
-  if (error || !currentPermission || !required.includes(currentPermission as any)) {
-    return null;
+  if (!hasAccess || guard.error) {
+    return <>{fallback}</>;
   }
 
   return <>{children}</>;

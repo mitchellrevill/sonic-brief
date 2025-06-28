@@ -13,13 +13,16 @@ import {
   USER_MANAGEMENT_API,
   USER_ANALYTICS_API,
   SYSTEM_ANALYTICS_API,
+  ANALYTICS_API,
   ANALYTICS_DASHBOARD_API,
   EXPORT_USERS_API,
   SESSION_TRACKING_API,
   ACTIVE_USERS_API,
   USER_SESSION_DURATION_API,
-  JOBS_API
+  JOBS_API,
+  SYSTEM_HEALTH_API
 } from "../lib/apiConstants"
+import { PermissionLevel, type UserCapabilities } from "../types/permissions"
 
 interface RegisterResponse {
   status: number
@@ -134,6 +137,26 @@ export async function loginUser(email: string, password: string): Promise<LoginR
     }
   }
 
+  // Track successful login event using analytics service
+  if (data.access_token) {
+    // Set token temporarily to track the login event
+    const previousToken = localStorage.getItem("token");
+    localStorage.setItem("token", data.access_token);
+    
+    // Import analytics service dynamically to avoid circular dependencies
+    import('./analyticsService').then(({ trackUserLogin }) => {
+      trackUserLogin({
+        loginMethod: "email_password",
+        userAgent: navigator.userAgent
+      });
+    }).catch(err => console.debug('Login analytics tracking failed:', err));
+
+    // Restore previous token state if needed
+    if (!previousToken) {
+      // Token will be set properly by the calling code
+    }
+  }
+
   return data
 }
 
@@ -141,7 +164,9 @@ export type User = {
   id: string;
   name: string;
   email: string;
-  permission: "Editor" | "Admin" | "User";
+  permission: PermissionLevel;
+  capabilities: string[];
+  custom_capabilities?: UserCapabilities;
   transcription_method?: "AZURE_AI_SPEECH" | "GPT4O_AUDIO";
   date?: string;
 };
@@ -164,7 +189,16 @@ export async function fetchAllUsers(): Promise<User[]> {
     throw new Error(`HTTP error! status: ${response.status}`);
   }
 
-  return await response.json();
+  const data = await response.json();
+  
+  // Handle wrapped response format from backend
+  if (data.status === 200 && Array.isArray(data.users)) {
+    return data.users;
+  } else if (Array.isArray(data)) {
+    return data;
+  } else {
+    throw new Error("Invalid response format from server");
+  }
 }
 
 export async function fetchUserByEmail(email: string): Promise<User> {
@@ -239,6 +273,24 @@ export async function uploadFile(
   if (!response.ok) {
     throw new Error(data.message || `HTTP error! status: ${response.status}`);
   }
+
+  // Track analytics event for successful job creation using the analytics service
+  if (response.ok && data.job_id) {
+    // Import analytics service dynamically to avoid circular dependencies
+    import('./analyticsService').then(({ trackJobCreated }) => {
+      trackJobCreated(data.job_id!, {
+        hasFile: true,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        categoryId: prompt_category_id,
+        subcategoryId: prompt_subcategory_id,
+        // Estimate audio duration if it's an audio file (rough estimate based on file size)
+        estimatedDurationMinutes: file.type.startsWith('audio/') ? Math.max(1, file.size / (1024 * 1024) * 2) : undefined
+      });
+    }).catch(err => console.debug('Analytics tracking failed:', err));
+  }
+
   return data;
 }
 
@@ -283,7 +335,7 @@ export async function deleteUser(userId: string): Promise<{ status: number; mess
   return data;
 }
 
-export async function updateUserPermission(userId: string, permission: "User" | "Admin" | "Editor"): Promise<User> {
+export async function updateUserPermission(userId: string, permission: PermissionLevel): Promise<User> {
   const token = localStorage.getItem("token");
   if (!token) throw new Error("No authentication token found. Please log in again.");
 
@@ -922,6 +974,26 @@ export interface SystemAnalytics {
   };
 }
 
+export interface SystemHealthMetrics {
+  // Real metrics - actual data from system
+  api_response_time_ms: number;           // Real: JSON serialization timing
+  database_response_time_ms: number;     // Real: Cosmos DB query timing (-1 if unavailable)
+  memory_usage_percentage: number;       // Real: psutil memory data (0 if unavailable)
+  
+  // Unused metrics - always 0, kept for API compatibility
+  storage_response_time_ms: number;      // Always 0
+  uptime_percentage: number;             // Always 0
+  active_connections: number;            // Always 0
+  disk_usage_percentage: number;         // Always 0
+}
+
+export interface SystemHealthResponse {
+  status: string;
+  timestamp: string;
+  metrics: SystemHealthMetrics;
+  services: Record<string, string>; // service_name: status
+}
+
 export interface UserDetails {
   id: string;
   email: string;
@@ -964,11 +1036,31 @@ export async function getUserAnalytics(userId: string, days: number = 30): Promi
   return await response.json();
 }
 
-export async function getSystemAnalytics(days: number = 30): Promise<SystemAnalytics> {
+export async function getSystemAnalytics(period: number | 'total' = 30): Promise<SystemAnalytics> {
   const token = localStorage.getItem("token");
   if (!token) throw new Error("No authentication token found. Please log in again.");
 
-  const response = await fetch(`${SYSTEM_ANALYTICS_API}?days=${days}`, {
+  const queryParam = period === 'total' ? '' : `?days=${period}`;
+  const response = await fetch(`${SYSTEM_ANALYTICS_API}${queryParam}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+export async function getSystemHealth(): Promise<SystemHealthResponse> {
+  const token = localStorage.getItem("token");
+  if (!token) throw new Error("No authentication token found. Please log in again.");
+
+  const response = await fetch(`${SYSTEM_HEALTH_API}`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -1445,5 +1537,118 @@ export async function fetchAllJobsApi(token: string) {
     throw new Error(`HTTP error! status: ${response.status}`);
   }
   return await response.json();
+}
+
+// Capability management functions
+export async function updateUserCapabilities(userId: string, capabilityData: {
+  permission?: PermissionLevel;
+  custom_capabilities?: UserCapabilities;
+}): Promise<User> {
+  const token = localStorage.getItem("token");
+  if (!token) throw new Error("No authentication token found. Please log in again.");
+
+  const response = await fetch(`${USER_MANAGEMENT_API}/${userId}/capabilities`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(capabilityData),
+  });
+
+  const data = await response.json();
+  
+  if (!response.ok) {
+    throw new Error(data.message || "Failed to update user capabilities");
+  }
+
+  return data.data;
+}
+
+export async function getUserCapabilities(userId: string): Promise<{
+  effective_capabilities: UserCapabilities;
+  base_capabilities: UserCapabilities;
+  custom_capabilities: UserCapabilities;
+}> {
+  const token = localStorage.getItem("token");
+  if (!token) throw new Error("No authentication token found. Please log in again.");
+
+  const response = await fetch(`${USER_MANAGEMENT_API}/${userId}/capabilities`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const data = await response.json();
+  
+  if (!response.ok) {
+    throw new Error(data.message || "Failed to get user capabilities");
+  }
+
+  return data.data;
+}
+
+export async function getCapabilityDefinitions(): Promise<{
+  capabilities: Record<string, {
+    name: string;
+    description: string;
+    category: string;
+  }>;
+  permission_levels: Record<string, string[]>;
+}> {
+  const token = localStorage.getItem("token");
+  if (!token) throw new Error("No authentication token found. Please log in again.");
+
+  const response = await fetch(`${USER_MANAGEMENT_API}/capabilities/definitions`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const data = await response.json();
+  
+  if (!response.ok) {
+    throw new Error(data.message || "Failed to get capability definitions");
+  }
+
+  return data.data;
+}
+
+// Analytics Event Tracking
+export interface AnalyticsEventRequest {
+  event_type: string;
+  metadata?: Record<string, any>;
+  job_id?: string;
+}
+
+export async function trackAnalyticsEvent(eventData: AnalyticsEventRequest): Promise<{ status: string; event_id?: string; message: string }> {
+  const token = localStorage.getItem("token");
+  if (!token) {
+    console.warn("No authentication token found for analytics tracking");
+    return { status: "error", message: "No authentication token" };
+  }
+
+  try {
+    const response = await fetch(`${ANALYTICS_API}/event`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(eventData),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    // Analytics tracking should fail silently
+    console.debug("Analytics tracking error:", error);
+    return { status: "error", message: "Analytics tracking failed" };
+  }
 }
 
