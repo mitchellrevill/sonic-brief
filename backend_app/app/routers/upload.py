@@ -21,7 +21,7 @@ import tempfile
 import os
 from urllib.parse import urlparse
 
-from app.core.config import AppConfig, CosmosDB, DatabaseError
+from app.core.config import AppConfig, CosmosDB, get_cosmos_db, DatabaseError
 from app.services.storage_service import StorageService
 from app.services.analysis_refinement_service import AnalysisRefinementService
 from app.services.background_processing_service import get_background_service
@@ -117,7 +117,7 @@ async def upload_file(
     try:
         config = AppConfig()
         try:
-            cosmos_db = CosmosDB(config)
+            cosmos_db = get_cosmos_db(config)
             logger.debug("CosmosDB client initialized for upload")
         except DatabaseError as e:
             logger.error(f"Database initialization failed: {str(e)}")
@@ -392,7 +392,7 @@ async def get_jobs(
     try:
         config = AppConfig()
         try:
-            cosmos_db = CosmosDB(config)
+            cosmos_db = get_cosmos_db(config)
             logger.debug("CosmosDB client initialized for job query")
         except DatabaseError as e:
             logger.error(f"Database initialization failed: {str(e)}")
@@ -451,7 +451,7 @@ async def get_jobs(
 
         # Check if user can view all jobs (admin capability)
         user_permission = current_user.get("permission", PermissionLevel.USER)
-        can_view_all = permission_service.has_capability(
+        can_view_all = await permission_service.has_capability(
             user_permission, 
             current_user.get("custom_capabilities", {}),
             PermissionCapability.CAN_VIEW_ALL_JOBS
@@ -520,7 +520,7 @@ async def get_my_jobs(
     try:
         config = AppConfig()
         try:
-            cosmos_db = CosmosDB(config)
+            cosmos_db = get_cosmos_db(config)
             logger.debug("CosmosDB client initialized for my jobs query")
         except DatabaseError as e:
             logger.error(f"Database initialization failed: {str(e)}")
@@ -582,7 +582,7 @@ async def get_shared_jobs(
     try:
         logger.error("=== INITIALIZING SERVICES ===")
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         storage_service = StorageService(config)
         logger.error("=== SERVICES INITIALIZED SUCCESSFULLY ===")        # Query for jobs shared with current user
         logger.error("=== STARTING SHARED JOBS QUERY ===")
@@ -733,7 +733,7 @@ async def get_job_by_id(
     try:
         config = AppConfig()
         try:
-            cosmos_db = CosmosDB(config)
+            cosmos_db = get_cosmos_db(config)
             logger.debug(f"CosmosDB client initialized for job query: {job_id}")
         except DatabaseError as e:
             logger.error(f"Database initialization failed: {str(e)}")
@@ -743,7 +743,7 @@ async def get_job_by_id(
 
         # Check if user can view all jobs (admin capability)
         user_permission = current_user.get("permission", PermissionLevel.USER)
-        can_view_all = permission_service.has_capability(
+        can_view_all = await permission_service.has_capability(
             user_permission, 
             current_user.get("custom_capabilities", {}),
             PermissionCapability.CAN_VIEW_ALL_JOBS
@@ -846,7 +846,7 @@ async def get_job_transcription(
         logger.debug(
             f"[{request_id}] Initializing CosmosDB connection for job: {job_id}"
         )
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         logger.debug(
             f"[{request_id}] CosmosDB client initialized successfully. Container: {cosmos_db.jobs_container.container_link}"
         )
@@ -1042,7 +1042,7 @@ async def process_text_analysis(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         
         # Get the job
         job = cosmos_db.get_job(job_id)
@@ -1121,7 +1121,7 @@ async def refine_analysis(
         AnalysisRefinementResponse containing the AI response and metadata    """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         
         # Get the job
         job = cosmos_db.get_job(job_id)
@@ -1233,7 +1233,7 @@ async def get_refinement_history(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
           # Get the job
         job = cosmos_db.get_job(job_id)
         if not job:
@@ -1277,7 +1277,7 @@ async def get_refinement_suggestions(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
           # Get the job
         job = cosmos_db.get_job(job_id)
         if not job:
@@ -1338,7 +1338,7 @@ async def share_job(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
           # Get the job
         job = cosmos_db.get_job(job_id)
         if not job:
@@ -1430,7 +1430,7 @@ async def unshare_job(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
           # Get the job
         job = cosmos_db.get_job(job_id)
         if not job:
@@ -1490,7 +1490,7 @@ async def get_job_sharing_info(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
           # Get the job
         job = cosmos_db.get_job(job_id)
         if not job:
@@ -1554,7 +1554,7 @@ async def soft_delete_job(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         
         # Get the job
         job = cosmos_db.get_job(job_id)
@@ -1566,7 +1566,7 @@ async def soft_delete_job(
             raise HTTPException(status_code=400, detail="Job is already deleted")
         
         # Check if user has permission to delete this job
-        if not check_job_access_permission(current_user, job, PermissionCapability.CAN_DELETE_OWN_JOBS):
+        if not await check_job_access_permission(current_user, job, PermissionCapability.CAN_DELETE_OWN_JOBS):
             raise HTTPException(status_code=403, detail="Permission denied - cannot delete this job")
         
         # Soft delete the job
@@ -1610,7 +1610,7 @@ async def restore_job(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         
         # Check if user is admin
         user_permission = await cosmos_db.get_user_permission_with_fallback(current_user["id"])
@@ -1669,7 +1669,7 @@ async def get_deleted_jobs(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         storage_service = StorageService(config)
         
         # Check if user is admin
@@ -1739,7 +1739,7 @@ async def permanent_delete_job(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         
         # Check if user is admin
         user_permission = await cosmos_db.get_user_permission_with_fallback(current_user["id"])
@@ -1808,7 +1808,7 @@ def check_job_access(job: Dict[str, Any], current_user: Dict[str, Any], required
     
     return False
 
-def check_job_access_permission(
+async def check_job_access_permission(
     current_user: Dict[str, Any], 
     job: Dict[str, Any], 
     required_capability: PermissionCapability
@@ -1828,7 +1828,7 @@ def check_job_access_permission(
     custom_capabilities = current_user.get("custom_capabilities", {})
     
     # Check if user has the capability to operate on all jobs
-    if permission_service.has_capability(user_permission, custom_capabilities, required_capability):
+    if await permission_service.has_capability(user_permission, custom_capabilities, required_capability):
         return True
     
     # Check if user owns the job

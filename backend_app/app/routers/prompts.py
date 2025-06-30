@@ -4,7 +4,7 @@ from pydantic import BaseModel
 import logging
 from datetime import datetime, timezone
 
-from app.core.config import AppConfig, CosmosDB, DatabaseError
+from app.core.config import AppConfig, CosmosDB, get_cosmos_db, DatabaseError
 from app.routers.auth import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ async def create_category(
     try:
         config = AppConfig()
         try:
-            cosmos_db = CosmosDB(config)
+            cosmos_db = get_cosmos_db(config)
             logger.debug("CosmosDB client initialized for category creation")
         except DatabaseError as e:
             logger.error(f"Database initialization failed: {str(e)}")
@@ -121,7 +121,7 @@ async def list_categories(
     """List all prompt categories"""
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
 
         query = "SELECT * FROM c WHERE c.type = 'prompt_category'"
         categories = list(
@@ -149,7 +149,7 @@ async def get_category(
     """Get a specific prompt category"""
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
 
         query = {
             "query": "SELECT * FROM c WHERE c.type = 'prompt_category' AND c.id = @id",
@@ -191,7 +191,7 @@ async def update_category(
     """Update a prompt category"""
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
 
         # Check if category exists
         query = {
@@ -238,7 +238,7 @@ async def delete_category(
     """Delete a prompt category and all its subcategories"""
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
 
         # Delete all subcategories first
         subcategories_query = {
@@ -298,7 +298,7 @@ async def create_subcategory(
     """Create a new prompt subcategory"""
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
 
         # Check if category exists
         category_query = {
@@ -356,7 +356,7 @@ async def list_subcategories(
     """List all prompt subcategories, optionally filtered by category_id"""
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
 
         if category_id:
             query = {
@@ -397,7 +397,7 @@ async def get_subcategory(
     """Get a specific prompt subcategory"""
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
 
         query = {
             "query": "SELECT * FROM c WHERE c.type = 'prompt_subcategory' AND c.id = @id",
@@ -439,7 +439,7 @@ async def update_subcategory(
     """Update a prompt subcategory"""
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
 
         # Check if subcategory exists
         query = {
@@ -491,7 +491,7 @@ async def delete_subcategory(
     """Delete a prompt subcategory"""
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
 
         try:
             cosmos_db.prompts_container.delete_item(
@@ -547,7 +547,7 @@ async def retrieve_prompts(
     try:
         config = AppConfig()
         try:
-            cosmos_db = CosmosDB(config)
+            cosmos_db = get_cosmos_db(config)
             logger.debug("CosmosDB client initialized for retrieval")
         except DatabaseError as e:
             logger.error(f"Database initialization failed: {str(e)}")
