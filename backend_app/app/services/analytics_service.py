@@ -3,8 +3,10 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, List
 from azure.cosmos.exceptions import CosmosHttpResponseError
+import random
 
-logger = logging.getLogger(__name__)
+# Use the improved logging utility
+from app.utils.logging_config import get_logger, log_completion, log_error_with_context
 
 
 class AnalyticsService:
@@ -12,7 +14,16 @@ class AnalyticsService:
     
     def __init__(self, cosmos_db):
         self.cosmos_db = cosmos_db
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger(__name__)
+        
+        # Log initialization
+        self.logger.info("📊 AnalyticsService initialized")
+        
+        # Verify events container on initialization
+        if hasattr(cosmos_db, 'events_container') and cosmos_db.events_container is not None:
+            self.logger.info("✓ Events container is available for analytics tracking")
+        else:
+            self.logger.warning("⚠️ Events container is not available - analytics tracking may fail")
 
     async def track_event(
         self, 
@@ -531,6 +542,15 @@ class AnalyticsService:
                 ))
                 
                 self.logger.info(f"Found {len(events)} system events for {days} days")
+                if len(events) > 0:
+                    # Log some sample event types for debugging
+                    event_types = {}
+                    for event in events[:10]:  # Sample first 10 events
+                        event_type = event.get("event_type", "unknown")
+                        event_types[event_type] = event_types.get(event_type, 0) + 1
+                    self.logger.info(f"Sample event types found: {event_types}")
+                else:
+                    self.logger.warning("No events found in the specified date range")
                 
             except Exception as events_error:
                 self.logger.warning(f"Error querying system analytics events: {str(events_error)}")
@@ -551,14 +571,25 @@ class AnalyticsService:
                 self.logger.info("No transcription minutes from events, using jobs fallback")
                 total_minutes_from_jobs = await self._get_total_minutes_from_jobs(start_date, end_date)
                 system_analytics["overview"]["total_transcription_minutes"] = total_minutes_from_jobs
-                self.logger.info(f"Found {total_minutes_from_jobs} minutes from jobs fallback")
+                self.logger.info(f"Found {total_minutes_from_jobs} minutes from {system_analytics['overview']['total_jobs']} jobs via fallback")
+            else:
+                self.logger.info(f"Using {system_analytics['overview']['total_transcription_minutes']} minutes from events data")
             
             # If still no data, generate sample data for demonstration
             if (system_analytics["overview"]["total_transcription_minutes"] == 0 and 
                 system_analytics["overview"]["total_jobs"] == 0 and 
                 len(system_analytics["trends"]["daily_activity"]) == 0):
-                self.logger.info("No real data available, generating sample analytics data")
+                self.logger.warning(f"No real analytics data found for {days} days period. Reasons:")
+                self.logger.warning(f"  - Events found: {len(events)}")
+                self.logger.warning(f"  - Jobs with transcription minutes: {system_analytics['overview']['total_transcription_minutes']}")
+                self.logger.warning(f"  - Total jobs counted: {system_analytics['overview']['total_jobs']}")
+                self.logger.warning(f"  - Daily activity entries: {len(system_analytics['trends']['daily_activity'])}")
+                self.logger.warning("Generating sample analytics data for demonstration")
+                
+                # Add a flag to indicate this is mock data
                 system_analytics = self._generate_sample_analytics_data(days, start_date, end_date, total_users)
+                system_analytics["_is_mock_data"] = True
+                system_analytics["_mock_reason"] = "No real data available in events or jobs containers"
             
             return {
                 "period_days": days,
@@ -607,7 +638,8 @@ class AnalyticsService:
                 "total_transcription_minutes": 0.0
             },
             "trends": {
-                "daily_activity": {},
+                "daily_activity": {},  # Only job events per day
+                "daily_transcription_minutes": {},  # New: transcription minutes per day
                 "daily_active_users": {},
                 "user_growth": {},
                 "job_completion_rate": 0.0
@@ -647,10 +679,22 @@ class AnalyticsService:
                     date_key = dt.strftime('%Y-%m-%d')
                     hour = dt.hour
                     
-                    # Daily activity (events per day)
-                    if date_key not in analytics["trends"]["daily_activity"]:
-                        analytics["trends"]["daily_activity"][date_key] = 0
-                    analytics["trends"]["daily_activity"][date_key] += 1
+                    # Only count job events for daily_activity
+                    if event_type in ("job_created", "job_completed", "job_uploaded"):
+                        if date_key not in analytics["trends"]["daily_activity"]:
+                            analytics["trends"]["daily_activity"][date_key] = 0
+                        analytics["trends"]["daily_activity"][date_key] += 1
+                    
+                    # Track transcription minutes per day
+                    if event_type in ("job_uploaded", "job_completed"):
+                        minutes = 0.0
+                        if metadata.get("audio_duration_minutes"):
+                            minutes = float(metadata["audio_duration_minutes"])
+                        elif metadata.get("duration_seconds"):
+                            minutes = float(metadata["duration_seconds"]) / 60.0
+                        if date_key not in analytics["trends"]["daily_transcription_minutes"]:
+                            analytics["trends"]["daily_transcription_minutes"][date_key] = 0.0
+                        analytics["trends"]["daily_transcription_minutes"][date_key] += minutes
                     
                     # Daily active users (unique users per day)
                     if date_key not in daily_users:
@@ -660,7 +704,6 @@ class AnalyticsService:
                     
                     # Peak hours
                     analytics["usage"]["peak_hours"][hour] = analytics["usage"]["peak_hours"].get(hour, 0) + 1
-                    
                 except:
                     pass
             
@@ -673,13 +716,13 @@ class AnalyticsService:
                     analytics["usage"]["file_vs_text_ratio"]["files"] += 1
                 else:
                     analytics["usage"]["file_vs_text_ratio"]["text"] += 1
-                    
+            
             elif event_type == "job_uploaded":
                 # Track audio duration from uploaded files
                 if metadata.get("audio_duration_minutes"):
                     audio_minutes = float(metadata["audio_duration_minutes"])
                     analytics["overview"]["total_transcription_minutes"] += audio_minutes
-                    
+            
             elif event_type == "job_completed":
                 jobs_completed += 1
                 
@@ -688,7 +731,6 @@ class AnalyticsService:
                     audio_minutes = float(metadata["audio_duration_minutes"])
                     analytics["overview"]["total_transcription_minutes"] += audio_minutes
                 elif metadata.get("duration_seconds"):
-                    # Fallback to processing duration if audio duration not available
                     duration_minutes = metadata["duration_seconds"] / 60.0
                     analytics["overview"]["total_transcription_minutes"] += duration_minutes
                 
@@ -815,12 +857,30 @@ class AnalyticsService:
         Fallback method to calculate total transcription minutes from jobs collection
         """
         try:
-            # Query all jobs in the date range
+            # Query all jobs in the date range - try multiple date field patterns
+            # First try with just c.type = 'job' to see what we get
+            simple_jobs_query = "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'job'"
+            simple_count = list(self.cosmos_db.jobs_container.query_items(
+                query=simple_jobs_query,
+                enable_cross_partition_query=True
+            ))
+            total_jobs_count = simple_count[0] if simple_count else 0
+            self.logger.info(f"Total jobs in container: {total_jobs_count}")
+            
+            if total_jobs_count == 0:
+                self.logger.warning("No jobs found in container at all")
+                return 0.0
+            
+            # Now try to find jobs in date range with flexible date matching
             jobs_query = """
                 SELECT * FROM c 
-                WHERE c.date >= @start_date 
-                AND c.date <= @end_date
-                ORDER BY c.date DESC
+                WHERE c.type = 'job'
+                AND (
+                    (IS_DEFINED(c.date) AND c.date >= @start_date AND c.date <= @end_date) OR
+                    (IS_DEFINED(c.created_at) AND c.created_at >= @start_date AND c.created_at <= @end_date) OR
+                    (IS_DEFINED(c.updated_at) AND c.updated_at >= @start_date AND c.updated_at <= @end_date)
+                )
+                ORDER BY COALESCE(c.date, c.created_at, c.updated_at, '') DESC
             """
             
             parameters = [
@@ -834,15 +894,37 @@ class AnalyticsService:
                 enable_cross_partition_query=True
             ))
             
+            self.logger.info(f"Found {len(jobs)} jobs in date range for duration calculation")
+            
+            # If no jobs in date range, let's try to get recent jobs without date filter
+            if len(jobs) == 0:
+                self.logger.info("No jobs found in date range, trying to get recent jobs without date filter")
+                recent_jobs_query = "SELECT TOP 10 * FROM c WHERE c.type = 'job'"
+                recent_jobs = list(self.cosmos_db.jobs_container.query_items(
+                    query=recent_jobs_query,
+                    enable_cross_partition_query=True
+                ))
+                self.logger.info(f"Found {len(recent_jobs)} recent jobs without date filtering")
+                if recent_jobs:
+                    sample_job = recent_jobs[0]
+                    self.logger.info(f"Sample job date fields: date={sample_job.get('date')}, created_at={sample_job.get('created_at')}, updated_at={sample_job.get('updated_at')}")
+            
             total_minutes = 0.0
+            jobs_with_duration = 0
+            
             for job in jobs:
                 # Calculate audio duration
+                audio_minutes = 0.0
                 if job.get("audio_duration_minutes"):
-                    total_minutes += float(job["audio_duration_minutes"])
+                    audio_minutes = float(job["audio_duration_minutes"])
+                    jobs_with_duration += 1
                 elif job.get("audio_duration_seconds"):
-                    total_minutes += float(job["audio_duration_seconds"]) / 60.0
+                    audio_minutes = float(job["audio_duration_seconds"]) / 60.0
+                    jobs_with_duration += 1
+                
+                total_minutes += audio_minutes
             
-            self.logger.info(f"Calculated {total_minutes} total minutes from {len(jobs)} jobs")
+            self.logger.info(f"Calculated {total_minutes} total minutes from {jobs_with_duration}/{len(jobs)} jobs with duration data")
             return total_minutes
             
         except Exception as e:
@@ -857,10 +939,14 @@ class AnalyticsService:
             True if container is working, False otherwise
         """
         try:
+            self.logger.info("🔍 Starting events container verification...")
+            
             # Check if container exists
             if not hasattr(self.cosmos_db, 'events_container') or self.cosmos_db.events_container is None:
-                self.logger.error("Events container is not initialized in CosmosDB")
+                self.logger.error("❌ Events container is not initialized in CosmosDB")
                 return False
+            
+            self.logger.info("✓ Events container reference found, testing write access...")
             
             # Try to create a test event
             test_event_id = str(uuid.uuid4())
@@ -874,18 +960,23 @@ class AnalyticsService:
                 "partition_key": "system"
             }
             
+            self.logger.info(f"📝 Creating test event with ID: {test_event_id}")
+            
             # Attempt to create and then delete the test event
             result = self.cosmos_db.events_container.create_item(body=test_event)
-            self.cosmos_db.events_container.delete_item(item=test_event_id, partition_key="system")
+            self.logger.info("✓ Test event created successfully, cleaning up...")
             
-            self.logger.info("✓ Events container verification successful")
+            self.cosmos_db.events_container.delete_item(item=test_event_id, partition_key="system")
+            self.logger.info("✓ Test event deleted successfully")
+            
+            self.logger.info("✅ Events container verification successful")
             return True
             
         except CosmosHttpResponseError as e:
-            self.logger.error(f"Events container verification failed - Cosmos error: {e.status_code} - {e.message}")
+            self.logger.error(f"❌ Events container verification failed - Cosmos error: {e.status_code} - {e.message}")
             return False
         except Exception as e:
-            self.logger.error(f"Events container verification failed - Unexpected error: {str(e)}")
+            self.logger.error(f"❌ Events container verification failed - Unexpected error: {str(e)}")
             return False
 
     async def create_job_events_for_existing_jobs(self, limit: int = 10) -> int:
@@ -1015,7 +1106,7 @@ class AnalyticsService:
         
         # Calculate totals
         total_jobs = sum(daily_activity.values())
-        total_minutes = total_jobs * random.uniform(3.5, 8.5)  # 3.5-8.5 minutes per job average
+        total_minutes = total_jobs * random.uniform(3.5, 8.5) # 3.5-8.5 minutes per job average
         
         return {
             "overview": {
@@ -1050,3 +1141,250 @@ class AnalyticsService:
                 }
             }
         }
+
+    async def diagnose_analytics_data_sources(self, days: int = 30) -> Dict[str, Any]:
+        """
+        Comprehensive diagnostic to understand why analytics are returning mock data
+        
+        Args:
+            days: Number of days to analyze
+            
+        Returns:
+            Detailed diagnostic information about data sources
+        """
+        try:
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=days)
+            
+            diagnostic = {
+                "period": {
+                    "days": days,
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat()
+                },
+                "events_container": {},
+                "jobs_container": {},
+                "auth_container": {},
+                "data_quality": {},
+                "recommendations": []
+            }
+            
+            # Check Events Container
+            try:
+                # Count total events
+                total_events_query = "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'event'"
+                total_events = list(self.cosmos_db.events_container.query_items(
+                    query=total_events_query,
+                    enable_cross_partition_query=True
+                ))
+                
+                # Count events in date range
+                date_range_events_query = """
+                    SELECT VALUE COUNT(1) FROM c 
+                    WHERE c.type = 'event' 
+                    AND c.timestamp >= @start_date 
+                    AND c.timestamp <= @end_date
+                """
+                date_range_events = list(self.cosmos_db.events_container.query_items(
+                    query=date_range_events_query,
+                    parameters=[
+                        {"name": "@start_date", "value": start_date.isoformat()},
+                        {"name": "@end_date", "value": end_date.isoformat()}
+                    ],
+                    enable_cross_partition_query=True
+                ))
+                
+                # Get sample events to analyze structure
+                sample_events_query = "SELECT TOP 5 * FROM c WHERE c.type = 'event' ORDER BY c.timestamp DESC"
+                sample_events = list(self.cosmos_db.events_container.query_items(
+                    query=sample_events_query,
+                    enable_cross_partition_query=True
+                ))
+                
+                diagnostic["events_container"] = {
+                    "accessible": True,
+                    "total_events": total_events[0] if total_events else 0,
+                    "events_in_date_range": date_range_events[0] if date_range_events else 0,
+                    "sample_events": sample_events,
+                    "sample_count": len(sample_events)
+                }
+                
+            except Exception as e:
+                diagnostic["events_container"] = {
+                    "accessible": False,
+                    "error": str(e)
+                }
+            
+            # Check Jobs Container
+            try:
+                # Count total jobs
+                total_jobs_query = "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'job'"
+                total_jobs = list(self.cosmos_db.jobs_container.query_items(
+                    query=total_jobs_query,
+                    enable_cross_partition_query=True
+                ))
+                
+                # Count jobs in date range
+                date_range_jobs_query = """
+                    SELECT VALUE COUNT(1) FROM c 
+                    WHERE c.type = 'job' 
+                    AND c.date >= @start_date 
+                    AND c.date <= @end_date
+                """
+                date_range_jobs = list(self.cosmos_db.jobs_container.query_items(
+                    query=date_range_jobs_query,
+                    parameters=[
+                        {"name": "@start_date", "value": start_date.isoformat()},
+                        {"name": "@end_date", "value": end_date.isoformat()}
+                    ],
+                    enable_cross_partition_query=True
+                ))
+                
+                # Count jobs with audio duration
+                jobs_with_duration_query = """
+                    SELECT VALUE COUNT(1) FROM c 
+                    WHERE c.type = 'job' 
+                    AND (IS_DEFINED(c.audio_duration_minutes) OR IS_DEFINED(c.audio_duration_seconds))
+                """
+                jobs_with_duration = list(self.cosmos_db.jobs_container.query_items(
+                    query=jobs_with_duration_query,
+                    enable_cross_partition_query=True
+                ))
+                
+                # Get sample jobs to analyze structure
+                sample_jobs_query = "SELECT TOP 5 * FROM c WHERE c.type = 'job' ORDER BY c.date DESC"
+                sample_jobs = list(self.cosmos_db.jobs_container.query_items(
+                    query=sample_jobs_query,
+                    enable_cross_partition_query=True
+                ))
+                
+                diagnostic["jobs_container"] = {
+                    "accessible": True,
+                    "total_jobs": total_jobs[0] if total_jobs else 0,
+                    "jobs_in_date_range": date_range_jobs[0] if date_range_jobs else 0,
+                    "jobs_with_audio_duration": jobs_with_duration[0] if jobs_with_duration else 0,
+                    "sample_jobs": [
+                        {
+                            "id": job.get("id"),
+                            "date": job.get("date"),
+                            "has_audio_duration_minutes": "audio_duration_minutes" in job,
+                            "has_audio_duration_seconds": "audio_duration_seconds" in job,
+                            "audio_duration_minutes": job.get("audio_duration_minutes"),
+                            "audio_duration_seconds": job.get("audio_duration_seconds"),
+                            "status": job.get("status"),
+                            "user_id": job.get("user_id")
+                        } for job in sample_jobs
+                    ],
+                    "sample_count": len(sample_jobs)
+                }
+                
+            except Exception as e:
+                diagnostic["jobs_container"] = {
+                    "accessible": False,
+                    "error": str(e)
+                }
+            
+            # Check Auth Container (for user count)
+            try:
+                user_count_query = "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'user'"
+                user_count = list(self.cosmos_db.auth_container.query_items(
+                    query=user_count_query,
+                    enable_cross_partition_query=True
+                ))
+                
+                diagnostic["auth_container"] = {
+                    "accessible": True,
+                    "total_users": user_count[0] if user_count else 0
+                }
+                
+            except Exception as e:
+                diagnostic["auth_container"] = {
+                    "accessible": False,
+                    "error": str(e)
+                }
+            
+            # Data Quality Analysis
+            events_exist = diagnostic["events_container"].get("events_in_date_range", 0) > 0
+            jobs_exist = diagnostic["jobs_container"].get("jobs_in_date_range", 0) > 0
+            jobs_with_duration = diagnostic["jobs_container"].get("jobs_with_audio_duration", 0) > 0
+            
+            diagnostic["data_quality"] = {
+                "events_available": events_exist,
+                "jobs_available": jobs_exist,
+                "jobs_have_duration_data": jobs_with_duration,
+                "using_mock_data": not (events_exist or (jobs_exist and jobs_with_duration))
+            }
+            
+            # Generate Recommendations
+            if not events_exist and not jobs_exist:
+                diagnostic["recommendations"].append("No data found in any container. System may be newly deployed or containers may be empty.")
+            elif not events_exist and jobs_exist:
+                if not jobs_with_duration:
+                    diagnostic["recommendations"].append("Jobs exist but lack audio duration data. Check job processing pipeline.")
+                diagnostic["recommendations"].append("No analytics events found. Use the backfill API to create events from existing jobs.")
+            elif events_exist:
+                diagnostic["recommendations"].append("Analytics events are available and should provide real data.")
+            
+            if diagnostic["events_container"].get("accessible", False) == False:
+                diagnostic["recommendations"].append("Events container is not accessible. Check container configuration and permissions.")
+            
+            if diagnostic["jobs_container"].get("accessible", False) == False:
+                diagnostic["recommendations"].append("Jobs container is not accessible. Check container configuration and permissions.")
+                
+            return diagnostic
+            
+        except Exception as e:
+            self.logger.error(f"Error during analytics diagnostics: {str(e)}")
+            return {
+                "error": str(e),
+                "recommendations": ["Unable to run diagnostics. Check service configuration and container access."]
+            }
+
+    async def get_quick_data_summary(self) -> Dict[str, Any]:
+        """
+        Quick summary of available data across all containers
+        
+        Returns:
+            Summary of data availability
+        """
+        try:
+            summary = {}
+            
+            # Check events
+            try:
+                events_count_query = "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'event'"
+                events_count = list(self.cosmos_db.events_container.query_items(
+                    query=events_count_query,
+                    enable_cross_partition_query=True
+                ))
+                summary["events"] = events_count[0] if events_count else 0
+            except Exception as e:
+                summary["events"] = f"Error: {str(e)}"
+            
+            # Check jobs  
+            try:
+                jobs_count_query = "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'job'"
+                jobs_count = list(self.cosmos_db.jobs_container.query_items(
+                    query=jobs_count_query,
+                    enable_cross_partition_query=True
+                ))
+                summary["jobs"] = jobs_count[0] if jobs_count else 0
+            except Exception as e:
+                summary["jobs"] = f"Error: {str(e)}"
+            
+            # Check users
+            try:
+                users_count_query = "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'user'"
+                users_count = list(self.cosmos_db.auth_container.query_items(
+                    query=users_count_query,
+                    enable_cross_partition_query=True
+                ))
+                summary["users"] = users_count[0] if users_count else 0
+            except Exception as e:
+                summary["users"] = f"Error: {str(e)}"
+            
+            return summary
+            
+        except Exception as e:
+            self.logger.error(f"Error getting quick data summary: {str(e)}")
+            return {"error": str(e)}

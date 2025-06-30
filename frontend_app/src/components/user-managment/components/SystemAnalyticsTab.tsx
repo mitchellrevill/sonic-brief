@@ -1,6 +1,7 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
-import { Users, TrendingUp, BarChart3 } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Users, TrendingUp, BarChart3, AlertTriangle } from "lucide-react";
 import { AnalyticsChart } from "../UserManagement/AnalyticsChart";
 import { AnalyticsOverviewCards } from "../UserManagement/AnalyticsOverviewCards";
 import { SystemHealthMetrics } from "./SystemHealthMetrics";
@@ -30,8 +31,21 @@ export function SystemAnalyticsTab({
   systemHealth,
   healthLoading
 }: SystemAnalyticsTabProps) {
+  // Check if data is mock data
+  const isMockData = systemAnalytics?.analytics?._is_mock_data === true;
+  
   return (
     <div className="space-y-6">
+      {isMockData && (
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            <strong>Demo Data:</strong> The analytics shown are sample data because no real analytics events or job data were found. 
+            {systemAnalytics?.analytics?._mock_reason && ` Reason: ${systemAnalytics.analytics._mock_reason}`}
+          </AlertDescription>
+        </Alert>
+      )}
+      
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-xl font-semibold">System Analytics</h2>

@@ -39,11 +39,16 @@ export function AnalyticsChart({ analyticsLoading, analyticsData, analyticsPerio
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={analyticsData}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis />
+              <XAxis 
+                dataKey="date" 
+                fontSize={12}
+                tick={{ fontSize: 12 }}
+                interval={analyticsPeriod === 7 ? 0 : 'preserveStartEnd'}
+              />
+              <YAxis fontSize={12} />
               <Tooltip 
                 formatter={(value, name) => {
-                  if (name === 'totalMinutes') return [`${value} jobs`, 'Daily Jobs'];
+                  if (name === 'totalMinutes') return [`${value} min`, 'Transcription Minutes'];
                   if (name === 'activeUsers') return [`${value} users`, 'Active Users'];
                   if (name === 'totalJobs') return [`${value} jobs`, 'Daily Jobs'];
                   return [value, name];
@@ -52,10 +57,18 @@ export function AnalyticsChart({ analyticsLoading, analyticsData, analyticsPerio
               />
               <Line 
                 type="monotone" 
-                dataKey="totalMinutes" 
+                dataKey="totalJobs" 
                 stroke="#3b82f6" 
                 strokeWidth={2}
                 dot={{ fill: '#3b82f6' }}
+                name="totalJobs"
+              />
+              <Line 
+                type="monotone" 
+                dataKey="totalMinutes" 
+                stroke="#6366f1" 
+                strokeWidth={2}
+                dot={{ fill: '#6366f1' }}
                 name="totalMinutes"
               />
               <Line 

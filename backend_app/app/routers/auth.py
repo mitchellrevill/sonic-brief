@@ -11,7 +11,7 @@ import traceback
 from fastapi import Request
 from fastapi.responses import JSONResponse
 import uuid
-from app.core.config import AppConfig, CosmosDB, DatabaseError
+from app.core.config import AppConfig, CosmosDB, get_cosmos_db, DatabaseError
 from app.services.analytics_service import AnalyticsService
 from app.middleware.permission_middleware import (
     PermissionLevel,
@@ -86,7 +86,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any
     )
 
     config = AppConfig()
-    cosmos_db = CosmosDB(config)
+    cosmos_db = get_cosmos_db(config)
 
     try:
         logger.debug("Attempting to decode JWT token")
@@ -231,7 +231,7 @@ async def login_for_access_token(request: Request):
         # Initialize configuration and database connection
         config = AppConfig()
         try:
-            cosmos_db = CosmosDB(config)
+            cosmos_db = get_cosmos_db(config)
             logger.debug("CosmosDB client initialized for login")
         except DatabaseError as e:
             logger.error(f"Database initialization failed: {str(e)}")
@@ -295,7 +295,7 @@ async def get_all_users(current_user: Dict[str, Any] = Depends(require_user_view
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         users = await cosmos_db.get_all_users()
         for user in users:
             user.pop("hashed_password", None)
@@ -314,7 +314,7 @@ async def get_user_by_id(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         
         # Get user by ID
         user = await cosmos_db.get_user_by_id(user_id)
@@ -342,7 +342,7 @@ async def get_user_by_id(
 async def update_user_permission(user_id: str, update_data: dict = Body(...)):
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         updated_user = await cosmos_db.update_user(user_id, update_data)
         # Remove sensitive info if present
         updated_user.pop("hashed_password", None)
@@ -359,7 +359,7 @@ async def update_user_permission(user_id: str, update_data: dict = Body(...)):
 async def get_user_by_email(email: str = Query(..., description="User's email address")):
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         user = await cosmos_db.get_user_by_email(email)
         if not user:
             return {"status": 404, "message": f"User with email {email} not found"}
@@ -383,7 +383,7 @@ async def register_user(request: Request, current_user: Dict[str, Any] = Depends
 
         config = AppConfig()
         try:
-            cosmos_db = CosmosDB(config)
+            cosmos_db = get_cosmos_db(config)
             logger.debug("CosmosDB client initialized")
         except DatabaseError as e:
             logger.error(f"Database initialization failed: {str(e)}")
@@ -446,7 +446,7 @@ async def get_users_by_permission(
     Get users by permission level. Admin only.
     """
     try:
-        cosmos_db = CosmosDB()
+        cosmos_db = get_cosmos_db()
         optimizer = PermissionQueryOptimizer(
             cosmos_db.client, 
             cosmos_db.database_name, 
@@ -475,7 +475,7 @@ async def get_permission_statistics(
     Get permission distribution statistics. Admin only.
     """
     try:
-        cosmos_db = CosmosDB()
+        cosmos_db = get_cosmos_db()
         optimizer = PermissionQueryOptimizer(
             cosmos_db.client, 
             cosmos_db.database_name, 
@@ -525,7 +525,7 @@ async def update_user_permission(
             )
         
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         
         # Get current user data
         current_user_data = await cosmos_db.get_user_by_id(user_id)
@@ -595,7 +595,7 @@ async def get_users_with_elevated_permissions(
     Get users with permissions higher than the specified base permission. Admin only.
     """
     try:
-        cosmos_db = CosmosDB()
+        cosmos_db = get_cosmos_db()
         optimizer = PermissionQueryOptimizer(
             cosmos_db.client, 
             cosmos_db.database_name, 
@@ -626,7 +626,7 @@ async def get_permission_audit_trail(
     Get recent permission changes for audit purposes. Admin only.
     """
     try:
-        cosmos_db = CosmosDB()
+        cosmos_db = get_cosmos_db()
         optimizer = PermissionQueryOptimizer(
             cosmos_db.client, 
             cosmos_db.database_name, 
@@ -692,7 +692,7 @@ async def get_permission_cache_stats(
     Get permission cache statistics. Admin only.
     """
     try:
-        cosmos_db = CosmosDB()
+        cosmos_db = get_cosmos_db()
         optimizer = PermissionQueryOptimizer(
             cosmos_db.client, 
             cosmos_db.database_name, 
@@ -723,7 +723,7 @@ async def change_user_password(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         
         # Get current user data to verify user exists
         user_to_update = await cosmos_db.get_user_by_id(user_id)
@@ -820,7 +820,7 @@ async def microsoft_sso_auth(request: Request):
             return JSONResponse(status_code=400, content={"message": "No email found in token"})
 
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
 
         # Try to find user by email
         user = await cosmos_db.get_user_by_email(email)
@@ -915,7 +915,7 @@ async def delete_user(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         
         # Get current user data to verify user exists
         user_to_delete = await cosmos_db.get_user_by_id(user_id)
@@ -986,7 +986,7 @@ async def get_user_capabilities(
         from app.models.permissions import get_user_capabilities, merge_custom_capabilities
         
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         
         # Get user data
         user = await cosmos_db.get_user_by_id(user_id)
@@ -1037,7 +1037,7 @@ async def update_user_capabilities(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         
         # Get current user data
         user = await cosmos_db.get_user_by_id(user_id)

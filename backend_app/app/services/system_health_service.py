@@ -9,7 +9,7 @@ import json
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from azure.cosmos import exceptions as cosmos_exceptions
-from app.core.config import AppConfig, CosmosDB
+from app.core.config import AppConfig, get_cosmos_db
 from app.models.analytics_models import SystemHealthMetrics, SystemHealthResponse
 
 # Optional psutil import
@@ -29,7 +29,7 @@ class SystemHealthService:
         self.service_start_time = time.time()
         try:
             self.config = AppConfig()
-            self.cosmos_db = CosmosDB(self.config)
+            self.cosmos_db = get_cosmos_db(self.config)
         except Exception as e:
             logger.warning(f"Failed to initialize connections: {str(e)}")
             self.config = None

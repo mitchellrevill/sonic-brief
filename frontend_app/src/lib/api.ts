@@ -962,6 +962,7 @@ export interface SystemAnalytics {
     };
     trends: {
       daily_activity: Record<string, number>;
+      daily_transcription_minutes: Record<string, number>; // Added for accurate charting
       daily_active_users: Record<string, number>;
       user_growth: Record<string, number>;
       job_completion_rate: number;
@@ -971,6 +972,9 @@ export interface SystemAnalytics {
       file_vs_text_ratio: { files: number; text: number };
       peak_hours: Record<string, number>;
     };
+    // Optional fields for mock data indication
+    _is_mock_data?: boolean;
+    _mock_reason?: string;
   };
 }
 

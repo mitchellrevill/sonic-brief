@@ -79,6 +79,22 @@ class PermissionService:
         """
         return can_user_perform_action(user_permission, capability)
 
+    async def has_capability(self, user_permission: str, custom_capabilities: Dict[str, bool], capability: str) -> bool:
+        """
+        Check if a user can perform a specific action, considering custom capabilities.
+        
+        Args:
+            user_permission: The user's permission level
+            custom_capabilities: Custom capabilities that may override base capabilities
+            capability: The capability to check (use PermissionCapability enum values)
+        
+        Returns:
+            bool: True if the user can perform the action
+        """
+        base_capabilities = get_user_capabilities(user_permission)
+        merged_capabilities = merge_custom_capabilities(base_capabilities, custom_capabilities)
+        return merged_capabilities.get(capability, False)
+
     def require_permission(self, required_permission: PermissionLevel):
         def decorator(func: RouteFunc) -> RouteFunc:
             @wraps(func)

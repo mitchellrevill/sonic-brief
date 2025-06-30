@@ -9,14 +9,12 @@ import { trackSessionEvent, type SessionEventRequest } from './api';
 
 export class SessionTracker {
   private heartbeatInterval: number | null = null;
+  private heartbeatPeriodMs = 60000; // 1 minute
   private isActive = true;
   private lastActivity = Date.now();
   private sessionStartTime = Date.now();
   private currentPage = window.location.pathname;
   private eventListeners: Array<{ element: EventTarget; event: string; handler: EventListener }> = [];
-  private lastFocusEvent = 0;
-  private lastBlurEvent = 0;
-  private focusBlurThrottle = 5000; // 5 seconds throttle for focus/blur events
 
   constructor() {
     this.setupActivityListeners();
@@ -28,7 +26,7 @@ export class SessionTracker {
   async startSession(): Promise<void> {
     try {
       this.sessionStartTime = Date.now();
-      await this.trackSessionEvent('start');
+      await this.trackSessionEvent('start', { page: this.currentPage });
       this.startHeartbeat();
       console.log('Session tracking started');
     } catch (error) {
@@ -41,7 +39,7 @@ export class SessionTracker {
    */
   async endSession(): Promise<void> {
     try {
-      await this.trackSessionEvent('end');
+      await this.trackSessionEvent('end', { page: this.currentPage });
       this.stopHeartbeat();
       this.cleanupEventListeners();
       console.log('Session tracking ended');
@@ -51,28 +49,22 @@ export class SessionTracker {
   }
 
   /**
-   * Track page navigation
+   * Track page navigation (just update current page, don't send event)
    */
-  async trackPageView(path: string): Promise<void> {
-    try {
-      this.currentPage = path;
-      this.updateActivity();
-      await this.trackSessionEvent('page_view', { page: path });
-    } catch (error) {
-      console.error('Failed to track page view:', error);
-    }
+  setCurrentPage(path: string): void {
+    this.currentPage = path;
+    this.updateActivity();
   }
 
   /**
-   * Start sending periodic heartbeats
+   * Start sending periodic heartbeats (every 2 minutes)
    */
   private startHeartbeat(): void {
     this.heartbeatInterval = window.setInterval(async () => {
-      // Only send heartbeat if user was active in last 5 minutes
-      if (this.isActive && Date.now() - this.lastActivity < 300000) {
-        await this.trackSessionEvent('heartbeat');
+      if (this.isActive) {
+        await this.trackSessionEvent('heartbeat', { page: this.currentPage });
       }
-    }, 300000); // Every 5 minutes (300 seconds)
+    }, this.heartbeatPeriodMs);
   }
 
   /**
@@ -86,57 +78,23 @@ export class SessionTracker {
   }
 
   /**
-   * Set up event listeners for user activity
+   * Set up event listeners for user activity (no longer sends session events for focus/blur/page_view)
    */
   private setupActivityListeners(): void {
     const updateActivity = () => this.updateActivity();
-
-    // Helper function to add and track event listeners
     const addTrackedListener = (element: EventTarget, event: string, handler: EventListener, options?: AddEventListenerOptions) => {
       element.addEventListener(event, handler, options);
       this.eventListeners.push({ element, event, handler });
     };
-
-    // Mouse and keyboard activity (these don't send tracking events, just update activity)
     addTrackedListener(document, 'mousemove', updateActivity, { passive: true });
     addTrackedListener(document, 'keypress', updateActivity, { passive: true });
     addTrackedListener(document, 'scroll', updateActivity, { passive: true });
     addTrackedListener(document, 'click', updateActivity, { passive: true });
-    
-    // Window focus/blur events (throttled to prevent excessive calls)
-    const handleFocus = () => {
-      const now = Date.now();
-      if (now - this.lastFocusEvent > this.focusBlurThrottle) {
-        this.isActive = true;
-        this.updateActivity();
-        this.trackSessionEvent('focus');
-        this.lastFocusEvent = now;
-      } else {
-        // Still update activity even if we don't send the event
-        this.isActive = true;
-        this.updateActivity();
-      }
-    };
-
-    const handleBlur = () => {
-      const now = Date.now();
-      if (now - this.lastBlurEvent > this.focusBlurThrottle) {
-        this.isActive = false;
-        this.trackSessionEvent('blur');
-        this.lastBlurEvent = now;
-      } else {
-        // Still mark as inactive even if we don't send the event
-        this.isActive = false;
-      }
-    };
-    
-    addTrackedListener(window, 'focus', handleFocus);
-    addTrackedListener(window, 'blur', handleBlur);
-
+    // Only update activity on focus/blur, don't send session events
+    addTrackedListener(window, 'focus', () => { this.isActive = true; this.updateActivity(); });
+    addTrackedListener(window, 'blur', () => { this.isActive = false; });
     // Page unload event
-    addTrackedListener(window, 'beforeunload', () => {
-      this.endSession();
-    });
+    addTrackedListener(window, 'beforeunload', () => { this.endSession(); });
   }
 
   /**
@@ -174,9 +132,8 @@ export class SessionTracker {
       const eventData: SessionEventRequest = {
         action,
         page: this.currentPage,
-        timestamp: new Date().toISOString(),
+        ...metadata,
         session_duration: Date.now() - this.sessionStartTime,
-        ...metadata
       };
 
       await trackSessionEvent(eventData);
@@ -214,6 +171,8 @@ export const sessionTracker = (() => {
   return sessionTrackerInstance;
 })();
 
+export const setSessionPage = (path: string) => sessionTracker.setCurrentPage(path);
+
 // Helper function to reset the session tracker (useful for testing or cleanup)
 export const resetSessionTracker = () => {
   if (sessionTrackerInstance) {
@@ -226,13 +185,11 @@ export const resetSessionTracker = () => {
 export function useSessionTracker() {
   const startSession = () => sessionTracker.startSession();
   const endSession = () => sessionTracker.endSession();
-  const trackPageView = (path: string) => sessionTracker.trackPageView(path);
   const getSessionInfo = () => sessionTracker.getSessionInfo();
 
   return {
     startSession,
     endSession,
-    trackPageView,
     getSessionInfo
   };
 }

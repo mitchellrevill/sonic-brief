@@ -4,7 +4,7 @@ from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends, status, Query, Response, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from app.core.config import AppConfig, CosmosDB, DatabaseError
+from app.core.config import AppConfig, CosmosDB, get_cosmos_db, DatabaseError
 from app.services.analytics_service import AnalyticsService
 from app.services.export_service import ExportService
 from app.services.system_health_service import SystemHealthService
@@ -119,7 +119,7 @@ async def track_analytics_event(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         analytics_service = AnalyticsService(cosmos_db)
         
         event_id = await analytics_service.track_event(
@@ -154,7 +154,7 @@ async def get_user_analytics(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         analytics_service = AnalyticsService(cosmos_db)
         
         analytics_data = await analytics_service.get_user_analytics(user_id, days)
@@ -179,7 +179,7 @@ async def get_system_analytics(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         analytics_service = AnalyticsService(cosmos_db)
         
         analytics_data = await analytics_service.get_system_analytics(days)
@@ -205,7 +205,7 @@ async def get_user_details(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         
         # Get user data
         user = await cosmos_db.get_user_by_id(user_id)
@@ -270,7 +270,7 @@ async def export_users(
     
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         export_service = ExportService(cosmos_db)
         
         filters = None
@@ -321,7 +321,7 @@ async def export_user_details_pdf(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         export_service = ExportService(cosmos_db)
         
         result = await export_service.export_user_details_pdf(user_id, include_analytics)
@@ -360,7 +360,7 @@ async def get_analytics_dashboard(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         analytics_service = AnalyticsService(cosmos_db)
         
         # Get system analytics
@@ -414,7 +414,7 @@ async def track_session_event(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         analytics_service = AnalyticsService(cosmos_db)
         
         # Extract request metadata
@@ -454,7 +454,7 @@ async def get_active_users(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         analytics_service = AnalyticsService(cosmos_db)
         
         active_user_ids = await analytics_service.get_active_users(minutes=minutes)
@@ -488,7 +488,7 @@ async def get_user_session_duration(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         analytics_service = AnalyticsService(cosmos_db)
         
         duration_minutes = await analytics_service.get_user_session_duration(
@@ -523,7 +523,7 @@ async def check_analytics_container_status(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         analytics_service = AnalyticsService(cosmos_db)
         
         # Verify container
@@ -565,7 +565,7 @@ async def backfill_analytics_events(
     """
     try:
         config = AppConfig()
-        cosmos_db = CosmosDB(config)
+        cosmos_db = get_cosmos_db(config)
         analytics_service = AnalyticsService(cosmos_db)
         
         events_created = await analytics_service.create_job_events_for_existing_jobs(limit)
@@ -605,4 +605,60 @@ async def get_system_health(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error getting system health: {str(e)}"
+        )
+
+
+@router.get("/analytics/debug/data-sources")
+async def diagnose_analytics_data_sources(
+    days: int = Query(default=30, description="Number of days to analyze"),
+    current_user: Dict[str, Any] = Depends(require_analytics_access)
+):
+    """
+    Comprehensive diagnostic of analytics data sources (Admin only)
+    Helps understand why the system might be returning mock data
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = get_cosmos_db(config)
+        analytics_service = AnalyticsService(cosmos_db)
+        
+        diagnostic_data = await analytics_service.diagnose_analytics_data_sources(days)
+        
+        return {
+            "status": "success",
+            "data": diagnostic_data
+        }
+        
+    except Exception as e:
+        logger.error(f"Error running analytics diagnostics: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error running diagnostics: {str(e)}"
+        )
+
+
+@router.get("/analytics/debug/quick-summary")
+async def get_quick_data_summary(
+    current_user: Dict[str, Any] = Depends(require_analytics_access)
+):
+    """
+    Quick summary of data availability across containers (Admin only)
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = get_cosmos_db(config)
+        analytics_service = AnalyticsService(cosmos_db)
+        
+        summary = await analytics_service.get_quick_data_summary()
+        
+        return {
+            "status": "success",
+            "data": summary
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting quick data summary: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting summary: {str(e)}"
         )

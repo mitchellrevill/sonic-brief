@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useRouter } from '@tanstack/react-router';
-import { sessionTracker } from '@/lib/sessionTracker';
+import { sessionTracker, setSessionPage } from '@/lib/sessionTracker';
 
 /**
  * SessionProvider component that manages user session tracking
@@ -22,9 +22,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       startedRef.current = true;
     }
 
-    // Track page navigation
+    // Track ALL navigation events (SPA navigation and full loads)
     const unsubscribe = router.subscribe('onLoad', ({ toLocation }) => {
-      sessionTracker.trackPageView(toLocation.pathname);
+      if (toLocation?.pathname) {
+        setSessionPage(toLocation.pathname);
+      }
     });
 
     // Cleanup function
@@ -42,16 +44,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
  * Hook to manually track session events
  */
 export function useSessionTracking() {
-  const trackPageView = (path: string) => {
-    sessionTracker.trackPageView(path);
-  };
-
   const getSessionInfo = () => {
     return sessionTracker.getSessionInfo();
   };
 
   return {
-    trackPageView,
     getSessionInfo
   };
 }

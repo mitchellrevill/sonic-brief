@@ -1,6 +1,5 @@
 import { PromptManagementHeader } from "@/components/prompt-management/prompt-management-header";
 import { PromptManagementView } from "@/components/prompt-management/prompt-management-view";
-import { CapabilityDemo } from "@/components/CapabilityDemo";
 import { createFileRoute } from "@tanstack/react-router";
 import { PermissionGuard } from "@/lib/permission"; 
 import { Capability } from "@/types/permissions"; 
@@ -18,10 +17,10 @@ function PromptManagementPage() {
           <PromptManagementView />
         </div>
         
-        <div className="border-t pt-8">
+        {/* <div className="border-t pt-8">
           <h2 className="text-xl font-bold mb-4">New Capability System Demo</h2>
           <CapabilityDemo />
-        </div>
+        </div> */}
       </div>
     </PermissionGuard>
   );

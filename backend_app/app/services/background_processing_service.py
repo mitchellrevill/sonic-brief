@@ -21,7 +21,7 @@ from tenacity import (
 import httpx
 from fastapi import BackgroundTasks
 
-from app.core.config import AppConfig
+from app.core.config import AppConfig, get_cosmos_db
 from app.services.storage_service import StorageService
 from app.services.analytics_service import AnalyticsService
 
@@ -291,8 +291,8 @@ class BackgroundProcessingService:
             logger.info(f"Starting legacy text analysis for job {job_id}")
             
             # Get job details from database
-            from app.core.config import CosmosDB
-            cosmos_db = CosmosDB()
+            
+            cosmos_db = get_cosmos_db()
             job = cosmos_db.get_job(job_id)
             
             if not job:
@@ -364,8 +364,8 @@ class BackgroundProcessingService:
             
             # Update job with error status
             try:
-                from app.core.config import CosmosDB
-                cosmos_db = CosmosDB()
+                
+                cosmos_db = get_cosmos_db()
                 update_fields = {
                     "status": "failed",
                     "message": f"Analysis failed: {str(e)}",
@@ -385,8 +385,8 @@ class BackgroundProcessingService:
             logger.info(f"Starting background file upload for job {job_id}")
             
             # Initialize services
-            from app.core.config import CosmosDB
-            cosmos_db = CosmosDB()
+            
+            cosmos_db = get_cosmos_db()
             
             # Update job status to uploading
             update_fields = {
@@ -440,8 +440,8 @@ class BackgroundProcessingService:
             
             # Update job with error status
             try:
-                from app.core.config import CosmosDB
-                cosmos_db = CosmosDB()
+                
+                cosmos_db = get_cosmos_db()
                 update_fields = {
                     "status": "failed",
                     "message": f"File upload failed: {str(e)}",
