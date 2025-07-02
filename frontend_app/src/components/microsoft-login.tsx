@@ -73,7 +73,7 @@ export default function MicrosoftLogin() {
           localStorage.setItem("permission", data.permission);
         }
         toast.success("Login successful!");
-        router.navigate({ to: "/audio-upload" });
+        router.navigate({ to: "/simple-upload" });
       } else {
         setErrorMessage("Login failed");
         console.error("Microsoft login error: Login failed");

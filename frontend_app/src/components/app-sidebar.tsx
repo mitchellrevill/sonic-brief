@@ -40,7 +40,7 @@ interface MenuItem {
 }
 
 const menuItems: Array<MenuItem> = [
-  { icon: Mic, label: "Simple Upload", to: "/simple-upload" },
+  { icon: Mic, label: "Record & Upload", to: "/simple-upload" },
   { icon: Upload, label: "Media Upload", to: "/audio-upload" },
   { icon: FileAudio, label: "Audio Recordings", to: "/audio-recordings" },
   { icon: Users, label: "Shared Recordings", to: "/audio-recordings/shared" },

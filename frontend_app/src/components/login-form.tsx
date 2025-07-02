@@ -36,7 +36,7 @@ export function LoginForm() {
           title: "Login Successful",
           description: "You have been successfully logged in.",
         });
-        router.navigate({ to: "/" });
+        router.navigate({ to: "/simple-upload" });
       } else {
         throw new Error(data.message || "Login failed");
       }
