@@ -69,8 +69,8 @@
   <script>
     // Let MSAL process the hash, then optionally redirect back to the app
     setTimeout(function() {
-      // You can change this to your app's main page if you want an auto-redirect
-      window.location.replace('/');
+      // Redirect to the new default upload page after Microsoft login
+      window.location.replace('/simple-upload');
     }, 2000);
   </script>
 </body>
