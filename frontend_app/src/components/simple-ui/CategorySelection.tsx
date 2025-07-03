@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { RetentionDisclaimer } from "@/components/ui/retention-disclaimer";
 import { ArrowRight, Folder, FileText } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getPromptManagementCategoriesQuery, getPromptManagementSubcategoriesQuery } from "@/queries/prompt-management.query";
@@ -57,6 +58,9 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
           <h1 className="text-3xl font-bold text-foreground mb-2">Select Service Area</h1>
           <p className="text-muted-foreground text-lg">Choose the type of meeting you're recording</p>
         </div>
+
+        {/* Retention Policy Disclaimer */}
+        <RetentionDisclaimer className="mb-8" />
 
         {/* Progress indicator */}
         <div className="flex items-center justify-center mb-8">
@@ -236,6 +240,8 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
             </CardContent>
           </Card>
         )}
+
+
       </div>
     </div>
   );

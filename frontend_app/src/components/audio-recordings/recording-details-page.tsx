@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+import { RetentionDisclaimer } from "@/components/ui/retention-disclaimer";
 import { useAudioPlayer } from "@/hooks/use-audio-player";
 import { getAudioTranscriptionQuery } from "@/queries/audio-recordings.query";
 import { useQuery } from "@tanstack/react-query";
@@ -15,7 +16,7 @@ import { AnalysisRefinementChat } from "@/components/analysis-refinement/analysi
 import { FloatingAnalysisChat } from "@/components/analysis-refinement/floating-analysis-chat";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { fetchCategories, fetchSubcategories } from "@/api/prompt-management";
-import { isAudioFile, getFileNameFromPath } from "@/lib/file-utils";
+import { isAudioFile, getFileNameFromPath, getAudioDurationFromUrl } from "@/lib/file-utils";
 import { useState, useEffect } from "react";
 import {
   ArrowLeft,
@@ -41,6 +42,7 @@ import {
 import { JobShareDialog } from "./job-share-dialog";
 import { JobSharingInfo } from "./job-sharing-info";
 import { JobDeleteDialog } from "./job-delete-dialog";
+import { useIsMobile } from "@/components/ui/use-mobile";
 
 interface ExtendedAudioRecording extends AudioRecording {
   analysis_text?: string;
@@ -64,8 +66,33 @@ const copyToClipboard = async (text: string, label: string = "Text") => {
 
 export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);// Check if audio file exists and is a valid audio format
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [audioDuration, setAudioDuration] = useState<number | null>(null);
+  const [isDurationLoading, setIsDurationLoading] = useState(false);
+
+  // Mobile detection hook for restricting downloads on mobile devices
+  const isMobile = useIsMobile();
+
+  // Check if audio file exists and is a valid audio format
   const hasAudioFile = Boolean(recording.file_path) && isAudioFile(recording.file_path);
+  
+  // Get audio duration when component mounts or file path changes
+  useEffect(() => {
+    if (hasAudioFile && recording.file_path) {
+      setIsDurationLoading(true);
+      getAudioDurationFromUrl(recording.file_path)
+        .then((duration) => {
+          setAudioDuration(duration);
+        })
+        .catch((error) => {
+          console.warn('Failed to get audio duration:', error);
+          setAudioDuration(null);
+        })
+        .finally(() => {
+          setIsDurationLoading(false);
+        });
+    }
+  }, [hasAudioFile, recording.file_path]);
   
   // Debug file type detection
   useEffect(() => {
@@ -73,6 +100,7 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
       console.log('File path:', recording.file_path);
       console.log('Is audio file:', isAudioFile(recording.file_path));
       console.log('Has audio file:', hasAudioFile);
+      console.log('Audio duration:', audioDuration);
     }
   }, [recording.file_path, hasAudioFile]);
   
@@ -158,7 +186,22 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
     handleVolumeSliderChange,
     formattedCurrentTime,
     formattedDuration,
-  } = useAudioPlayer(hasAudioFile ? recording.file_path : '');  const fileName = recording.file_name || 
+    isLoading: isAudioLoading,
+    hasError: hasAudioError,
+  } = useAudioPlayer(hasAudioFile ? recording.file_path : '');
+
+  // Format time helper
+  const formatTime = (time: number): string => {
+    if (!isFinite(time) || isNaN(time)) return "0:00";
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  // Use duration from audio player if available, otherwise use pre-fetched duration
+  const effectiveDuration = duration || audioDuration || 0;
+  const effectiveFormattedDuration = duration ? formattedDuration : 
+    (audioDuration ? formatTime(audioDuration) : '0:00');  const fileName = recording.file_name || 
     (recording.file_path ? getFileNameFromPath(recording.file_path) : null) || 
     "Unnamed Recording";
 
@@ -203,6 +246,9 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
         </div>
       </div>      {/* Main Content */}
       <div className="container mx-auto px-4 py-6">
+        {/* Retention Policy Disclaimer */}
+        <RetentionDisclaimer className="mb-6" />
+        
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Audio Player & Metadata */}
           <div className="lg:col-span-2 space-y-6">
@@ -215,6 +261,9 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                       <FileAudio className="text-primary h-5 w-5" />
                     </span>
                     Audio Player
+                    {isDurationLoading && (
+                      <Loader2 className="h-4 w-4 animate-spin ml-2" />
+                    )}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -225,36 +274,57 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                     className="hidden"
                   />
 
-                  {/* Enhanced Audio Player Interface */}
-                  <div className="bg-gradient-to-r from-muted/50 to-muted/30 rounded-xl p-6 space-y-4">
-                    {/* Main Controls Row */}
-                    <div className="flex items-center gap-4">
-                      <Button
-                        size="icon"
-                        className="bg-primary text-primary-foreground hover:bg-primary/90 h-12 w-12 rounded-full shadow-lg transition-all duration-200 hover:scale-105"
-                        onClick={togglePlayPause}
-                      >
-                        {isPlaying ? (
-                          <Pause className="h-5 w-5" />
-                        ) : (
-                          <Play className="h-5 w-5 ml-0.5" />
-                        )}
-                      </Button>
+                  {/* Show error state if audio failed to load */}
+                  {hasAudioError && (
+                    <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-center">
+                      <AlertCircle className="h-6 w-6 text-destructive mx-auto mb-2" />
+                      <p className="text-destructive font-medium">Failed to load audio file</p>
+                      <p className="text-destructive/80 text-sm mt-1">
+                        The audio file may be corrupted or in an unsupported format
+                      </p>
+                    </div>
+                  )}
 
-                      <div className="flex-1 space-y-2">
-                        <Slider
-                          value={[currentTime]}
-                          max={duration || 100}
-                          step={1}
-                          className="cursor-pointer"
-                          onValueChange={handleTimeSliderChange}
-                        />
-                        <div className="flex justify-between text-sm text-muted-foreground">
-                          <span className="font-mono">{formattedCurrentTime}</span>
-                          <span className="font-mono">{formattedDuration}</span>
+                  {/* Enhanced Audio Player Interface */}
+                  {!hasAudioError && (
+                    <div className="bg-gradient-to-r from-muted/50 to-muted/30 rounded-xl p-6 space-y-4">
+                      {/* Main Controls Row */}
+                      <div className="flex items-center gap-4">
+                        <Button
+                          size="icon"
+                          className="bg-primary text-primary-foreground hover:bg-primary/90 h-12 w-12 rounded-full shadow-lg transition-all duration-200 hover:scale-105"
+                          onClick={togglePlayPause}
+                          disabled={isAudioLoading}
+                        >
+                          {isAudioLoading ? (
+                            <Loader2 className="h-5 w-5 animate-spin" />
+                          ) : isPlaying ? (
+                            <Pause className="h-5 w-5" />
+                          ) : (
+                            <Play className="h-5 w-5" />
+                          )}
+                        </Button>
+
+                        <div className="flex-1 space-y-2">
+                          <Slider
+                            value={[currentTime]}
+                            max={effectiveDuration || 100}
+                            step={1}
+                            className="cursor-pointer"
+                            onValueChange={handleTimeSliderChange}
+                            disabled={!effectiveDuration}
+                          />
+                          
+                          <div className="flex justify-between text-sm text-muted-foreground">
+                            <span>{formattedCurrentTime}</span>
+                            <span>
+                              {effectiveFormattedDuration}
+                              {isDurationLoading && " (loading...)"}
+                              {!effectiveDuration && !isDurationLoading && " (unknown)"}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    </div>                    {/* Volume Controls */}
+                      </div>                    {/* Volume Controls */}
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-2">
                         <Button 
@@ -280,16 +350,19 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                           {Math.round(displayVolume)}%
                         </span>
                       </div>
-                      <Button
-                        variant="outline"
-                        onClick={() => handleDownload(recording.file_path, "Audio file")}
-                        className="hover:bg-muted w-full sm:w-auto"
-                      >
-                        <Download className="mr-2 h-4 w-4" />
-                        Download
-                      </Button>
+                      {!isMobile && (
+                        <Button
+                          variant="outline"
+                          onClick={() => handleDownload(recording.file_path, "Audio file")}
+                          className="hover:bg-muted w-full sm:w-auto"
+                        >
+                          <Download className="mr-2 h-4 w-4" />
+                          Download
+                        </Button>
+                      )}
                     </div>
                   </div>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -385,7 +458,7 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                               {transcriptionText}
                             </pre>
                           </div>
-                        </div>                        {recording.transcription_file_path && (
+                        </div>                        {recording.transcription_file_path && !isMobile && (
                           <Button
                             onClick={() => handleDownload(recording.transcription_file_path!, "Transcription")}
                             variant="outline"
@@ -595,7 +668,7 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                   </span>
                   Actions
                 </CardTitle>
-              </CardHeader>              <CardContent className="space-y-3">                {hasAudioFile ? (
+              </CardHeader>              <CardContent className="space-y-3">                {hasAudioFile && !isMobile ? (
                   <Button
                     variant="outline"
                     className="w-full justify-start transition-all duration-200 hover:scale-105 hover:bg-muted"
@@ -604,7 +677,7 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                     <Download className="mr-2 h-4 w-4" />
                     Download Audio File
                   </Button>
-                ) : recording.file_path && (
+                ) : recording.file_path && !isMobile && (
                   <Button
                     variant="outline"
                     className="w-full justify-start transition-all duration-200 hover:scale-105 hover:bg-muted"
@@ -615,7 +688,7 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                   </Button>
                 )}
                 
-                {recording.transcription_file_path && (
+                {recording.transcription_file_path && !isMobile && (
                   <Button
                     variant="outline"
                     className="w-full justify-start transition-all duration-200 hover:scale-105 hover:bg-muted"
@@ -626,7 +699,7 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                   </Button>
                 )}
                 
-                {recording.analysis_file_path && (
+                {recording.analysis_file_path && !isMobile && (
                   <Button
                     variant="outline"
                     className="w-full justify-start transition-all duration-200 hover:scale-105 hover:bg-muted"
@@ -649,7 +722,7 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                         Chat with Analysis
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col p-0 gap-0">
+                    <DialogContent className="fixed inset-0 max-w-full max-h-full w-screen h-screen flex flex-col p-0 gap-0 z-50 bg-background rounded-none shadow-none border-0">
                       <DialogHeader className="px-6 py-4 border-b bg-muted/30">
                         <DialogTitle className="flex items-center gap-3">
                           <span className="bg-primary/10 rounded-full p-2.5">
@@ -721,6 +794,9 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
           window.location.href = "/audio-recordings";
         }}
       />
+
+      {/* Retention Disclaimer - Always show on Recording Details page */}
+      <RetentionDisclaimer />
     </div>
   );
 }
