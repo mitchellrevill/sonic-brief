@@ -1,4 +1,9 @@
 import { useState, useRef, useEffect } from "react";
+// Utility to detect iOS
+function isIOS() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+}
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -308,13 +313,18 @@ export function RecordingInterface({
                   <span className="text-sm text-muted-foreground">Duration:</span>
                   <Badge variant="outline">{formatTime(recordingTime)}</Badge>
                 </div>
+                {isIOS() ? (
+                  <div className="p-2 bg-orange-50 border border-orange-200 rounded text-orange-700 text-xs text-center">
+                    Playback not supported on iOS
+                  </div>
+                ) : (
                   <audio 
-                  ref={audioRef}
-                  src={audioURL} 
-                  className="w-full"
-                  controls
-                />
-
+                    ref={audioRef}
+                    src={audioURL} 
+                    className="w-full"
+                    controls
+                  />
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <Button 
                     onClick={resetRecording}
@@ -344,7 +354,7 @@ export function RecordingInterface({
               </CardContent>
             </Card>
           </div>
-        )}        {/* Tips */}
+        )}
         <Alert className="mt-6">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription className="text-sm">

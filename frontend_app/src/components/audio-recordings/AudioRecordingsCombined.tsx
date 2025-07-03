@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { RetentionDisclaimer } from "@/components/ui/retention-disclaimer";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -151,6 +152,9 @@ export function AudioRecordingsCombined({
           <CardTitle>Audio Recordings</CardTitle>
         </CardHeader>
         <CardContent>
+          {/* Retention Policy Disclaimer */}
+          <RetentionDisclaimer className="mb-6" />
+          
           <Form {...form}>
             <form className="space-y-4">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -384,6 +388,7 @@ export function AudioRecordingsCombined({
           )}
         </CardContent>
       </Card>
+      <RetentionDisclaimer />
     </AudioRecordingsProvider>
   );
 }

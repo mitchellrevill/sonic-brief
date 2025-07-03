@@ -56,6 +56,7 @@ import { toast } from "sonner";
 import { useEffect, useRef } from "react";
 import { fetchFile } from "@ffmpeg/util";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
+import { RetentionDisclaimer } from "@/components/ui/retention-disclaimer";
 
 interface MediaUploadFormProps {
   mediaFile?: File | null;
@@ -859,6 +860,8 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
           </div>
         </DialogContent>
       </Dialog>
+      {/* Retention Disclaimer */}
+      <RetentionDisclaimer />
     </div>
   );
 }
