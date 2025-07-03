@@ -16,6 +16,7 @@ import { FloatingAnalysisChat } from "@/components/analysis-refinement/floating-
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { fetchCategories, fetchSubcategories } from "@/api/prompt-management";
 import { isAudioFile, getFileNameFromPath } from "@/lib/file-utils";
+import { useState, useEffect } from "react";
 import {
   ArrowLeft,
   Download,
@@ -40,7 +41,6 @@ import {
 import { JobShareDialog } from "./job-share-dialog";
 import { JobSharingInfo } from "./job-sharing-info";
 import { JobDeleteDialog } from "./job-delete-dialog";
-import { useState, useEffect } from "react";
 
 interface ExtendedAudioRecording extends AudioRecording {
   analysis_text?: string;
@@ -93,10 +93,21 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
     isLoading: isLoadingTranscription,
     isError: isTranscriptionError,
     error: transcriptionError,
-    isFetching: isFetchingTranscription
+    isFetching: isFetchingTranscription,
+    failureCount: transcriptionFailureCount,
   } = useQuery(
     getAudioTranscriptionQuery(recording.id),
   );
+
+  // Check if we're retrying due to 404 (transcription not ready)
+  const isTranscriptionProcessing = (isLoadingTranscription || isFetchingTranscription) || 
+    (isTranscriptionError && transcriptionError?.status === 404) ||
+    (isTranscriptionError && transcriptionError?.response?.status === 404);
+
+  // Only show actual errors for non-404 cases
+  const shouldShowTranscriptionError = isTranscriptionError && 
+    transcriptionError?.status !== 404 && 
+    transcriptionError?.response?.status !== 404;
 
   // Fetch categories and subcategories for friendly name lookup
   const { data: categories = [] } = useQuery({
@@ -302,10 +313,10 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                         variant="outline"
                         size="sm"
                         onClick={() => refetchTranscription()}
-                        disabled={isFetchingTranscription}
+                        disabled={isTranscriptionProcessing}
                         className="ml-2"
                       >
-                        {isFetchingTranscription ? (
+                        {isTranscriptionProcessing ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
                           <RefreshCw className="h-4 w-4" />
@@ -314,38 +325,44 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                     )}
                   </div>
                 </CardHeader><CardContent>                  <TabsContent value="transcription" className="mt-0 space-y-4">
-                    {isLoadingTranscription || isFetchingTranscription ? (
+                    {isTranscriptionProcessing ? (
                       <div className="flex flex-col items-center justify-center py-12 space-y-4 animate-in fade-in duration-500">
                         <div className="rounded-full bg-primary/10 p-3 animate-pulse">
                           <Loader2 className="h-6 w-6 text-primary animate-spin" />
                         </div>
                         <div className="text-center space-y-2">
-                          <h3 className="font-medium">Loading transcription...</h3>
+                          <h3 className="font-medium">Processing transcription...</h3>
                           <p className="text-sm text-muted-foreground">
-                            Please wait while we fetch the transcription data
+                            Our AI is carefully converting speech to text
                           </p>
+                          {transcriptionFailureCount > 0 && (
+                            <p className="text-xs text-muted-foreground mt-2">
+                              Processing attempt {transcriptionFailureCount + 1}...
+                            </p>
+                          )}
                         </div>
-                      </div>                    ) : isTranscriptionError ? (
+                      </div>
+                    ) : shouldShowTranscriptionError ? (
                       <div className="flex flex-col items-center justify-center py-12 space-y-4 animate-in fade-in duration-500">
                         <div className="rounded-full bg-destructive/10 p-3 animate-pulse">
                           <AlertCircle className="h-6 w-6 text-destructive" />
                         </div>
                         <div className="text-center space-y-2">
-                          <h3 className="font-medium">Failed to load transcription</h3>
+                          <h3 className="font-medium">Transcription processing failed</h3>
                           <p className="text-sm text-muted-foreground">
                             {transcriptionError instanceof Error 
                               ? transcriptionError.message 
-                              : "There was an error loading the transcription"
+                              : "Unable to process the audio transcription at this time"
                             }
                           </p>
                         </div>
                         <Button 
                           onClick={() => refetchTranscription()}
                           variant="outline"
-                          disabled={isFetchingTranscription}
+                          disabled={isTranscriptionProcessing}
                           className="transition-all duration-200 hover:scale-105"
                         >
-                          {isFetchingTranscription ? (
+                          {isTranscriptionProcessing ? (
                             <>
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                               Retrying...
@@ -362,7 +379,7 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                         <div className="space-y-2">
                           <div className="flex items-center gap-2 text-sm text-muted-foreground animate-in fade-in duration-500 delay-200">
                             <CheckCircle className="h-4 w-4 text-green-500" />
-                            <span>Transcription loaded successfully</span>
+                            <span>Transcription processing complete</span>
                           </div>                          <div className="rounded-lg bg-muted/50 p-4 h-[600px] lg:h-[700px] xl:h-[800px] overflow-y-auto border border-border/50 animate-in fade-in duration-500 delay-300">
                             <pre className="text-sm whitespace-pre-wrap font-sans leading-relaxed">
                               {transcriptionText}
@@ -384,25 +401,25 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                           <FileText className="h-6 w-6 text-muted-foreground" />
                         </div>
                         <div className="text-center space-y-2">
-                          <h3 className="font-medium">No transcription available</h3>
+                          <h3 className="font-medium">Transcription ready to process</h3>
                           <p className="text-sm text-muted-foreground">
-                            Click below to load the transcription data
+                            Ready to convert your audio into readable text
                           </p>
                         </div>
                         <Button 
                           onClick={() => refetchTranscription()}
-                          disabled={isFetchingTranscription}
+                          disabled={isTranscriptionProcessing}
                           className="min-w-[120px] transition-all duration-200 hover:scale-105 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70"
                         >
-                          {isFetchingTranscription ? (
+                          {isTranscriptionProcessing ? (
                             <>
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Loading...
+                              Processing...
                             </>
                           ) : (
                             <>
                               <FileText className="mr-2 h-4 w-4" />
-                              Load Transcription
+                              Start Processing
                             </>
                           )}
                         </Button>
@@ -453,9 +470,9 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                           <FileText className="h-6 w-6 text-muted-foreground" />
                         </div>
                         <div className="text-center space-y-2">
-                          <h3 className="font-medium">No analysis available</h3>
+                          <h3 className="font-medium">Analysis in progress</h3>
                           <p className="text-sm text-muted-foreground">
-                            Analysis will appear here once processing is complete
+                            AI is generating insights from your transcription
                           </p>
                         </div>
                       </div>
