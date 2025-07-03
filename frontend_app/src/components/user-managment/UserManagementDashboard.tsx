@@ -181,6 +181,67 @@ export function UserManagementDashboard() {
     navigate({ to: '/admin/users/$userId', params: { userId } });
   };
 
+  // CSV Export Handler (per-user, per-day, async)
+  const handleExportMinutesCSV = async () => {
+    if (!Array.isArray(users) || users.length === 0) {
+      alert("No user data available for export.");
+      return;
+    }
+    // Use the same period as analyticsPeriod, default to 30 if 'total'
+    const period = analyticsPeriod === 'total' ? 30 : analyticsPeriod;
+    let csvRows = ["user_email,date,minutes"];
+    // Fetch per-user analytics in parallel (with batching to avoid rate limits if needed)
+    try {
+      const { getUserAnalytics } = await import("@/lib/api");
+      await Promise.all(
+        users.map(async (user) => {
+          try {
+            const analytics = await getUserAnalytics(user.id, period);
+            // Try to find daily minutes if available (backend must provide this for accuracy)
+            // If not, fallback to total
+            // Some backends may put daily minutes at analytics.analytics.daily_minutes or similar
+            // Try to find daily minutes in analytics.analytics (backend may not type it)
+            let dailyMinutes: Record<string, number> | null = null;
+            if (analytics.analytics && typeof analytics.analytics === 'object') {
+              // Try common keys
+              if ('daily_minutes' in analytics.analytics && typeof (analytics.analytics as any).daily_minutes === 'object') {
+                dailyMinutes = (analytics.analytics as any).daily_minutes;
+              } else if ('daily_transcription_minutes' in analytics.analytics && typeof (analytics.analytics as any).daily_transcription_minutes === 'object') {
+                dailyMinutes = (analytics.analytics as any).daily_transcription_minutes;
+              }
+            }
+            if (dailyMinutes) {
+              Object.entries(dailyMinutes).forEach(([date, minutes]) => {
+                csvRows.push(`${user.email},${date},${minutes}`);
+              });
+            } else if (analytics.analytics?.transcription_stats?.total_minutes !== undefined) {
+              // Fallback: just one row for the user for the whole period
+              csvRows.push(`${user.email},ALL,${analytics.analytics.transcription_stats.total_minutes}`);
+            }
+          } catch (err) {
+            // If error for a user, skip but log
+            console.error(`Failed to fetch analytics for user ${user.email}:`, err);
+          }
+        })
+      );
+      const csvContent = csvRows.join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `user_job_minutes_${new Date().toISOString().slice(0,10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 0);
+    } catch (err) {
+      alert("Failed to export user minutes CSV. See console for details.");
+      console.error(err);
+    }
+  };
+
   if (usersError) {
     return <div className="p-6 text-red-600">Error loading users: {usersError.message}</div>;
   }
@@ -188,7 +249,7 @@ export function UserManagementDashboard() {
   return (
     <PermissionGuard requiredCapability={Capability.CAN_VIEW_USERS}>
       <div className="p-6 space-y-6">
-        <UserManagementHeader />
+        <UserManagementHeader onExportCSV={handleExportMinutesCSV} />
 
         <Tabs defaultValue="overview" className="space-y-6">
           <TabsList className="grid w-full grid-cols-2">
