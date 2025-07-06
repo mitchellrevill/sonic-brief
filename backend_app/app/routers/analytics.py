@@ -156,11 +156,22 @@ async def get_user_analytics(
         config = AppConfig()
         cosmos_db = get_cosmos_db(config)
         analytics_service = AnalyticsService(cosmos_db)
-        
         analytics_data = await analytics_service.get_user_analytics(user_id, days)
-        
-        return UserAnalyticsResponse(**analytics_data)
-        
+        # Defensive: ensure all required fields are present
+        analytics = analytics_data.get('analytics', {})
+        if not analytics:
+            analytics = {
+                "transcription_stats": {"total_minutes": 0.0, "total_jobs": 0, "average_job_duration": 0.0},
+                "activity_stats": {"login_count": 0, "jobs_created": 0, "last_activity": None},
+                "usage_patterns": {"most_active_hours": [], "most_used_transcription_method": None, "file_upload_count": 0, "text_input_count": 0}
+            }
+        return {
+            "user_id": user_id,
+            "period_days": analytics_data.get("period_days", days),
+            "start_date": analytics_data.get("start_date"),
+            "end_date": analytics_data.get("end_date"),
+            "analytics": analytics
+        }
     except Exception as e:
         logger.error(f"Error getting user analytics: {str(e)}")
         raise HTTPException(
@@ -180,12 +191,61 @@ async def get_system_analytics(
     try:
         config = AppConfig()
         cosmos_db = get_cosmos_db(config)
-        analytics_service = AnalyticsService(cosmos_db)
-        
-        analytics_data = await analytics_service.get_system_analytics(days)
-        
-        return SystemAnalyticsResponse(**analytics_data)
-        
+        # Query the analytics table for system-wide analytics (voice_analytics)
+        # Use the analytics_container as in other endpoints
+        query = (
+            "SELECT * FROM c WHERE c.timestamp >= @start_date"
+        )
+        from datetime import datetime, timedelta, timezone
+        end_date = datetime.now(timezone.utc)
+        start_date = end_date - timedelta(days=days)
+        parameters = [
+            {"name": "@start_date", "value": start_date.isoformat()}
+        ]
+        items = []
+        try:
+            container = cosmos_db.analytics_container
+            items_iter = container.query_items(
+                query=query,
+                parameters=parameters,
+                enable_cross_partition_query=True
+            )
+            for item in items_iter:
+                items.append(item)
+        except Exception as e:
+            logger.error(f"Error querying analytics container: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error querying analytics data: {str(e)}"
+            )
+
+        # Defensive: ensure analytics is a list
+        analytics = items
+
+        # Calculate total minutes and total jobs
+        total_minutes = 0.0
+        total_jobs = 0
+        for item in analytics:
+            # Defensive: only count if field exists and is a number
+            minutes = item.get("audio_duration_minutes")
+            if isinstance(minutes, (int, float)):
+                total_minutes += minutes
+            total_jobs += 1
+
+        # Defensive: analytics must be a dict for SystemAnalyticsResponse
+        # Provide summary stats in analytics, and raw records as a separate field
+        return {
+            "period_days": days,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "total_minutes": total_minutes,
+            "total_jobs": total_jobs,
+            "analytics": {
+                "records": analytics,
+                "total_minutes": total_minutes,
+                "total_jobs": total_jobs
+            }
+        }
     except Exception as e:
         logger.error(f"Error getting system analytics: {str(e)}")
         raise HTTPException(
@@ -450,30 +510,22 @@ async def get_active_users(
     current_user: Dict[str, Any] = Depends(require_analytics_access)
 ):
     """
-    Get list of currently active users (users with recent session activity)
+    Debug endpoint: Return the first N active user session events from the events container.
     """
     try:
         config = AppConfig()
         cosmos_db = get_cosmos_db(config)
         analytics_service = AnalyticsService(cosmos_db)
-        
-        active_user_ids = await analytics_service.get_active_users(minutes=minutes)
-        
-        return {
-            "status": "success",
-            "data": {
-                "active_users": active_user_ids,
-                "count": len(active_user_ids),
-                "period_minutes": minutes,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }
-        }
-        
+        active_users = await analytics_service.get_active_users(minutes)
+        # Defensive: always return a list and count
+        if not isinstance(active_users, list):
+            active_users = []
+        return {"active_user_count": len(active_users), "active_users": active_users}
     except Exception as e:
         logger.error(f"Error getting active users: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error retrieving active users: {str(e)}"
+            detail=f"Error getting active users: {str(e)}"
         )
 
 
@@ -662,3 +714,37 @@ async def get_quick_data_summary(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error getting summary: {str(e)}"
         )
+
+
+@router.get("/analytics/debug/analytics-records")
+async def debug_analytics_records(
+    limit: int = Query(10, ge=1, le=100),
+    current_user: Dict[str, Any] = Depends(require_analytics_access)
+):
+    """
+    Debug endpoint: Return the first N analytics records from the analytics container.
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = get_cosmos_db(config)
+        container = cosmos_db.analytics_container
+        query = """
+            SELECT * FROM c WHERE c.type = 'transcription_analytics' ORDER BY c.timestamp DESC
+        """
+        records = list(container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+        return {
+            "status": "success",
+            "count": len(records[:limit]),
+            "records": records[:limit]
+        }
+    except Exception as e:
+        logger.error(f"Error fetching analytics records for debug: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching analytics records: {str(e)}"
+        )
+
+

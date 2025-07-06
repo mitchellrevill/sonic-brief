@@ -83,7 +83,7 @@ export function UserManagementDashboard() {
       return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     };
 
-    // Get data from system analytics or use empty defaults
+    // Get data from system analytics (now transformed to legacy format)
     const dailyActivity = systemAnalytics?.analytics?.trends?.daily_activity || {};
     const dailyMinutes = systemAnalytics?.analytics?.trends?.daily_transcription_minutes || {};
     const dailyActiveUsers = systemAnalytics?.analytics?.trends?.daily_active_users || {};
@@ -181,65 +181,74 @@ export function UserManagementDashboard() {
     navigate({ to: '/admin/users/$userId', params: { userId } });
   };
 
-  // CSV Export Handler (per-user, per-day, async)
+  // CSV Export Handler (enhanced for new analytics data)
   const handleExportMinutesCSV = async () => {
     if (!Array.isArray(users) || users.length === 0) {
       alert("No user data available for export.");
       return;
     }
+    
     // Use the same period as analyticsPeriod, default to 30 if 'total'
     const period = analyticsPeriod === 'total' ? 30 : analyticsPeriod;
-    let csvRows = ["user_email,date,minutes"];
-    // Fetch per-user analytics in parallel (with batching to avoid rate limits if needed)
-    try {
-      const { getUserAnalytics } = await import("@/lib/api");
-      await Promise.all(
-        users.map(async (user) => {
-          try {
-            const analytics = await getUserAnalytics(user.id, period);
-            // Try to find daily minutes if available (backend must provide this for accuracy)
-            // If not, fallback to total
-            // Some backends may put daily minutes at analytics.analytics.daily_minutes or similar
-            // Try to find daily minutes in analytics.analytics (backend may not type it)
-            let dailyMinutes: Record<string, number> | null = null;
-            if (analytics.analytics && typeof analytics.analytics === 'object') {
-              // Try common keys
-              if ('daily_minutes' in analytics.analytics && typeof (analytics.analytics as any).daily_minutes === 'object') {
-                dailyMinutes = (analytics.analytics as any).daily_minutes;
-              } else if ('daily_transcription_minutes' in analytics.analytics && typeof (analytics.analytics as any).daily_transcription_minutes === 'object') {
-                dailyMinutes = (analytics.analytics as any).daily_transcription_minutes;
+    let csvRows = ["user_email,date,minutes,job_id,file_name"];
+    
+    // If we have system analytics with records, use that for more detailed export
+    if (systemAnalytics?.analytics?.records && systemAnalytics.analytics.records.length > 0) {
+      systemAnalytics.analytics.records.forEach(record => {
+        const user = users.find(u => u.id === record.user_id);
+        if (user) {
+          const date = record.timestamp.split('T')[0];
+          csvRows.push(`${user.email},${date},${record.audio_duration_minutes},${record.job_id},${record.file_name}`);
+        }
+      });
+    } else {
+      // Fallback to per-user analytics fetch
+      try {
+        const { getUserAnalytics } = await import("@/lib/api");
+        await Promise.all(
+          users.map(async (user) => {
+            try {
+              const analytics = await getUserAnalytics(user.id, period);
+              // Try to find daily minutes if available
+              let dailyMinutes: Record<string, number> | null = null;
+              if (analytics.analytics && typeof analytics.analytics === 'object') {
+                if ('daily_minutes' in analytics.analytics && typeof (analytics.analytics as any).daily_minutes === 'object') {
+                  dailyMinutes = (analytics.analytics as any).daily_minutes;
+                } else if ('daily_transcription_minutes' in analytics.analytics && typeof (analytics.analytics as any).daily_transcription_minutes === 'object') {
+                  dailyMinutes = (analytics.analytics as any).daily_transcription_minutes;
+                }
               }
+              if (dailyMinutes) {
+                Object.entries(dailyMinutes).forEach(([date, minutes]) => {
+                  csvRows.push(`${user.email},${date},${minutes},,`);
+                });
+              } else if (analytics.analytics?.transcription_stats?.total_minutes !== undefined) {
+                csvRows.push(`${user.email},ALL,${analytics.analytics.transcription_stats.total_minutes},,`);
+              }
+            } catch (err) {
+              console.error(`Failed to fetch analytics for user ${user.email}:`, err);
             }
-            if (dailyMinutes) {
-              Object.entries(dailyMinutes).forEach(([date, minutes]) => {
-                csvRows.push(`${user.email},${date},${minutes}`);
-              });
-            } else if (analytics.analytics?.transcription_stats?.total_minutes !== undefined) {
-              // Fallback: just one row for the user for the whole period
-              csvRows.push(`${user.email},ALL,${analytics.analytics.transcription_stats.total_minutes}`);
-            }
-          } catch (err) {
-            // If error for a user, skip but log
-            console.error(`Failed to fetch analytics for user ${user.email}:`, err);
-          }
-        })
-      );
-      const csvContent = csvRows.join("\n");
-      const blob = new Blob([csvContent], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `user_job_minutes_${new Date().toISOString().slice(0,10)}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }, 0);
-    } catch (err) {
-      alert("Failed to export user minutes CSV. See console for details.");
-      console.error(err);
+          })
+        );
+      } catch (err) {
+        alert("Failed to export user minutes CSV. See console for details.");
+        console.error(err);
+        return;
+      }
     }
+    
+    const csvContent = csvRows.join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `user_job_minutes_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 0);
   };
 
   if (usersError) {

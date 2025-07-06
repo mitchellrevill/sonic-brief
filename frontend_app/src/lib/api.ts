@@ -949,25 +949,51 @@ export interface UserAnalytics {
   };
 }
 
+export interface AnalyticsRecord {
+  id: string;
+  type: string;
+  user_id: string;
+  job_id: string;
+  event_type: string;
+  timestamp: string;
+  audio_duration_minutes: number;
+  audio_duration_seconds: number;
+  file_name: string;
+  file_extension: string;
+  prompt_category_id: string;
+  prompt_subcategory_id: string;
+  partition_key: string;
+  _rid: string;
+  _self: string;
+  _etag: string;
+  _attachments: string;
+  _ts: number;
+}
+
 export interface SystemAnalytics {
   period_days: number;
   start_date: string;
   end_date: string;
   analytics: {
-    overview: {
+    records: AnalyticsRecord[];
+    total_minutes: number;
+    total_jobs: number;
+    // Legacy compatibility - computed from records
+    overview?: {
       total_users: number;
       active_users: number;
       total_jobs: number;
       total_transcription_minutes: number;
+      peak_active_users: number;
     };
-    trends: {
+    trends?: {
       daily_activity: Record<string, number>;
-      daily_transcription_minutes: Record<string, number>; // Added for accurate charting
+      daily_transcription_minutes: Record<string, number>;
       daily_active_users: Record<string, number>;
       user_growth: Record<string, number>;
       job_completion_rate: number;
     };
-    usage: {
+    usage?: {
       transcription_methods: Record<string, number>;
       file_vs_text_ratio: { files: number; text: number };
       peak_hours: Record<string, number>;
@@ -1057,7 +1083,77 @@ export async function getSystemAnalytics(period: number | 'total' = 30): Promise
     throw new Error(`HTTP error! status: ${response.status}`);
   }
 
-  return await response.json();
+  const rawData = await response.json();
+  // Transform the new API response to maintain compatibility with existing components
+  return transformSystemAnalytics(rawData);
+}
+
+// Utility function to transform new API response into legacy format
+export function transformSystemAnalytics(data: SystemAnalytics): SystemAnalytics {
+  const records = data.analytics.records || [];
+  
+  // Extract unique user IDs from records
+  const uniqueUsers = new Set(records.map(r => r.user_id));
+  
+  // Calculate daily activity
+  const dailyActivity: Record<string, number> = {};
+  const dailyMinutes: Record<string, number> = {};
+  const dailyActiveUsers: Record<string, number> = {};
+  
+  // Initialize all dates in period
+  const startDate = new Date(data.start_date);
+  const endDate = new Date(data.end_date);
+  for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+    const dateStr = d.toISOString().split('T')[0];
+    dailyActivity[dateStr] = 0;
+    dailyMinutes[dateStr] = 0;
+    dailyActiveUsers[dateStr] = 0;
+  }
+  
+  // Process records by date
+  records.forEach(record => {
+    const date = record.timestamp.split('T')[0];
+    dailyActivity[date] = (dailyActivity[date] || 0) + 1;
+    dailyMinutes[date] = (dailyMinutes[date] || 0) + record.audio_duration_minutes;
+  });
+  
+  // Calculate active users per day
+  const usersByDate: Record<string, Set<string>> = {};
+  records.forEach(record => {
+    const date = record.timestamp.split('T')[0];
+    if (!usersByDate[date]) usersByDate[date] = new Set();
+    usersByDate[date].add(record.user_id);
+  });
+  
+  Object.entries(usersByDate).forEach(([date, users]) => {
+    dailyActiveUsers[date] = users.size;
+  });
+  
+  return {
+    ...data,
+    analytics: {
+      ...data.analytics,
+      overview: {
+        total_users: uniqueUsers.size,
+        active_users: uniqueUsers.size, // Users who have any activity in period
+        total_jobs: data.analytics.total_jobs,
+        total_transcription_minutes: data.analytics.total_minutes,
+        peak_active_users: Math.max(...Object.values(dailyActiveUsers), 0)
+      },
+      trends: {
+        daily_activity: dailyActivity,
+        daily_transcription_minutes: dailyMinutes,
+        daily_active_users: dailyActiveUsers,
+        user_growth: {}, // Not available from current data
+        job_completion_rate: 100 // Assume all uploaded jobs are completed
+      },
+      usage: {
+        transcription_methods: { upload: data.analytics.total_jobs }, // All are uploads based on current data
+        file_vs_text_ratio: { files: data.analytics.total_jobs, text: 0 },
+        peak_hours: {} // Not available from current data
+      }
+    }
+  };
 }
 
 export async function getSystemHealth(): Promise<SystemHealthResponse> {

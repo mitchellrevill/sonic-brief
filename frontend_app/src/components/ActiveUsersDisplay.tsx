@@ -1,6 +1,24 @@
+/*
+ * ActiveUsersDisplay Component
+ * 
+ * This component has been updated to use system analytics data instead of the 
+ * dedicated active users API endpoint (/api/analytics/active-users) due to 
+ * compatibility issues with the current API response structure.
+ * 
+ * Original implementation expected: response.data.active_users (array)
+ * Current implementation uses: systemAnalytics.analytics.overview.active_users (number)
+ * 
+ * To revert to the original active users API, replace the queryFn with:
+ * 
+ * queryFn: async () => {
+ *   const response = await getActiveUsers(5);
+ *   return response?.data?.active_users?.length || 0;
+ * }
+ */
+
 import { Users } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { getActiveUsers } from '@/lib/api';
+import { getSystemAnalytics } from '@/lib/api';
 
 interface ActiveUsersProps {
   refreshInterval?: number; // in milliseconds
@@ -13,16 +31,24 @@ export function ActiveUsersDisplay({ refreshInterval = 300000 }: ActiveUsersProp
     isError,
     error,
   } = useQuery({
-    queryKey: ['activeUsers', 5],
+    queryKey: ['systemAnalytics', 'activeUsers'],
     queryFn: async () => {
-      const response = await getActiveUsers(5); // Users active in last 5 minutes
-      return response.data.active_users;
+      try {
+        const systemAnalytics = await getSystemAnalytics(7); // Last 7 days
+        const activeUsers = systemAnalytics?.analytics?.overview?.active_users || 0;
+        return activeUsers;
+      } catch (error) {
+        console.error('Failed to fetch active users from system analytics:', error);
+        return 0;
+      }
     },
     refetchInterval: refreshInterval,
     staleTime: refreshInterval,
+    retry: 2,
+    retryDelay: 1000,
   });
 
-  const activeUsers = data ?? [];
+  const activeUsersCount = data || 0;
 
   const getStatusColor = () => {
     if (isError) return 'bg-red-500';
@@ -41,13 +67,12 @@ export function ActiveUsersDisplay({ refreshInterval = 300000 }: ActiveUsersProp
           <div className={`h-1.5 w-1.5 rounded-full ${getStatusColor()}`} />
         </div>
         <div className="flex items-baseline gap-1">
-          <p className="text-lg font-bold">{activeUsers.length}</p>
+          <p className="text-lg font-bold">{activeUsersCount}</p>
           <p className="text-xs text-muted-foreground">online</p>
         </div>
         {isError && (
-          <p className="text-xs text-red-600 truncate">{(error as Error).message || 'Failed to load active users'}</p>
+          <p className="text-xs text-red-600 truncate">{(error as Error)?.message || 'Failed to load active users'}</p>
         )}
-        {/* Optionally, show last updated time if needed using query data */}
       </div>
     </div>
   );
