@@ -6,6 +6,7 @@ import { AnalyticsChart } from "../UserManagement/AnalyticsChart";
 import { AnalyticsOverviewCards } from "../UserManagement/AnalyticsOverviewCards";
 import { SystemHealthMetrics } from "./SystemHealthMetrics";
 import { UserDistributionCard } from "./UserDistributionCard";
+import { AnalyticsRecordsTable } from "./AnalyticsRecordsTable";
 import type { User, SystemAnalytics, SystemHealthResponse } from "@/lib/api";
 
 interface SystemAnalyticsTabProps {
@@ -42,6 +43,17 @@ export function SystemAnalyticsTab({
           <AlertDescription>
             <strong>Demo Data:</strong> The analytics shown are sample data because no real analytics events or job data were found. 
             {systemAnalytics?.analytics?._mock_reason && ` Reason: ${systemAnalytics.analytics._mock_reason}`}
+          </AlertDescription>
+        </Alert>
+      )}
+      
+      {/* Show summary of actual data when available */}
+      {systemAnalytics?.analytics?.records && systemAnalytics.analytics.records.length > 0 && (
+        <Alert>
+          <BarChart3 className="h-4 w-4" />
+          <AlertDescription>
+            <strong>Live Data:</strong> Showing real analytics from {systemAnalytics.analytics.records.length} activity records 
+            from {systemAnalytics.start_date.split('T')[0]} to {systemAnalytics.end_date.split('T')[0]}.
           </AlertDescription>
         </Alert>
       )}
@@ -171,10 +183,13 @@ export function SystemAnalyticsTab({
         healthLoading={healthLoading}
       />
 
-      {/* User Distribution - Removed System Usage as requested */}
+      {/* User Distribution and Activity Records */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <UserDistributionCard users={users} />
-        {/* System Usage Card REMOVED as requested */}
+        <AnalyticsRecordsTable 
+          systemAnalytics={systemAnalytics} 
+          analyticsLoading={analyticsLoading} 
+        />
       </div>
     </div>
   );

@@ -284,44 +284,27 @@ async def upload_file(
                 
                 cosmos_db.update_job(job_id, update_fields)
                 
-                # Update analytics with audio duration - THIS IS CRITICAL FOR MINUTES TRACKING
+                # Write analytics data to the analytics container (voice_analytics)
                 try:
-                    analytics_service = AnalyticsService(cosmos_db)
-                    
-                    # Verify container is working before tracking
-                    container_working = await analytics_service.verify_events_container()
-                    if not container_working:
-                        logger.error("Analytics container verification failed - events may not be tracked")
-                    
-                    event_id = await analytics_service.track_job_event(
-                        job_id=job_id,
-                        user_id=current_user["id"],
-                        event_type="job_uploaded",
-                        metadata={
-                            "has_file": True,
-                            "file_size_bytes": len(content),
-                            "file_name": file.filename,
-                            "file_extension": file_extension,
-                            "audio_duration_seconds": audio_duration_seconds,
-                            "audio_duration_minutes": audio_duration_minutes,
-                            "prompt_category_id": prompt_category_id,
-                            "prompt_subcategory_id": prompt_subcategory_id,
-                            "job_status": "uploaded"
-                        }
-                    )
-                    
-                    if event_id:
-                        logger.info(f"✓ Analytics event tracked for job {job_id}: {audio_duration_minutes:.2f} minutes")
-                    else:
-                        logger.error(f"✗ Failed to track analytics event for job {job_id}")
-                        
+                    analytics_record = {
+                        "id": f"analytics_{job_id}",
+                        "type": "transcription_analytics",
+                        "user_id": current_user["id"],
+                        "job_id": job_id,
+                        "event_type": "job_uploaded",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "audio_duration_minutes": audio_duration_minutes,
+                        "audio_duration_seconds": audio_duration_seconds,
+                        "file_name": file.filename,
+                        "file_extension": file_extension,
+                        "prompt_category_id": prompt_category_id,
+                        "prompt_subcategory_id": prompt_subcategory_id,
+                        "partition_key": current_user["id"]
+                    }
+                    cosmos_db.analytics_container.create_item(body=analytics_record)
+                    logger.info(f"✓ Analytics record written to analytics container (voice_analytics) for job {job_id}")
                 except Exception as e:
-                    logger.error(f"CRITICAL: Failed to track job upload analytics for job {job_id}: {str(e)}")
-                    # Log additional details for debugging
-                    logger.error(f"  User: {current_user.get('id')}, Audio minutes: {audio_duration_minutes}")
-                    logger.error(f"  Exception type: {type(e).__name__}")
-                    import traceback
-                    logger.error(f"  Traceback: {traceback.format_exc()}")
+                    logger.error(f"Failed to write analytics record for job {job_id}: {str(e)}")
                 
                 # Now submit any additional background processing if needed
                 # (like transcription or analysis) - for now we just mark as uploaded

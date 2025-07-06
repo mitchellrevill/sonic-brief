@@ -4,26 +4,32 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, List
 from azure.cosmos.exceptions import CosmosHttpResponseError
 import random
+from collections import defaultdict
 
 # Use the improved logging utility
 from app.utils.logging_config import get_logger, log_completion, log_error_with_context
 
 
 class AnalyticsService:
-    """Service for tracking and aggregating user analytics data"""
+    """Service for tracking and aggregating user analytics data from the analytics container"""
     
     def __init__(self, cosmos_db):
         self.cosmos_db = cosmos_db
         self.logger = get_logger(__name__)
         
         # Log initialization
-        self.logger.info("📊 AnalyticsService initialized")
+        self.logger.info("📊 AnalyticsService initialized (using analytics container as source of truth)")
         
-        # Verify events container on initialization
-        if hasattr(cosmos_db, 'events_container') and cosmos_db.events_container is not None:
-            self.logger.info("✓ Events container is available for analytics tracking")
+        # Verify containers on initialization
+        if hasattr(cosmos_db, 'analytics_container') and cosmos_db.analytics_container is not None:
+            self.logger.info("✓ Analytics container is available for analytics aggregation")
         else:
-            self.logger.warning("⚠️ Events container is not available - analytics tracking may fail")
+            self.logger.warning("⚠️ Analytics container is not available - analytics aggregation may fail")
+            
+        if hasattr(cosmos_db, 'events_container') and cosmos_db.events_container is not None:
+            self.logger.info("✓ Events container is available for session tracking")
+        else:
+            self.logger.warning("⚠️ Events container is not available - session tracking may fail")
 
     async def track_event(
         self, 
@@ -301,7 +307,7 @@ class AnalyticsService:
 
     async def get_user_analytics(self, user_id: str, days: int = 30) -> Dict[str, Any]:
         """
-        Get aggregated analytics for a specific user
+        Get aggregated analytics for a specific user from analytics container
         
         Args:
             user_id: ID of the user
@@ -312,6 +318,34 @@ class AnalyticsService:
         """
         try:
             # Calculate date range
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=days)
+            
+            self.logger.info(f"Getting user analytics for {user_id} from analytics container for {days} days")
+            
+            # Get user's analytics records from analytics container
+            user_analytics_records = await self._get_user_analytics_records(user_id, start_date, end_date)
+            
+            # Get user's session events
+            user_session_events = await self._get_user_session_events(user_id, start_date, end_date)
+            
+            # Aggregate user data
+            user_analytics = await self._aggregate_user_analytics_data(
+                user_analytics_records, 
+                user_session_events, 
+                start_date, 
+                end_date, 
+                days
+            )
+            
+            self.logger.info(f"User analytics aggregated for {user_id}: {user_analytics['transcription_stats']['total_jobs']} jobs, "
+                           f"{user_analytics['transcription_stats']['total_minutes']:.1f} minutes")
+            
+            return user_analytics
+            
+        except Exception as e:
+            self.logger.error(f"Error getting user analytics for {user_id}: {str(e)}")
+            return await self._get_fallback_user_analytics(days)
             end_date = datetime.now(timezone.utc)
             start_date = end_date - timedelta(days=days)
             
@@ -504,432 +538,7 @@ class AnalyticsService:
         
         return analytics
 
-    async def get_system_analytics(self, days: int = 30) -> Dict[str, Any]:
-        """
-        Get system-wide analytics
-        
-        Args:
-            days: Number of days to look back
-            
-        Returns:
-            Dictionary containing system analytics
-        """
-        try:
-            # Calculate date range
-            end_date = datetime.now(timezone.utc)
-            start_date = end_date - timedelta(days=days)
-            
-            # Try to get events from analytics container first
-            events = []
-            try:
-                # Query all events in the date range
-                query = """
-                    SELECT * FROM c 
-                    WHERE c.timestamp >= @start_date 
-                    AND c.timestamp <= @end_date
-                    ORDER BY c.timestamp DESC
-                """
-                
-                parameters = [
-                    {"name": "@start_date", "value": start_date.isoformat()},
-                    {"name": "@end_date", "value": end_date.isoformat()}
-                ]
-                
-                events = list(self.cosmos_db.events_container.query_items(
-                    query=query,
-                    parameters=parameters,
-                    enable_cross_partition_query=True
-                ))
-                
-                self.logger.info(f"Found {len(events)} system events for {days} days")
-                if len(events) > 0:
-                    # Log some sample event types for debugging
-                    event_types = {}
-                    for event in events[:10]:  # Sample first 10 events
-                        event_type = event.get("event_type", "unknown")
-                        event_types[event_type] = event_types.get(event_type, 0) + 1
-                    self.logger.info(f"Sample event types found: {event_types}")
-                else:
-                    self.logger.warning("No events found in the specified date range")
-                
-            except Exception as events_error:
-                self.logger.warning(f"Error querying system analytics events: {str(events_error)}")
-            
-            # Get user count from auth container
-            user_count_query = "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'user'"
-            user_counts = list(self.cosmos_db.auth_container.query_items(
-                query=user_count_query,
-                enable_cross_partition_query=True
-            ))
-            total_users = user_counts[0] if user_counts else 0
-            
-            # Aggregate system-wide data
-            system_analytics = await self._aggregate_system_events(events, total_users)
-            
-            # If no transcription minutes from events, try to get from jobs as fallback
-            if system_analytics["overview"]["total_transcription_minutes"] == 0:
-                self.logger.info("No transcription minutes from events, using jobs fallback")
-                total_minutes_from_jobs = await self._get_total_minutes_from_jobs(start_date, end_date)
-                system_analytics["overview"]["total_transcription_minutes"] = total_minutes_from_jobs
-                self.logger.info(f"Found {total_minutes_from_jobs} minutes from {system_analytics['overview']['total_jobs']} jobs via fallback")
-            else:
-                self.logger.info(f"Using {system_analytics['overview']['total_transcription_minutes']} minutes from events data")
-            
-            # If still no data, generate sample data for demonstration
-            if (system_analytics["overview"]["total_transcription_minutes"] == 0 and 
-                system_analytics["overview"]["total_jobs"] == 0 and 
-                len(system_analytics["trends"]["daily_activity"]) == 0):
-                self.logger.warning(f"No real analytics data found for {days} days period. Reasons:")
-                self.logger.warning(f"  - Events found: {len(events)}")
-                self.logger.warning(f"  - Jobs with transcription minutes: {system_analytics['overview']['total_transcription_minutes']}")
-                self.logger.warning(f"  - Total jobs counted: {system_analytics['overview']['total_jobs']}")
-                self.logger.warning(f"  - Daily activity entries: {len(system_analytics['trends']['daily_activity'])}")
-                self.logger.warning("Generating sample analytics data for demonstration")
-                
-                # Add a flag to indicate this is mock data
-                system_analytics = self._generate_sample_analytics_data(days, start_date, end_date, total_users)
-                system_analytics["_is_mock_data"] = True
-                system_analytics["_mock_reason"] = "No real data available in events or jobs containers"
-            
-            return {
-                "period_days": days,
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat(),
-                "analytics": system_analytics
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Error getting system analytics: {str(e)}")
-            # Return a valid response structure even on error
-            return {
-                "period_days": days,
-                "start_date": start_date.isoformat() if 'start_date' in locals() else datetime.now(timezone.utc).isoformat(),
-                "end_date": end_date.isoformat() if 'end_date' in locals() else datetime.now(timezone.utc).isoformat(),
-                "analytics": {
-                    "error": str(e),
-                    "overview": {
-                        "total_users": 0,
-                        "active_users": 0,
-                        "total_jobs": 0,
-                        "total_transcription_minutes": 0.0,
-                        "total_events": 0
-                    },
-                    "trends": {
-                        "daily_activity": {},
-                        "user_growth": {},
-                        "job_completion_rate": 0.0
-                    },
-                    "usage": {
-                        "transcription_methods": {},
-                        "file_vs_text_ratio": {"files": 0, "text": 0},
-                        "peak_hours": {}
-                    }
-                }
-            }
-
-    async def _aggregate_system_events(self, events: List[Dict[str, Any]], total_users: int) -> Dict[str, Any]:
-        """Aggregate system-wide events"""
-        
-        analytics = {
-            "overview": {
-                "total_users": total_users,
-                "active_users": 0,
-                "total_jobs": 0,
-                "total_transcription_minutes": 0.0
-            },
-            "trends": {
-                "daily_activity": {},  # Only job events per day
-                "daily_transcription_minutes": {},  # New: transcription minutes per day
-                "daily_active_users": {},
-                "user_growth": {},
-                "job_completion_rate": 0.0
-            },
-            "usage": {
-                "transcription_methods": {},
-                "file_vs_text_ratio": {"files": 0, "text": 0},
-                "peak_hours": {}
-            }
-        }
-        
-        unique_users = set()
-        unique_session_users = set()
-        jobs_created = 0
-        jobs_completed = 0
-        daily_jobs = {}
-        daily_users = {}
-        
-        for event in events:
-            event_type = event.get("event_type", "")
-            user_id = event.get("user_id", "")
-            metadata = event.get("metadata", {})
-            timestamp = event.get("timestamp", "")
-            event_category = event.get("type", "")
-            
-            if user_id:
-                unique_users.add(user_id)
-                
-                # Track session users separately
-                if event_category == "session":
-                    unique_session_users.add(user_id)
-            
-            # Parse date for daily trends
-            if timestamp:
-                try:
-                    dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                    date_key = dt.strftime('%Y-%m-%d')
-                    hour = dt.hour
-                    
-                    # Only count job events for daily_activity
-                    if event_type in ("job_created", "job_completed", "job_uploaded"):
-                        if date_key not in analytics["trends"]["daily_activity"]:
-                            analytics["trends"]["daily_activity"][date_key] = 0
-                        analytics["trends"]["daily_activity"][date_key] += 1
-                    
-                    # Track transcription minutes per day
-                    if event_type in ("job_uploaded", "job_completed"):
-                        minutes = 0.0
-                        if metadata.get("audio_duration_minutes"):
-                            minutes = float(metadata["audio_duration_minutes"])
-                        elif metadata.get("duration_seconds"):
-                            minutes = float(metadata["duration_seconds"]) / 60.0
-                        if date_key not in analytics["trends"]["daily_transcription_minutes"]:
-                            analytics["trends"]["daily_transcription_minutes"][date_key] = 0.0
-                        analytics["trends"]["daily_transcription_minutes"][date_key] += minutes
-                    
-                    # Daily active users (unique users per day)
-                    if date_key not in daily_users:
-                        daily_users[date_key] = set()
-                    if user_id:
-                        daily_users[date_key].add(user_id)
-                    
-                    # Peak hours
-                    analytics["usage"]["peak_hours"][hour] = analytics["usage"]["peak_hours"].get(hour, 0) + 1
-                except:
-                    pass
-            
-            # Event-specific processing
-            if event_type == "job_created":
-                jobs_created += 1
-                
-                # File vs text tracking
-                if metadata.get("has_file"):
-                    analytics["usage"]["file_vs_text_ratio"]["files"] += 1
-                else:
-                    analytics["usage"]["file_vs_text_ratio"]["text"] += 1
-            
-            elif event_type == "job_uploaded":
-                # Track audio duration from uploaded files
-                if metadata.get("audio_duration_minutes"):
-                    audio_minutes = float(metadata["audio_duration_minutes"])
-                    analytics["overview"]["total_transcription_minutes"] += audio_minutes
-            
-            elif event_type == "job_completed":
-                jobs_completed += 1
-                
-                # Track audio duration if available (fallback for older events)
-                if metadata.get("audio_duration_minutes"):
-                    audio_minutes = float(metadata["audio_duration_minutes"])
-                    analytics["overview"]["total_transcription_minutes"] += audio_minutes
-                elif metadata.get("duration_seconds"):
-                    duration_minutes = metadata["duration_seconds"] / 60.0
-                    analytics["overview"]["total_transcription_minutes"] += duration_minutes
-                
-                # Transcription methods
-                method = metadata.get("transcription_method")
-                if method:
-                    analytics["usage"]["transcription_methods"][method] = \
-                        analytics["usage"]["transcription_methods"].get(method, 0) + 1
-        
-        # Calculate derived metrics
-        analytics["overview"]["active_users"] = len(unique_users)
-        analytics["overview"]["total_jobs"] = jobs_created
-        
-        # Convert daily users sets to counts
-        for date_key, users_set in daily_users.items():
-            analytics["trends"]["daily_active_users"][date_key] = len(users_set)
-        
-        if jobs_created > 0:
-            analytics["trends"]["job_completion_rate"] = (jobs_completed / jobs_created) * 100
-        
-        return analytics
-
-    async def _get_user_analytics_from_jobs(self, user_id: str, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
-        """
-        Fallback method to calculate user analytics directly from jobs collection
-        when analytics events are not available
-        """
-        analytics = {
-            "transcription_stats": {
-                "total_minutes": 0.0,
-                "total_jobs": 0,
-                "average_job_duration": 0.0
-            },
-            "activity_stats": {
-                "login_count": 0,
-                "jobs_created": 0,
-                "last_activity": None
-            },
-            "usage_patterns": {
-                "most_active_hours": [],
-                "most_used_transcription_method": None,
-                "file_upload_count": 0,
-                "text_input_count": 0
-            }
-        }
-        
-        try:
-            # Query jobs for this user in the date range
-            jobs_query = """
-                SELECT * FROM c 
-                WHERE c.user_id = @user_id 
-                AND c.date >= @start_date 
-                AND c.date <= @end_date
-                ORDER BY c.date DESC
-            """
-            
-            parameters = [
-                {"name": "@user_id", "value": user_id},
-                {"name": "@start_date", "value": start_date.isoformat()},
-                {"name": "@end_date", "value": end_date.isoformat()}
-            ]
-            
-            jobs = list(self.cosmos_db.jobs_container.query_items(
-                query=jobs_query,
-                parameters=parameters,
-                enable_cross_partition_query=False,
-                partition_key=user_id
-            ))
-            
-            if not jobs:
-                self.logger.info(f"No jobs found for user {user_id} in the date range")
-                return analytics
-            
-            total_minutes = 0.0
-            durations = []
-            file_count = 0
-            text_count = 0
-            
-            for job in jobs:
-                # Count total jobs
-                analytics["activity_stats"]["jobs_created"] += 1
-                analytics["transcription_stats"]["total_jobs"] += 1
-                
-                # Calculate audio duration
-                audio_minutes = 0.0
-                if job.get("audio_duration_minutes"):
-                    audio_minutes = float(job["audio_duration_minutes"])
-                elif job.get("audio_duration_seconds"):
-                    audio_minutes = float(job["audio_duration_seconds"]) / 60.0
-                
-                if audio_minutes > 0:
-                    total_minutes += audio_minutes
-                    durations.append(audio_minutes)
-                
-                # Track input methods  
-                if job.get("has_file", False) or job.get("file_url"):
-                    file_count += 1
-                else:
-                    text_count += 1
-                
-                # Update last activity
-                job_date = job.get("date")
-                if job_date and (not analytics["activity_stats"]["last_activity"] or job_date > analytics["activity_stats"]["last_activity"]):
-                    analytics["activity_stats"]["last_activity"] = job_date
-            
-            # Update analytics with calculated values
-            analytics["transcription_stats"]["total_minutes"] = total_minutes
-            analytics["usage_patterns"]["file_upload_count"] = file_count
-            analytics["usage_patterns"]["text_input_count"] = text_count
-            
-            # Calculate average duration
-            if durations:
-                analytics["transcription_stats"]["average_job_duration"] = sum(durations) / len(durations)
-            
-            self.logger.info(f"Calculated analytics from {len(jobs)} jobs for user {user_id}: {total_minutes:.2f} minutes")
-            
-        except Exception as e:
-            self.logger.error(f"Error calculating user analytics from jobs: {str(e)}")
-        
-        return analytics
-
-    async def _get_total_minutes_from_jobs(self, start_date: datetime, end_date: datetime) -> float:
-        """
-        Fallback method to calculate total transcription minutes from jobs collection
-        """
-        try:
-            # Query all jobs in the date range - try multiple date field patterns
-            # First try with just c.type = 'job' to see what we get
-            simple_jobs_query = "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'job'"
-            simple_count = list(self.cosmos_db.jobs_container.query_items(
-                query=simple_jobs_query,
-                enable_cross_partition_query=True
-            ))
-            total_jobs_count = simple_count[0] if simple_count else 0
-            self.logger.info(f"Total jobs in container: {total_jobs_count}")
-            
-            if total_jobs_count == 0:
-                self.logger.warning("No jobs found in container at all")
-                return 0.0
-            
-            # Now try to find jobs in date range with flexible date matching
-            jobs_query = """
-                SELECT * FROM c 
-                WHERE c.type = 'job'
-                AND (
-                    (IS_DEFINED(c.date) AND c.date >= @start_date AND c.date <= @end_date) OR
-                    (IS_DEFINED(c.created_at) AND c.created_at >= @start_date AND c.created_at <= @end_date) OR
-                    (IS_DEFINED(c.updated_at) AND c.updated_at >= @start_date AND c.updated_at <= @end_date)
-                )
-                ORDER BY COALESCE(c.date, c.created_at, c.updated_at, '') DESC
-            """
-            
-            parameters = [
-                {"name": "@start_date", "value": start_date.isoformat()},
-                {"name": "@end_date", "value": end_date.isoformat()}
-            ]
-            
-            jobs = list(self.cosmos_db.jobs_container.query_items(
-                query=jobs_query,
-                parameters=parameters,
-                enable_cross_partition_query=True
-            ))
-            
-            self.logger.info(f"Found {len(jobs)} jobs in date range for duration calculation")
-            
-            # If no jobs in date range, let's try to get recent jobs without date filter
-            if len(jobs) == 0:
-                self.logger.info("No jobs found in date range, trying to get recent jobs without date filter")
-                recent_jobs_query = "SELECT TOP 10 * FROM c WHERE c.type = 'job'"
-                recent_jobs = list(self.cosmos_db.jobs_container.query_items(
-                    query=recent_jobs_query,
-                    enable_cross_partition_query=True
-                ))
-                self.logger.info(f"Found {len(recent_jobs)} recent jobs without date filtering")
-                if recent_jobs:
-                    sample_job = recent_jobs[0]
-                    self.logger.info(f"Sample job date fields: date={sample_job.get('date')}, created_at={sample_job.get('created_at')}, updated_at={sample_job.get('updated_at')}")
-            
-            total_minutes = 0.0
-            jobs_with_duration = 0
-            
-            for job in jobs:
-                # Calculate audio duration
-                audio_minutes = 0.0
-                if job.get("audio_duration_minutes"):
-                    audio_minutes = float(job["audio_duration_minutes"])
-                    jobs_with_duration += 1
-                elif job.get("audio_duration_seconds"):
-                    audio_minutes = float(job["audio_duration_seconds"]) / 60.0
-                    jobs_with_duration += 1
-                
-                total_minutes += audio_minutes
-            
-            self.logger.info(f"Calculated {total_minutes} total minutes from {jobs_with_duration}/{len(jobs)} jobs with duration data")
-            return total_minutes
-            
-        except Exception as e:
-            self.logger.error(f"Error calculating total minutes from jobs: {str(e)}")
-            return 0.0
+ 
 
     async def verify_events_container(self) -> bool:
         """
@@ -1339,52 +948,3 @@ class AnalyticsService:
                 "error": str(e),
                 "recommendations": ["Unable to run diagnostics. Check service configuration and container access."]
             }
-
-    async def get_quick_data_summary(self) -> Dict[str, Any]:
-        """
-        Quick summary of available data across all containers
-        
-        Returns:
-            Summary of data availability
-        """
-        try:
-            summary = {}
-            
-            # Check events
-            try:
-                events_count_query = "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'event'"
-                events_count = list(self.cosmos_db.events_container.query_items(
-                    query=events_count_query,
-                    enable_cross_partition_query=True
-                ))
-                summary["events"] = events_count[0] if events_count else 0
-            except Exception as e:
-                summary["events"] = f"Error: {str(e)}"
-            
-            # Check jobs  
-            try:
-                jobs_count_query = "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'job'"
-                jobs_count = list(self.cosmos_db.jobs_container.query_items(
-                    query=jobs_count_query,
-                    enable_cross_partition_query=True
-                ))
-                summary["jobs"] = jobs_count[0] if jobs_count else 0
-            except Exception as e:
-                summary["jobs"] = f"Error: {str(e)}"
-            
-            # Check users
-            try:
-                users_count_query = "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'user'"
-                users_count = list(self.cosmos_db.auth_container.query_items(
-                    query=users_count_query,
-                    enable_cross_partition_query=True
-                ))
-                summary["users"] = users_count[0] if users_count else 0
-            except Exception as e:
-                summary["users"] = f"Error: {str(e)}"
-            
-            return summary
-            
-        except Exception as e:
-            self.logger.error(f"Error getting quick data summary: {str(e)}")
-            return {"error": str(e)}
