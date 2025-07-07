@@ -1,7 +1,7 @@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Info } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface RetentionDisclaimerProps {
   className?: string;
@@ -12,7 +12,21 @@ export function RetentionDisclaimer({
   className = "",
   variant = "default",
 }: RetentionDisclaimerProps) {
-  const [isVisible, setIsVisible] = useState(true);
+
+  // Use localStorage to persist dismissal across refreshes
+  const STORAGE_KEY = "retentionDisclaimerDismissed";
+  const [isVisible, setIsVisible] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem(STORAGE_KEY) !== "true";
+    }
+    return true;
+  });
+
+  useEffect(() => {
+    if (!isVisible) {
+      localStorage.setItem(STORAGE_KEY, "true");
+    }
+  }, [isVisible]);
 
   if (!isVisible) return null;
 
