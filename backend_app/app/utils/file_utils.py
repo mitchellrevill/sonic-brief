@@ -26,6 +26,7 @@ class FileUtils:
         "aac": "audio/aac",
         "ogg": "audio/ogg",
         "flac": "audio/flac",
+        "webm": "audio/webm",
     }
 
     def __init__(self):
