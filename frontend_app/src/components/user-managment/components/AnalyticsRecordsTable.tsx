@@ -67,10 +67,14 @@ export function AnalyticsRecordsTable({ systemAnalytics, analyticsLoading }: Ana
               </div>
               <div className="text-right">
                 <div className="text-sm font-medium">
-                  {record.audio_duration_minutes.toFixed(1)} min
+                  {typeof record.audio_duration_minutes === 'number' && !isNaN(record.audio_duration_minutes)
+                    ? record.audio_duration_minutes.toFixed(1)
+                    : '0.0'} min
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {record.audio_duration_seconds.toFixed(0)}s
+                  {typeof record.audio_duration_seconds === 'number' && !isNaN(record.audio_duration_seconds)
+                    ? record.audio_duration_seconds.toFixed(0)
+                    : '0'}s
                 </div>
               </div>
             </div>
