@@ -30,8 +30,10 @@ export function AnalyticsOverviewCards({ analyticsLoading, systemAnalytics, anal
               <p className="text-lg font-bold">
                 {analyticsLoading ? (
                   <Skeleton className="h-5 w-16" />
-                ) : systemAnalytics && systemAnalytics.analytics.overview ? (
+                ) : systemAnalytics && systemAnalytics.analytics.overview && typeof systemAnalytics.analytics.overview.total_transcription_minutes === 'number' ? (
                   `${systemAnalytics.analytics.overview.total_transcription_minutes.toFixed(1)}`
+                ) : systemAnalytics && systemAnalytics.analytics.overview && systemAnalytics.analytics.overview.total_transcription_minutes ? (
+                  `${Number(systemAnalytics.analytics.overview.total_transcription_minutes).toFixed(1)}`
                 ) : (
                   "0"
                 )}
