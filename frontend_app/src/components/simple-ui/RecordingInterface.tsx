@@ -4,7 +4,7 @@ function isIOS() {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
   return /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
 }
-import { Button } from "@/components/ui/button";
+import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -20,7 +20,9 @@ import {
   AlertCircle,
   Eye
 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { uploadFile, fetchAudioBlob } from "@/lib/api";
+import { convertToWavWithFFmpeg } from "@/lib/ffmpegConvert";
 import { toast } from "sonner";
 import { useRouter } from "@tanstack/react-router";
 
@@ -33,14 +35,8 @@ interface RecordingInterfaceProps {
   onUploadComplete: () => void;
 }
 
-export function RecordingInterface({ 
-  categoryId, 
-  subcategoryId, 
-  categoryName, 
-  subcategoryName, 
-  onBack,
-  onUploadComplete 
-}: RecordingInterfaceProps) {
+export function RecordingInterface(props: RecordingInterfaceProps) {
+  const { categoryId, subcategoryId, categoryName, subcategoryName, onBack, onUploadComplete } = props;
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [audioURL, setAudioURL] = useState<string | null>(null);
@@ -48,6 +44,10 @@ export function RecordingInterface({
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [jobId, setJobId] = useState<string | null>(null);
+  // FFmpeg conversion state
+  const [isConverting, setIsConverting] = useState(false);
+  const [conversionProgress, setConversionProgress] = useState(0);
+  const [conversionStep, setConversionStep] = useState("");
 
   const router = useRouter();
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -140,7 +140,6 @@ export function RecordingInterface({
   };
   const uploadRecording = async () => {
     if (!audioURL) return;
-
     setIsUploading(true);
     try {
       // Convert URL to File
@@ -149,23 +148,36 @@ export function RecordingInterface({
       const fileName = `recording-${timestamp}.webm`;
       const file = new File([blob], fileName, { type: "audio/webm" });
 
-      const uploadResponse = await uploadFile(file, categoryId, subcategoryId);
-      
-      // Capture the job ID from the response
+      // Convert to WAV before upload (show progress)
+      setIsConverting(true);
+      setConversionProgress(0);
+      setConversionStep("Starting conversion...");
+      const wavFile = await convertToWavWithFFmpeg(file, {
+        setConversionProgress,
+        setConversionStep,
+      });
+      setIsConverting(false);
+      setConversionStep("");
+
+      const uploadResponse = await uploadFile(wavFile, categoryId, subcategoryId);
       if (uploadResponse?.job_id) {
         setJobId(uploadResponse.job_id);
       }
-      
       setUploadSuccess(true);
       toast.success("Recording uploaded successfully!");
-      
     } catch (error) {
       console.error("Error uploading recording:", error);
       toast.error("Failed to upload recording. Please try again.");
     } finally {
       setIsUploading(false);
+      setIsConverting(false);
+      setConversionStep("");
+      setConversionProgress(0);
     }
-  };  const resetRecording = () => {
+  };
+
+  // Reset recording state
+  const resetRecording = () => {
     setAudioURL(null);
     setRecordingTime(0);
     setUploadSuccess(false);
@@ -175,6 +187,7 @@ export function RecordingInterface({
       audioRef.current.currentTime = 0;
     }
   };
+
   if (uploadSuccess) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -325,6 +338,13 @@ export function RecordingInterface({
                     controls
                   />
                 )}
+                {/* FFmpeg conversion progress */}
+                {(isConverting || conversionProgress > 0) && (
+                  <div>
+                    <div className="mb-1 text-sm">{conversionStep}</div>
+                    <Progress value={conversionProgress} />
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <Button 
                     onClick={resetRecording}
@@ -335,13 +355,13 @@ export function RecordingInterface({
                   </Button>
                   <Button 
                     onClick={uploadRecording}
-                    disabled={isUploading}
+                    disabled={isUploading || isConverting}
                     className="h-12 bg-green-600 hover:bg-green-700"
                   >
-                    {isUploading ? (
+                    {isUploading || isConverting ? (
                       <>
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Uploading...
+                        {isConverting ? "Converting..." : "Uploading..."}
                       </>
                     ) : (
                       <>
@@ -375,6 +395,7 @@ export function RecordingInterface({
           </p>
         </div>
       </div>
+
     </div>
   );
 }
