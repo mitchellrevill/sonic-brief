@@ -36,7 +36,17 @@ class AnalysisService:
             prompt = f"{context}\n\n{conversation}"
             logger.info("Prompt created successfully: "+ prompt)
             messages = [
-                {"role": "system", "content": "You are an AI assistant designed to help adult social care workers evaluate the progress of their service users. You will provide concise and accurate summaries of conversations."},
+                {"role": "system", "content": """You are an AI assistant designed to help adult social care workers evaluate the progress of their service users. 
+
+IMPORTANT FORMATTING REQUIREMENTS:
+- Do NOT use markdown formatting (no #, ##, *, -, etc.)
+- Use clear section headers followed by a colon
+- Use plain text with proper paragraph breaks
+- For lists, use simple bullet points (•) or numbered lists without markdown
+- Structure your response with clear sections for easy document formatting
+- Write in a professional, clear style suitable for Word documents
+
+Provide concise and accurate summaries of conversations in this format."""},
                 {"role": "user", "content": prompt}
                 ]
             logger.info("Sending analysis request to AzureOpenAI")

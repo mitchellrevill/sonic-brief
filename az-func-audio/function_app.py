@@ -231,19 +231,31 @@ def blob_trigger(myblob: func.InputStream):
         )
         logging.debug("Analysis completed successfully")
 
-        # Generate and upload PDF
-        logging.info("Generating and uploading analysis PDF...")
-        pdf_blob_url = storage_service.generate_and_upload_pdf(
-            analysis_result["analysis_text"],
-            f"{path_without_container}_{SYSTEM_GENERATED_TAG}_analysis.pdf",
-        )
-        logging.debug(f"Analysis PDF uploaded: {pdf_blob_url}")
+        # Generate and upload DOCX (new jobs) with fallback to PDF for legacy support
+        logging.info("Generating and uploading analysis document...")
+        try:
+            # Use DOCX for new jobs
+            docx_blob_url = storage_service.generate_and_upload_docx(
+                analysis_result["analysis_text"],
+                f"{path_without_container}_{SYSTEM_GENERATED_TAG}_analysis.docx",
+            )
+            analysis_file_url = docx_blob_url
+            logging.debug(f"Analysis DOCX uploaded: {docx_blob_url}")
+        except Exception as docx_error:
+            # Fallback to PDF if DOCX generation fails
+            logging.warning(f"DOCX generation failed, falling back to PDF: {str(docx_error)}")
+            pdf_blob_url = storage_service.generate_and_upload_pdf(
+                analysis_result["analysis_text"],
+                f"{path_without_container}_{SYSTEM_GENERATED_TAG}_analysis.pdf",
+            )
+            analysis_file_url = pdf_blob_url
+            logging.debug(f"Analysis PDF uploaded: {pdf_blob_url}")
 
         # Final update to job
         cosmos_service.update_job_status(
             job_id,
             "completed",
-            analysis_file_path=pdf_blob_url,
+            analysis_file_path=analysis_file_url,
             analysis_text=analysis_result["analysis_text"],
         )
         logging.info(f"Processing completed successfully for file: {blob_path}")

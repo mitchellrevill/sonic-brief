@@ -74,6 +74,16 @@ class SharedJobsResponse(BaseModel):
     shared_jobs: List[Dict[str, Any]]
     owned_jobs_shared_with_others: List[Dict[str, Any]]
 
+class AnalysisDocumentUpdateRequest(BaseModel):
+    html_content: str
+    format: str = "docx"  # "docx" or "html"
+
+class AnalysisDocumentUpdateResponse(BaseModel):
+    status: str
+    message: str
+    document_url: str
+    updated_at: str
+
 
 @router.post("/upload")
 async def upload_file(
@@ -1862,3 +1872,180 @@ def get_user_job_permission(job: Dict[str, Any], current_user: Dict[str, Any]) -
 async def health_check_shared_jobs():
     """Health check endpoint for shared jobs route"""
     return {"status": "ok", "message": "Shared jobs route is accessible", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+@router.put("/jobs/{job_id}/analysis-document")
+async def update_analysis_document(
+    job_id: str,
+    update_request: AnalysisDocumentUpdateRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> AnalysisDocumentUpdateResponse:
+    """
+    Update the analysis document for a job with new content.
+    This endpoint allows editing and saving DOCX analysis documents.
+    
+    Args:
+        job_id: The ID of the job whose analysis document to update
+        update_request: The new content and format
+        current_user: Authenticated user from token
+        
+    Returns:
+        Response with updated document URL and status
+    """
+    try:
+        logger.info(f"Updating analysis document for job {job_id}")
+        
+        # Get configuration and initialize services
+        config = AppConfig()
+        cosmos_db = get_cosmos_db(config)
+        storage_service = StorageService(config)
+        
+        # Get the job and verify permissions
+        job = cosmos_db.get_job(job_id)
+        if not job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Job not found"
+            )
+        
+        # Check if user has edit permission for this job
+        user_permission = get_user_job_permission(job, current_user)
+        if user_permission not in ["owner", "edit"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions to edit this analysis document"
+            )
+        
+        # Verify the job has an analysis file or analysis text that can be converted to DOCX
+        analysis_file_path = job.get("analysis_file_path")
+        analysis_text = job.get("analysis_text")
+        
+        # If there's an existing file, it must be DOCX to be editable
+        if analysis_file_path and not analysis_file_path.lower().endswith('.docx'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only DOCX analysis documents can be edited"
+            )
+        
+        # If there's no file but there's analysis text, we can create a new DOCX
+        if not analysis_file_path and not analysis_text:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Job does not have an analysis document or analysis text"
+            )
+        
+        # Convert HTML content back to DOCX and upload
+        try:
+            # Determine blob name - either from existing file or create new one
+            if analysis_file_path:
+                blob_name = analysis_file_path.split('/')[-1]
+            else:
+                # Create a new blob name for the DOCX file
+                blob_name = f"analysis_{job_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.docx"
+            
+            # Convert HTML to markdown-like text while preserving structure
+            import re
+            from html import unescape
+            
+            def html_to_markdown(html_content: str) -> str:
+                """Convert HTML to markdown-like text preserving structure."""
+                # Unescape HTML entities first
+                text = unescape(html_content)
+                
+                # Replace headers with markdown headers
+                text = re.sub(r'<h1[^>]*>(.*?)</h1>', r'# \1\n\n', text, flags=re.IGNORECASE | re.DOTALL)
+                text = re.sub(r'<h2[^>]*>(.*?)</h2>', r'## \1\n\n', text, flags=re.IGNORECASE | re.DOTALL)
+                text = re.sub(r'<h3[^>]*>(.*?)</h3>', r'### \1\n\n', text, flags=re.IGNORECASE | re.DOTALL)
+                text = re.sub(r'<h4[^>]*>(.*?)</h4>', r'#### \1\n\n', text, flags=re.IGNORECASE | re.DOTALL)
+                text = re.sub(r'<h5[^>]*>(.*?)</h5>', r'##### \1\n\n', text, flags=re.IGNORECASE | re.DOTALL)
+                text = re.sub(r'<h6[^>]*>(.*?)</h6>', r'###### \1\n\n', text, flags=re.IGNORECASE | re.DOTALL)
+                
+                # Convert bold and italic
+                text = re.sub(r'<strong[^>]*>(.*?)</strong>', r'**\1**', text, flags=re.IGNORECASE | re.DOTALL)
+                text = re.sub(r'<b[^>]*>(.*?)</b>', r'**\1**', text, flags=re.IGNORECASE | re.DOTALL)
+                text = re.sub(r'<em[^>]*>(.*?)</em>', r'*\1*', text, flags=re.IGNORECASE | re.DOTALL)
+                text = re.sub(r'<i[^>]*>(.*?)</i>', r'*\1*', text, flags=re.IGNORECASE | re.DOTALL)
+                
+                # Convert lists
+                text = re.sub(r'<ul[^>]*>', '', text, flags=re.IGNORECASE)
+                text = re.sub(r'</ul>', '\n', text, flags=re.IGNORECASE)
+                text = re.sub(r'<ol[^>]*>', '', text, flags=re.IGNORECASE)
+                text = re.sub(r'</ol>', '\n', text, flags=re.IGNORECASE)
+                text = re.sub(r'<li[^>]*>(.*?)</li>', r'• \1\n', text, flags=re.IGNORECASE | re.DOTALL)
+                
+                # Convert paragraphs
+                text = re.sub(r'<p[^>]*>(.*?)</p>', r'\1\n\n', text, flags=re.IGNORECASE | re.DOTALL)
+                
+                # Convert line breaks
+                text = re.sub(r'<br[^>]*/?>', '\n', text, flags=re.IGNORECASE)
+                
+                # Remove any remaining HTML tags
+                text = re.sub(r'<[^>]+>', '', text)
+                
+                # Clean up whitespace but preserve structure
+                # Split into lines and process each
+                lines = text.split('\n')
+                processed_lines = []
+                
+                for line in lines:
+                    line = line.strip()
+                    if line:
+                        processed_lines.append(line)
+                    else:
+                        # Preserve empty lines for structure
+                        processed_lines.append('')
+                
+                # Join lines back and clean up excessive empty lines
+                text = '\n'.join(processed_lines)
+                text = re.sub(r'\n{3,}', '\n\n', text)  # Max 2 consecutive newlines
+                
+                return text.strip()
+            
+            # Convert HTML to structured text
+            structured_text = html_to_markdown(update_request.html_content)
+            
+            # Debug logging
+            logger.info(f"Original HTML content: {update_request.html_content[:200]}...")
+            logger.info(f"Converted structured text: {structured_text[:200]}...")
+            
+            # Generate new DOCX document
+            new_docx_url = storage_service.generate_and_upload_docx(
+                structured_text,
+                blob_name
+            )
+            
+            # Update the job record with change tracking
+            update_data = {
+                "analysis_file_path": new_docx_url,
+                "analysis_text": structured_text,  # Update the analysis text field too
+                "updated_at": datetime.now(timezone.utc).timestamp(),
+                "analysis_last_edited_by": current_user["id"],
+                "analysis_last_edited_at": datetime.now(timezone.utc).timestamp()
+            }
+            
+            cosmos_db.update_job(job_id, update_data)
+            
+            logger.info(f"Analysis document updated successfully for job {job_id}")
+            
+            return AnalysisDocumentUpdateResponse(
+                status="success",
+                message="Analysis document updated successfully",
+                document_url=new_docx_url,
+                updated_at=datetime.now(timezone.utc).isoformat()
+            )
+            
+        except Exception as conversion_error:
+            logger.error(f"Error converting/uploading document: {str(conversion_error)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to process document update: {str(conversion_error)}"
+            )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating analysis document: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update analysis document: {str(e)}"
+        )

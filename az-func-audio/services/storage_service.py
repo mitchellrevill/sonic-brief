@@ -107,3 +107,97 @@ class StorageService:
         except Exception as e:
             logger.error(f"Error generating/uploading PDF: {str(e)}")
             raise StorageServiceError(f"Error generating/uploading PDF: {str(e)}") from e
+
+    def generate_and_upload_docx(self, analysis_text: str, blob_url: str) -> str:
+        """Generate a DOCX from analysis text and upload to blob storage. Return the blob URL."""
+        try:
+            from docx import Document
+            from docx.shared import Inches
+            from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+            import io
+            import re
+
+            # Create DOCX in memory
+            doc = Document()
+            
+            # Add title
+            title = doc.add_heading('Analysis Report', 0)
+            title.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+            
+            # Process the analysis text and format properly
+            sections = analysis_text.split("\n\n")
+            
+            for section in sections:
+                if not section.strip():
+                    continue
+                    
+                lines = section.split("\n")
+                if not lines:
+                    continue
+                    
+                # Check if this is a section header - improved detection for markdown
+                first_line = lines[0].strip()
+                
+                if (first_line.startswith("#") or 
+                    first_line.startswith("**") and first_line.endswith("**") or
+                    first_line.isupper() or 
+                    (len(first_line) < 100 and first_line.endswith(":")) or
+                    re.match(r'^\d+\.\s*\*\*.*\*\*', first_line)):  # Numbered sections with bold
+                    # This is likely a heading
+                    heading_text = (first_line
+                                  .replace("#", "")
+                                  .replace("**", "")  # Remove markdown bold
+                                  .strip()
+                                  .rstrip(":"))
+                    
+                    # Remove numbering if present
+                    heading_text = re.sub(r'^\d+\.\s*', '', heading_text)
+                    
+                    doc.add_heading(heading_text, level=1)
+                    
+                    # Add the rest of the lines as content
+                    content_lines = lines[1:]
+                else:
+                    # This is regular content
+                    content_lines = lines
+                
+                # Process content lines
+                for line in content_lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                        
+                    # Check if this is a bullet point
+                    if line.startswith(("-", "*", "•")) or re.match(r'^\d+\.', line):
+                        # Clean bullet text and add as bullet point
+                        bullet_text = re.sub(r'^[-*•\d+\.]\s*', '', line)
+                        # Remove markdown formatting for DOCX
+                        bullet_text = re.sub(r'\*\*(.*?)\*\*', r'\1', bullet_text)  # Remove bold
+                        bullet_text = re.sub(r'\*(.*?)\*', r'\1', bullet_text)      # Remove italic
+                        p = doc.add_paragraph(bullet_text, style='List Bullet')
+                    else:
+                        # Add as regular paragraph, cleaning markdown
+                        clean_line = re.sub(r'\*\*(.*?)\*\*', r'\1', line)  # Remove bold markdown
+                        clean_line = re.sub(r'\*(.*?)\*', r'\1', clean_line)  # Remove italic markdown
+                        doc.add_paragraph(clean_line)
+                
+                # Add spacing between sections
+                doc.add_paragraph()
+
+            # Save DOCX to buffer
+            buffer = io.BytesIO()
+            doc.save(buffer)
+            docx_content = buffer.getvalue()
+
+            # Upload DOCX
+            container_client = self.blob_service_client.get_container_client(
+                self.config.storage_recordings_container
+            )
+            blob_client = container_client.get_blob_client(blob_url)
+
+            blob_client.upload_blob(docx_content, overwrite=True)
+            return blob_client.url
+
+        except Exception as e:
+            logger.error(f"Error generating/uploading DOCX: {str(e)}")
+            raise StorageServiceError(f"Error generating/uploading DOCX: {str(e)}") from e
