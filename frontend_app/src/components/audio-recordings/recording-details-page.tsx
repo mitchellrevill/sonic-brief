@@ -14,8 +14,10 @@ import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { AnalysisRefinementChat } from "@/components/analysis-refinement/analysis-refinement-chat";
 import { FloatingAnalysisChat } from "@/components/analysis-refinement/floating-analysis-chat";
+import { AnalysisDocumentViewer } from "@/components/analysis/analysis-document-viewer";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { fetchCategories, fetchSubcategories } from "@/api/prompt-management";
+import { updateAnalysisDocument } from "@/lib/api";
 import { isAudioFile, getFileNameFromPath, getAudioDurationFromUrl } from "@/lib/file-utils";
 import { useState, useEffect } from "react";
 import {
@@ -44,6 +46,23 @@ import { JobSharingInfo } from "./job-sharing-info";
 import { JobDeleteDialog } from "./job-delete-dialog";
 import { useIsMobile } from "@/components/ui/use-mobile";
 
+// Helper function to extract file extension from URL (handles query parameters)
+const getFileExtension = (url: string | null): string => {
+  if (!url) return '';
+  try {
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname;
+    const lastDot = pathname.lastIndexOf('.');
+    return lastDot !== -1 ? pathname.substring(lastDot + 1).toLowerCase() : '';
+  } catch {
+    // Fallback for non-URL paths
+    const lastDot = url.lastIndexOf('.');
+    const questionMark = url.indexOf('?');
+    const endPos = questionMark !== -1 ? questionMark : url.length;
+    return lastDot !== -1 && lastDot < endPos ? url.substring(lastDot + 1, endPos).toLowerCase() : '';
+  }
+};
+
 interface ExtendedAudioRecording extends AudioRecording {
   analysis_text?: string;
   file_name?: string;
@@ -64,11 +83,17 @@ const copyToClipboard = async (text: string, label: string = "Text") => {
   }
 };
 
-export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
+export function RecordingDetailsPage({ recording: initialRecording }: RecordingDetailsPageProps) {
+  const [recording, setRecording] = useState<ExtendedAudioRecording>(initialRecording);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
   const [isDurationLoading, setIsDurationLoading] = useState(false);
+
+  // Update local state when the prop changes
+  useEffect(() => {
+    setRecording(initialRecording);
+  }, [initialRecording]);
 
   // Mobile detection hook for restricting downloads on mobile devices
   const isMobile = useIsMobile();
@@ -172,6 +197,34 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
       toast.error(`Failed to download ${fileName}`);
     }
   };
+
+  // Handle saving analysis document updates
+  const handleSaveAnalysis = async (updatedContent: string): Promise<void> => {
+    try {
+      console.log('Saving analysis with content:', updatedContent.substring(0, 100) + '...');
+      const response = await updateAnalysisDocument(recording.id, updatedContent);
+      
+      if (response.status === 'success') {
+        console.log('Save successful, updating local state');
+        // Update the local recording state to reflect the changes
+        setRecording(prevRecording => ({
+          ...prevRecording,
+          analysis_text: updatedContent,
+          analysis_file_path: response.document_url || prevRecording.analysis_file_path
+        }));
+        
+        toast.success('Analysis document updated successfully');
+      } else {
+        throw new Error(response.message || 'Failed to update analysis document');
+      }
+    } catch (error) {
+      console.error('Error saving analysis:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to save changes';
+      toast.error(errorMessage);
+      throw error; // Re-throw to let the component handle the error state
+    }
+  };
+
   // Only initialize audio player if file path exists
   const {
     audioRef,
@@ -499,44 +552,44 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
                       </div>
                     )}
                   </TabsContent>                  <TabsContent value="analysis" className="mt-0 space-y-4">
-                    {recording.analysis_text ? (
-                      <div className="space-y-6">                        {/* Original Analysis */}
-                        <div className="animate-in slide-in-from-bottom duration-700">                          <div className="rounded-lg bg-muted/50 p-4 h-[600px] lg:h-[700px] xl:h-[800px] overflow-y-auto space-y-4 border border-border/50">
-                            {recording.analysis_text
-                              .split("\n\n")
-                              .map((section: string, index: number) => {
-                                const lines = section.split("\n");
-                                const title = lines[0];
-                                const content = lines.slice(1);
+                    {/* Debug logging for analysis data */}
+                    {import.meta.env.DEV && (() => {
+                      const hasAnalysisText = recording.analysis_text !== undefined && recording.analysis_text !== null && recording.analysis_text !== '';
+                      const filePath = recording.analysis_file_path;
+                      const fileExtension = getFileExtension(filePath);
+                      const fileEndsWithDocx = fileExtension === 'docx';
+                      const isEditable = filePath ? fileEndsWithDocx : hasAnalysisText;
+                      
+                      console.log('Recording analysis debug:', {
+                        analysis_file_path: filePath,
+                        analysis_text: recording.analysis_text,
+                        analysis_text_type: typeof recording.analysis_text,
+                        hasAnalysisText,
+                        fileExtension,
+                        fileEndsWithDocx,
+                        isEditable
+                      });
+                      return null;
+                    })()}
+                    
 
-                                return (
-                                  <div key={index} className="space-y-2 animate-in fade-in duration-500" style={{ animationDelay: `${index * 100}ms` }}>
-                                    <h4 className="font-semibold text-foreground">
-                                      {title}
-                                    </h4>
-                                    <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1 ml-4">
-                                      {content.map((point: string, subIndex: number) => (
-                                        <li key={subIndex}>{point}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                );
-                              })}
-                          </div>
-
-                          {recording.analysis_file_path && (
-                            <Button
-                              onClick={() => handleDownload(recording.analysis_file_path!, "Analysis PDF")}
-                              variant="outline"
-                              className="w-full transition-all duration-200 hover:scale-105 animate-in fade-in duration-500 delay-300"
-                            >
-                              <Download className="mr-2 h-4 w-4" />
-                              Download Analysis PDF
-                            </Button>                          )}
-                        </div>
-
-                        {/* Analysis Refinement Chat removed - moved to sidebar */}
-                      </div>
+                    
+                    {/* Show analysis if we have either text or file path */}
+                    {(recording.analysis_text && recording.analysis_text.trim() !== '') || recording.analysis_file_path ? (
+                      <AnalysisDocumentViewer
+                        analysisText={recording.analysis_text || 'Loading analysis content...'}
+                        analysisFilePath={recording.analysis_file_path || undefined}
+                        jobId={recording.id}
+                        isEditable={
+                          // If there's a file path, check if it's a DOCX using proper URL parsing
+                          recording.analysis_file_path ? 
+                            getFileExtension(recording.analysis_file_path) === 'docx' :
+                            // If no file path but has analysis text, it should be editable (will create DOCX on save)
+                            !!(recording.analysis_text && recording.analysis_text.trim() !== '')
+                        }
+                        onSave={handleSaveAnalysis}
+                        onDownload={handleDownload}
+                      />
                     ) : (
                       <div className="flex flex-col items-center justify-center py-12 space-y-4 animate-in fade-in duration-500">
                         <div className="rounded-full bg-muted p-3">
@@ -795,8 +848,6 @@ export function RecordingDetailsPage({ recording }: RecordingDetailsPageProps) {
         }}
       />
 
-      {/* Retention Disclaimer - Always show on Recording Details page */}
-      <RetentionDisclaimer />
     </div>
   );
 }

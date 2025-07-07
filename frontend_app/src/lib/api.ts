@@ -1752,3 +1752,102 @@ export async function trackAnalyticsEvent(eventData: AnalyticsEventRequest): Pro
   }
 }
 
+// Analysis Document Update Types
+interface AnalysisDocumentUpdateRequest {
+  html_content: string;
+  format?: string; // "docx" or "html"
+}
+
+interface AnalysisDocumentUpdateResponse {
+  status: string;
+  message: string;
+  document_url: string;
+  updated_at: string;
+}
+
+/**
+ * Update an analysis document for a job
+ */
+export async function updateAnalysisDocument(
+  jobId: string, 
+  textContent: string
+): Promise<AnalysisDocumentUpdateResponse> {
+  const token = localStorage.getItem("token");
+  
+  if (!token) {
+    throw new Error("Authentication token not found");
+  }
+
+  // Convert plain text to basic HTML for the backend
+  const htmlContent = textContent
+    .split('\n\n')
+    .map(section => {
+      const lines = section.split('\n');
+      if (lines.length === 0) return '';
+      
+      const firstLine = lines[0].trim();
+      const isHeading = firstLine.endsWith(':') || 
+                       firstLine.length < 100 || 
+                       /^[A-Z][A-Z\s]*:?$/.test(firstLine);
+      
+      if (isHeading) {
+        const heading = `<h3>${firstLine.replace(':', '')}</h3>`;
+        const content = lines.slice(1)
+          .filter(line => line.trim())
+          .map(line => {
+            if (line.startsWith('•') || line.startsWith('-') || /^\d+\./.test(line)) {
+              return `<li>${line.replace(/^[•\-\d+\.]\s*/, '')}</li>`;
+            }
+            return `<p>${line}</p>`;
+          });
+        
+        const hasListItems = content.some(c => c.startsWith('<li>'));
+        if (hasListItems) {
+          const listItems = content.filter(c => c.startsWith('<li>')).join('');
+          const paragraphs = content.filter(c => c.startsWith('<p>')).join('');
+          return `${heading}${paragraphs ? paragraphs : ''}<ul>${listItems}</ul>`;
+        }
+        return `${heading}${content.join('')}`;
+      } else {
+        return lines
+          .filter(line => line.trim())
+          .map(line => {
+            if (line.startsWith('•') || line.startsWith('-') || /^\d+\./.test(line)) {
+              return `<li>${line.replace(/^[•\-\d+\.]\s*/, '')}</li>`;
+            }
+            return `<p>${line}</p>`;
+          })
+          .join('');
+      }
+    })
+    .filter(section => section.trim())
+    .join('');
+
+  const requestBody: AnalysisDocumentUpdateRequest = {
+    html_content: htmlContent,
+    format: "docx"
+  };
+
+  try {
+    const response = await fetch(`${JOBS_API}/${jobId}/analysis-document`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `HTTP ${response.status}: Failed to update analysis document`);
+    }
+
+    const result: AnalysisDocumentUpdateResponse = await response.json();
+    return result;
+  } catch (error) {
+    console.error("Error updating analysis document:", error);
+    throw error;
+  }
+}
+

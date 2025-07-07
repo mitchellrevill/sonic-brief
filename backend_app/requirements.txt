@@ -25,6 +25,7 @@ python-dotenv==1.0.1
 python-jose[cryptography]==3.3.0
 tenacity==8.2.3
 psutil==5.9.8
+python-docx==0.8.11
 
 # Additional dependencies for production deployment
 watchdog==3.0.0
