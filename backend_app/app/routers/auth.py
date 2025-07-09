@@ -767,11 +767,8 @@ async def change_user_password(
         )
 
 @router.post("/microsoft-sso")
-async def microsoft_sso_auth(request: Request, current_user: Dict[str, Any] = Depends(get_current_user)):
-    """
-    Authenticate or register a user using Microsoft SSO login response.
-    Accepts the full Microsoft login response object.
-    """
+async def microsoft_sso_auth(request: Request):
+    """Authenticate or register a user using Microsoft SSO login response."""
     try:
         data = await request.json()
         # Accept the full Microsoft login response
