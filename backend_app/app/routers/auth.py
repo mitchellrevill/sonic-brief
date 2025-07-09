@@ -310,12 +310,11 @@ async def get_user_by_id(
     current_user: Dict[str, Any] = Depends(require_user_view_access)
 ):
     """
-    Get a specific user by ID (Admin only)
+    Get a specific user by ID (requires user viewing capability)
     """
     try:
         config = AppConfig()
         cosmos_db = get_cosmos_db(config)
-        
         # Get user by ID
         user = await cosmos_db.get_user_by_id(user_id)
         if not user:
@@ -323,12 +322,9 @@ async def get_user_by_id(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found"
             )
-        
         # Remove sensitive info
         user.pop("hashed_password", None)
-        
         return {"status": 200, "user": user}
-        
     except HTTPException:
         raise
     except Exception as e:
@@ -339,7 +335,7 @@ async def get_user_by_id(
         )
 
 @router.patch("/users/{user_id}")
-async def update_user_permission(user_id: str, update_data: dict = Body(...)):
+async def update_user_permission(user_id: str, update_data: dict = Body(...), current_user: Dict[str, Any] = Depends(require_admin_user)):
     try:
         config = AppConfig()
         cosmos_db = get_cosmos_db(config)
@@ -356,7 +352,7 @@ async def update_user_permission(user_id: str, update_data: dict = Body(...)):
         from fastapi import Query
 
 @router.get("/users/by-email")
-async def get_user_by_email(email: str = Query(..., description="User's email address")):
+async def get_user_by_email(email: str = Query(..., description="User's email address"), current_user: Dict[str, Any] = Depends(require_user_view_access)):
     try:
         config = AppConfig()
         cosmos_db = get_cosmos_db(config)
@@ -771,7 +767,7 @@ async def change_user_password(
         )
 
 @router.post("/microsoft-sso")
-async def microsoft_sso_auth(request: Request):
+async def microsoft_sso_auth(request: Request, current_user: Dict[str, Any] = Depends(get_current_user)):
     """
     Authenticate or register a user using Microsoft SSO login response.
     Accepts the full Microsoft login response object.
