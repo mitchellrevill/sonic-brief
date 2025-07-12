@@ -96,3 +96,8 @@ class SystemHealthResponse(BaseModel):
     timestamp: str
     metrics: SystemHealthMetrics
     services: Dict[str, str]  # service_name: status
+
+
+class JobAnalyticsResponse(BaseModel):
+    jobs: List[Dict[str, Any]]
+    count: int

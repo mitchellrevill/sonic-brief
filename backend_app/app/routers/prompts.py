@@ -38,6 +38,8 @@ class CategoryResponse(CategoryBase):
 class SubcategoryBase(BaseModel):
     name: str
     prompts: Dict[str, str]
+    preSessionTalkingPoints: Optional[list] = []
+    inSessionTalkingPoints: Optional[list] = []
 
 
 class SubcategoryCreate(SubcategoryBase):
@@ -329,6 +331,8 @@ async def create_subcategory(
             "category_id": subcategory.category_id,
             "name": subcategory.name,
             "prompts": subcategory.prompts,
+            "preSessionTalkingPoints": subcategory.preSessionTalkingPoints or [],
+            "inSessionTalkingPoints": subcategory.inSessionTalkingPoints or [],
             "created_at": timestamp,
             "updated_at": timestamp,
         }
@@ -464,6 +468,8 @@ async def update_subcategory(
         subcategory_data = subcategories[0]
         subcategory_data["name"] = subcategory.name
         subcategory_data["prompts"] = subcategory.prompts
+        subcategory_data["preSessionTalkingPoints"] = subcategory.preSessionTalkingPoints or []
+        subcategory_data["inSessionTalkingPoints"] = subcategory.inSessionTalkingPoints or []
         subcategory_data["updated_at"] = int(
             datetime.now(timezone.utc).timestamp() * 1000
         )
@@ -526,6 +532,8 @@ class PromptSubcategoryResponse(BaseModel):
     subcategory_name: str
     subcategory_id: str
     prompts: Dict[str, str]
+    preSessionTalkingPoints: Optional[list] = []
+    inSessionTalkingPoints: Optional[list] = []
 
 
 class PromptCategoryResponse(BaseModel):
@@ -584,6 +592,8 @@ async def retrieve_prompts(
                             "subcategory_name": subcategory["name"],
                             "subcategory_id": subcategory["id"],
                             "prompts": subcategory["prompts"],
+                            "preSessionTalkingPoints": subcategory.get("preSessionTalkingPoints", []),
+                            "inSessionTalkingPoints": subcategory.get("inSessionTalkingPoints", []),
                         }
                     )
             results.append(category_data)

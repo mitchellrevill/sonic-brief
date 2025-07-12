@@ -15,7 +15,8 @@ from app.models.analytics_models import (
     UserDetailsResponse,
     ExportRequest,
     ExportResponse,
-    SystemHealthResponse
+    SystemHealthResponse,
+    JobAnalyticsResponse
 )
 from app.routers.auth import get_current_user, require_analytics_access, require_user_view_access
 from app.middleware.permission_middleware import get_current_user_id
@@ -566,7 +567,28 @@ async def get_user_session_duration(
         )
 
 
-
+@router.get("/analytics/jobs", response_model=JobAnalyticsResponse)
+async def get_recent_jobs(
+    limit: int = Query(10, ge=1, le=100),
+    prompt_id: Optional[str] = Query(None),
+    current_user: Dict[str, Any] = Depends(require_analytics_access)
+):
+    """
+    Get recent jobs for analytics dashboard (Admin only)
+    Optionally filter by prompt_id
+    """
+    try:
+        config = AppConfig()
+        cosmos_db = get_cosmos_db(config)
+        analytics_service = AnalyticsService(cosmos_db)
+        jobs = await analytics_service.get_recent_jobs(limit=limit, prompt_id=prompt_id)
+        return {"jobs": jobs, "count": len(jobs)}
+    except Exception as e:
+        logger.error(f"Error getting recent jobs: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting recent jobs: {str(e)}"
+        )
 
 
 @router.get("/system/health", response_model=SystemHealthResponse)
