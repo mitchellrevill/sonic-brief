@@ -537,3 +537,28 @@ class AnalyticsService:
             analytics["usage_patterns"]["most_used_transcription_method"] = most_used[0]
         
         return analytics
+
+    async def get_recent_jobs(self, limit: int = 10, prompt_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get recent jobs for analytics dashboard, optionally filtered by prompt_id
+        """
+        try:
+            query = "SELECT * FROM c WHERE c.type = 'job'"
+            parameters = []
+            if prompt_id:
+                query += " AND c.prompt_id = @prompt_id"
+                parameters.append({"name": "@prompt_id", "value": prompt_id})
+            query += " ORDER BY c.created_at DESC"
+            jobs = []
+            for item in self.cosmos_db.analytics_container.query_items(
+                query=query,
+                parameters=parameters,
+                enable_cross_partition_query=True
+            ):
+                jobs.append(item)
+                if len(jobs) >= limit:
+                    break
+            return jobs
+        except Exception as e:
+            self.logger.error(f"Error fetching recent jobs: {str(e)}")
+            return []
