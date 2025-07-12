@@ -20,6 +20,8 @@ interface Subcategory {
   subcategory_name: string;
   subcategory_id: string;
   prompts: Prompt;
+  preSessionTalkingPoints?: any[];
+  inSessionTalkingPoints?: any[];
 }
 
 interface Category {
@@ -158,6 +160,8 @@ export interface UpdateSubcategoryArgs {
   subcategoryId: string | undefined;
   name: string;
   prompts: Record<string, string>;
+  preSessionTalkingPoints?: any[];
+  inSessionTalkingPoints?: any[];
 }
 
 export async function updateSubcategory({

@@ -16,6 +16,30 @@ import {
 import MDPreview from "@uiw/react-markdown-preview";
 import MDEditor from "@uiw/react-md-editor";
 
+// Hook to detect theme
+function useTheme() {
+  const [isDark, setIsDark] = useState(false);
+  
+  useEffect(() => {
+    const checkTheme = () => {
+      setIsDark(document.documentElement.classList.contains('dark'));
+    };
+    
+    checkTheme();
+    
+    // Watch for theme changes
+    const observer = new MutationObserver(checkTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class']
+    });
+    
+    return () => observer.disconnect();
+  }, []);
+  
+  return isDark;
+}
+
 interface MarkdownEditorProps {
   value?: Record<string, string>;
   onChange: (value: Record<string, string>) => void;
@@ -26,6 +50,7 @@ export function MarkdownEditor({ value = {}, onChange }: MarkdownEditorProps) {
     objectToPromptsArray(value),
   );
   const [activeTab, setActiveTab] = useState("edit");
+  const isDark = useTheme();
 
   useEffect(() => {
     const incomingPromptsArray = objectToPromptsArray(value);
@@ -117,16 +142,20 @@ export function MarkdownEditor({ value = {}, onChange }: MarkdownEditorProps) {
                 <Label htmlFor={`prompt-value-${index}`}>
                   Prompt Content (Markdown)
                 </Label>
-                <MDEditor
-                  id={`prompt-value-${index}`}
-                  value={prompt.value}
-                  onChange={(val) => handleValueChange(index, val || "")}
-                  preview="edit"
-                  height={200}
-                  textareaProps={{
-                    placeholder: "Enter prompt content using Markdown",
-                  }}
-                />
+                <div data-color-mode={isDark ? "dark" : "light"} className="w-md-editor-theme">
+                  <MDEditor
+                    id={`prompt-value-${index}`}
+                    value={prompt.value}
+                    onChange={(val) => handleValueChange(index, val || "")}
+                    preview="edit"
+                    height={200}
+                    data-color-mode={isDark ? "dark" : "light"}
+                    className="!bg-transparent [&_.w-md-editor]:!bg-white dark:[&_.w-md-editor]:!bg-gray-900 [&_.w-md-editor-text-container]:!bg-white dark:[&_.w-md-editor-text-container]:!bg-gray-900 [&_.w-md-editor-text-container_.w-md-editor-text-textarea]:!bg-white dark:[&_.w-md-editor-text-container_.w-md-editor-text-textarea]:!bg-gray-900 [&_.w-md-editor-text-container_.w-md-editor-text-textarea]:!text-gray-900 dark:[&_.w-md-editor-text-container_.w-md-editor-text-textarea]:!text-gray-100 [&_.w-md-editor-text-container_.w-md-editor-text-textarea]:!border-gray-300 dark:[&_.w-md-editor-text-container_.w-md-editor-text-textarea]:!border-gray-600"
+                    textareaProps={{
+                      placeholder: "Enter prompt content using Markdown",
+                    }}
+                  />
+                </div>
                 {!prompt.value.trim() && index < prompts.length - 1 && (
                   <p className="text-destructive text-xs">
                     Value cannot be empty.
