@@ -149,9 +149,9 @@ export function PromptManagementSidebar({
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+      <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+          <h3 className="font-semibold text-foreground">
             Prompt Library
           </h3>
         </div>
@@ -254,13 +254,13 @@ export function PromptManagementSidebar({
                     className={`flex items-center px-2 py-1.5 rounded-md cursor-pointer transition-colors group ${
                       isSelected 
                         ? "bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300" 
-                        : "hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                        : "hover:bg-muted text-muted-foreground"
                     }`}
                     onClick={() => handleCategoryClick(category)}
                   >
                     {/* Expand/Collapse Button */}
                     <button
-                      className="mr-1 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
+                      className="mr-1 p-0.5 rounded hover:bg-muted"
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleCategory(categoryId);
@@ -308,7 +308,7 @@ export function PromptManagementSidebar({
                             className={`flex items-center px-2 py-1 rounded-md cursor-pointer transition-colors ${
                               isSubSelected 
                                 ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400" 
-                                : "hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-900 dark:text-white"
+                                : "hover:bg-muted text-foreground"
                             }`}
                             onClick={() => handleSubcategoryClick(subcategory)}
                           >
@@ -331,7 +331,7 @@ export function PromptManagementSidebar({
       </div>
 
       {/* Footer */}
-      <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+      <div className="p-4 border-t border-border">
         <div className="text-xs text-blue-600 dark:text-blue-400">
           {categories.length} categories • {subcategories.length} subcategories
         </div>

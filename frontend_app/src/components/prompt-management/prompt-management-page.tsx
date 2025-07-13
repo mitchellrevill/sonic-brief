@@ -6,9 +6,8 @@ import { Plus, Search } from "lucide-react";
 import { PromptManagementSidebar } from "@/components/prompt-management/prompt-management-sidebar";
 import { PromptBrowseView } from "@/components/prompt-management/prompt-browse-view";
 import { FocusedEditor } from "@/components/prompt-management/focused-editor";
-import { PromptAnalyticsDashboard } from "@/components/prompt-management/prompt-analytics-dashboard";
 
-const TABS = ["Browse", "Editor", "Analytics"] as const;
+const TABS = ["Browse", "Editor"] as const;
 type TabType = typeof TABS[number];
 
 function PromptManagementHeader() {
@@ -67,7 +66,7 @@ function PromptManagementContent() {
         <CardContent className="p-0">
           <div className="flex min-h-[600px]">
             {/* Sidebar */}
-            <div className="w-80 border-r bg-white dark:bg-black">
+            <div className="w-80 border-r bg-background">
               <PromptManagementSidebar
                 selectedCategory={selectedCategory}
                 setSelectedCategory={setSelectedCategory}
@@ -78,7 +77,7 @@ function PromptManagementContent() {
             </div>
 
             {/* Main Content */}
-            <div className="flex-1 bg-white dark:bg-black overflow-auto">
+            <div className="flex-1 bg-background overflow-auto">
               {activeTab === "Browse" && (
                 <PromptBrowseView
                   selectedCategory={selectedCategory}
@@ -102,12 +101,6 @@ function PromptManagementContent() {
                 />
               )}
               
-              {activeTab === "Analytics" && (
-                <PromptAnalyticsDashboard
-                  selectedCategory={selectedCategory}
-                  selectedSubcategory={selectedSubcategory}
-                />
-              )}
             </div>
           </div>
         </CardContent>

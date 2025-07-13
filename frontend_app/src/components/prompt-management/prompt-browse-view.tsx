@@ -54,12 +54,12 @@ export function PromptBrowseView({
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-white dark:bg-black">
+    <div className="flex-1 flex flex-col bg-background">
       {/* Prompt Header */}
       <div className="p-6 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+            <h1 className="text-2xl font-bold text-foreground mb-2">
               {selectedSubcategory.name}
             </h1>
             <div className="flex items-center space-x-2">
@@ -108,7 +108,7 @@ export function PromptBrowseView({
           <>
             <Card className="mb-6">
               <CardHeader>
-                <CardTitle className="text-lg text-gray-900 dark:text-white">Prompt Content</CardTitle>
+                <CardTitle className="text-lg text-foreground">Prompt Content</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="prose dark:prose-invert max-w-none">
@@ -127,25 +127,25 @@ export function PromptBrowseView({
             {/* Metadata */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg text-gray-900 dark:text-white">Metadata</CardTitle>
+                <CardTitle className="text-lg text-foreground">Metadata</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="font-medium text-blue-600 dark:text-blue-400">Length:</span>
-                    <p className="text-gray-900 dark:text-white">{promptContent.length} characters</p>
+                    <p className="text-foreground">{promptContent.length} characters</p>
                   </div>
                   <div>
                     <span className="font-medium text-blue-600 dark:text-blue-400">Words:</span>
-                    <p className="text-gray-900 dark:text-white">{promptContent.split(/\s+/).length} words</p>
+                    <p className="text-foreground">{promptContent.split(/\s+/).length} words</p>
                   </div>
                   <div>
                     <span className="font-medium text-blue-600 dark:text-blue-400">Lines:</span>
-                    <p className="text-gray-900 dark:text-white">{promptContent.split('\n').length} lines</p>
+                    <p className="text-foreground">{promptContent.split('\n').length} lines</p>
                   </div>
                   <div>
                     <span className="font-medium text-blue-600 dark:text-blue-400">Last Modified:</span>
-                    <p className="text-gray-900 dark:text-white">
+                    <p className="text-foreground">
                       {selectedSubcategory.updated_at 
                         ? new Date(selectedSubcategory.updated_at * 1000).toLocaleDateString()
                         : 'Unknown'

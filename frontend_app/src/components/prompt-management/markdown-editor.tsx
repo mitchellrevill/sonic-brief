@@ -150,7 +150,7 @@ export function MarkdownEditor({ value = {}, onChange }: MarkdownEditorProps) {
                     preview="edit"
                     height={200}
                     data-color-mode={isDark ? "dark" : "light"}
-                    className="!bg-transparent [&_.w-md-editor]:!bg-white dark:[&_.w-md-editor]:!bg-gray-900 [&_.w-md-editor-text-container]:!bg-white dark:[&_.w-md-editor-text-container]:!bg-gray-900 [&_.w-md-editor-text-container_.w-md-editor-text-textarea]:!bg-white dark:[&_.w-md-editor-text-container_.w-md-editor-text-textarea]:!bg-gray-900 [&_.w-md-editor-text-container_.w-md-editor-text-textarea]:!text-gray-900 dark:[&_.w-md-editor-text-container_.w-md-editor-text-textarea]:!text-gray-100 [&_.w-md-editor-text-container_.w-md-editor-text-textarea]:!border-gray-300 dark:[&_.w-md-editor-text-container_.w-md-editor-text-textarea]:!border-gray-600"
+                    className="!bg-transparent [&_.w-md-editor]:!bg-background [&_.w-md-editor-text-container]:!bg-background [&_.w-md-editor-text-container_.w-md-editor-text-textarea]:!bg-background [&_.w-md-editor-text-container_.w-md-editor-text-textarea]:!text-foreground [&_.w-md-editor-text-container_.w-md-editor-text-textarea]:!border-border"
                     textareaProps={{
                       placeholder: "Enter prompt content using Markdown",
                     }}
