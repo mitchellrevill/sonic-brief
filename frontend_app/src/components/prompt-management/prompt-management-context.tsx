@@ -11,24 +11,12 @@ import {
   fetchSubcategories,
   updateCategory,
   updateSubcategory,
-} from "@/lib/api"
+  type CategoryResponse,
+  type SubcategoryResponse,
+} from "@/api/prompt-management"
 
-export interface Category {
-  category_id: string
-  id?: string
-  name: string
-  created_at?: string
-  updated_at?: string
-}
-
-export interface Subcategory {
-  id: string
-  name: string
-  category_id: string
-  prompts: Record<string, string>
-  created_at: number
-  updated_at: number
-}
+export type Category = CategoryResponse
+export type Subcategory = SubcategoryResponse
 
 interface PromptManagementContextType {
   categories: Array<Category>
@@ -66,7 +54,7 @@ export function PromptManagementProvider({ children }: { children: React.ReactNo
       setCategories(categoriesData)
 
       if (selectedCategory) {
-        const subcategoriesData = await fetchSubcategories(selectedCategory.category_id)
+        const subcategoriesData = await fetchSubcategories(selectedCategory.id)
         setSubcategories(subcategoriesData)
       } else {
         const allSubcategories = await fetchSubcategories()
@@ -107,7 +95,13 @@ export function PromptManagementProvider({ children }: { children: React.ReactNo
       setLoading(true)
       setError(null)
       try {
-        await createSubcategory(name, categoryId, prompts)
+        await createSubcategory({
+          name,
+          categoryId,
+          prompts,
+          preSessionTalkingPoints: [],
+          inSessionTalkingPoints: []
+        })
         await refreshData()
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred while creating subcategory")
@@ -125,7 +119,10 @@ export function PromptManagementProvider({ children }: { children: React.ReactNo
       setLoading(true)
       setError(null)
       try {
-        await updateCategory(categoryId, name)
+        await updateCategory({
+          categoryId,
+          name
+        })
         await refreshData()
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred while updating category")
@@ -143,7 +140,13 @@ export function PromptManagementProvider({ children }: { children: React.ReactNo
       setLoading(true)
       setError(null)
       try {
-        await updateSubcategory(subcategoryId, name, prompts)
+        await updateSubcategory({
+          subcategoryId,
+          name,
+          prompts,
+          preSessionTalkingPoints: [],
+          inSessionTalkingPoints: []
+        })
         await refreshData()
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred while updating subcategory")
@@ -162,7 +165,7 @@ export function PromptManagementProvider({ children }: { children: React.ReactNo
       setError(null)
       try {
         await deleteCategory(categoryId)
-        if (selectedCategory?.category_id === categoryId) {
+        if (selectedCategory?.id === categoryId) {
           setSelectedCategory(null)
         }
         await refreshData()

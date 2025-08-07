@@ -47,6 +47,8 @@ export interface SubcategoryResponse {
   name: string;
   category_id: string;
   prompts: Prompt;
+  preSessionTalkingPoints?: any[];
+  inSessionTalkingPoints?: any[];
   created_at: number;
   updated_at: number;
 }
@@ -55,13 +57,19 @@ export async function uploadFile(
   file: File,
   prompt_category_id: string,
   prompt_subcategory_id: string,
+  preSessionFormData?: Record<string, any>,
 ): Promise<UploadResponse> {
-  console.log({ file, prompt_category_id, prompt_subcategory_id });
+  console.log({ file, prompt_category_id, prompt_subcategory_id, preSessionFormData });
 
   const formData = new FormData();
   formData.append("file", file);
   formData.append("prompt_category_id", prompt_category_id);
   formData.append("prompt_subcategory_id", prompt_subcategory_id);
+
+  // Add pre-session form data if provided
+  if (preSessionFormData && Object.keys(preSessionFormData).length > 0) {
+    formData.append("pre_session_form_data", JSON.stringify(preSessionFormData));
+  }
 
   const response = await httpClient.post(UPLOAD_API, formData, {
     headers: {
@@ -126,17 +134,23 @@ export type CreateSubcategoryArgs = {
   name: string;
   categoryId: string;
   prompts: Record<string, string>;
+  preSessionTalkingPoints?: any[];
+  inSessionTalkingPoints?: any[];
 };
 
 export async function createSubcategory({
   name,
   categoryId,
   prompts,
+  preSessionTalkingPoints = [],
+  inSessionTalkingPoints = [],
 }: CreateSubcategoryArgs): Promise<SubcategoryResponse> {
   const response = await httpClient.post(SUBCATEGORIES_API, {
     name,
     category_id: categoryId,
     prompts,
+    preSessionTalkingPoints,
+    inSessionTalkingPoints,
   });
 
   return response.data;
@@ -168,6 +182,8 @@ export async function updateSubcategory({
   subcategoryId,
   name,
   prompts,
+  preSessionTalkingPoints = [],
+  inSessionTalkingPoints = [],
 }: UpdateSubcategoryArgs): Promise<SubcategoryResponse> {
   if (!subcategoryId) {
     console.error("Subcategory ID is undefined or empty");
@@ -179,6 +195,8 @@ export async function updateSubcategory({
     {
       name,
       prompts,
+      preSessionTalkingPoints,
+      inSessionTalkingPoints,
     },
   );
 

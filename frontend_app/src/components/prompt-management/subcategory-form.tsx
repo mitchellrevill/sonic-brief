@@ -72,16 +72,20 @@ export function SubcategoryForm({
         .filter(([key]) => key),
     );
 
+    // Ensure we have at least one prompt with some content
+    const finalPrompts = Object.keys(formattedPrompts).length > 0 
+      ? formattedPrompts 
+      : { "default": "Enter your prompt content here..." };
+
     addSubcategoryMutation({
       name: values.name,
       categoryId: values.categoryId,
-      prompts: formattedPrompts,
+      prompts: finalPrompts,
     });
   };
 
-  const promptsValue = form.watch("prompts");
-  const hasValidPrompts =
-    Object.entries(promptsValue ?? {}).filter(([key]) => key.trim()).length > 0;
+  // Always allow creation since we'll provide default prompts if none are provided
+  const hasValidForm = form.watch("name")?.trim() && form.watch("categoryId");
 
   return (
     <Form {...form}>
@@ -154,7 +158,7 @@ export function SubcategoryForm({
           <Button type="button" variant="outline" onClick={closeDialog}>
             Cancel
           </Button>
-          <Button type="submit" disabled={isPending || !hasValidPrompts}>
+          <Button type="submit" disabled={isPending || !hasValidForm}>
             {isPending ? "Creating..." : "Create Subcategory"}
           </Button>
         </div>
