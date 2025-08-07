@@ -107,7 +107,7 @@ export async function registerUser(email: string, password: string): Promise<Reg
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, permission: PermissionLevel.USER }),
   });
 
   if (!response.ok) {
@@ -252,6 +252,7 @@ export async function uploadFile(
   file: File,
   prompt_category_id: string,
   prompt_subcategory_id: string,
+  preSessionFormData?: Record<string, any>,
   token?: string,
 ): Promise<UploadResponse> {
   if (!token) {
@@ -262,6 +263,11 @@ export async function uploadFile(
   formData.append("file", file);
   formData.append("prompt_category_id", prompt_category_id);
   formData.append("prompt_subcategory_id", prompt_subcategory_id);
+  
+  // Add pre-session form data if provided
+  if (preSessionFormData && Object.keys(preSessionFormData).length > 0) {
+    formData.append("pre_session_form_data", JSON.stringify(preSessionFormData));
+  }
   const response = await fetch(UPLOAD_API, {
     method: "POST",
     headers: {
@@ -1568,7 +1574,12 @@ export async function microsoftSsoLogin(mappedResponse: any): Promise<any> {
     const errorData = await backendResponse.json();
     throw new Error(errorData.message || "Login failed");
   }
-  return await backendResponse.json();
+  const result = await backendResponse.json();
+  // Ensure base permission is 'User' if not set by backend
+  if (!result.permission) {
+    result.permission = PermissionLevel.USER;
+  }
+  return result;
 }
 
 // New function to fetch audio recordings
