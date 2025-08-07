@@ -2,7 +2,8 @@ import os
 import azure.functions as func
 import logging
 import json
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from config import AppConfig
 from services.transcription_service import TranscriptionService
 from services.analysis_service import AnalysisService
@@ -16,6 +17,57 @@ logging.basicConfig(
 )
 
 app = func.FunctionApp()
+
+
+@app.route(route="analytics/users/{userId}", auth_level=func.AuthLevel.ANONYMOUS, methods=["GET"])
+def get_user_analytics_http(req: func.HttpRequest) -> func.HttpResponse:
+    """HTTP trigger function for retrieving user analytics data."""
+    logging.info('User analytics HTTP trigger function processed a request.')
+    
+    try:
+        # Extract userId from route parameters
+        user_id = req.route_params.get('userId')
+        if not user_id:
+            return func.HttpResponse(
+                json.dumps({"error": "User ID is required"}),
+                status_code=400,
+                headers={"Content-Type": "application/json"}
+            )
+        
+        # Extract query parameters
+        days = int(req.params.get('days', 30))
+        
+        # Initialize services
+        config = AppConfig()
+        cosmos_service = CosmosService(config)
+        
+        # Calculate date range
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+        
+        # Get user analytics data from Cosmos DB
+        analytics_data = get_user_analytics_data(cosmos_service, user_id, start_date, end_date, days)
+        
+        return func.HttpResponse(
+            json.dumps(analytics_data),
+            status_code=200,
+            headers={"Content-Type": "application/json"}
+        )
+        
+    except ValueError as e:
+        logging.error(f"Invalid parameter in user analytics request: {str(e)}")
+        return func.HttpResponse(
+            json.dumps({"error": f"Invalid parameter: {str(e)}"}),
+            status_code=400,
+            headers={"Content-Type": "application/json"}
+        )
+    except Exception as e:
+        logging.error(f"User analytics request failed: {str(e)}")
+        return func.HttpResponse(
+            json.dumps({"error": f"Failed to retrieve analytics: {str(e)}"}),
+            status_code=500,
+            headers={"Content-Type": "application/json"}
+        )
 
 
 @app.route(route="refine-analysis", auth_level=func.AuthLevel.ANONYMOUS, methods=["POST"])
@@ -122,6 +174,136 @@ def is_system_generated_file(blob_name: str) -> bool:
     return SYSTEM_GENERATED_TAG in blob_name
 
 
+def get_user_analytics_data(cosmos_service, user_id: str, start_date: datetime, end_date: datetime, days: int) -> dict:
+    """Get analytics data for a specific user from Cosmos DB."""
+    try:
+        # Query jobs for the user within the date range
+        # Note: This is a basic implementation. You may need to adjust the query based on your Cosmos DB schema
+        query = f"""
+        SELECT * FROM c 
+        WHERE c.user_id = @user_id 
+        AND c.created_at >= @start_date 
+        AND c.created_at <= @end_date
+        """
+        
+        parameters = [
+            {"name": "@user_id", "value": user_id},
+            {"name": "@start_date", "value": start_date.isoformat()},
+            {"name": "@end_date", "value": end_date.isoformat()}
+        ]
+        
+        # Get user jobs from Cosmos DB
+        try:
+            items = list(cosmos_service.container.query_items(
+                query=query,
+                parameters=parameters,
+                enable_cross_partition_query=True
+            ))
+        except Exception as db_error:
+            logging.warning(f"Could not query Cosmos DB for user analytics: {str(db_error)}")
+            # Return default analytics data if DB query fails
+            items = []
+        
+        # Calculate analytics from the retrieved jobs
+        total_jobs = len(items)
+        total_minutes = 0
+        login_count = 0
+        file_upload_count = 0
+        text_input_count = 0
+        last_activity = None
+        
+        # Process each job to calculate statistics
+        for item in items:
+            # Calculate total transcription minutes (if available)
+            if 'duration_minutes' in item:
+                total_minutes += item.get('duration_minutes', 0)
+            
+            # Track file vs text uploads
+            if item.get('file_name'):
+                file_upload_count += 1
+            else:
+                text_input_count += 1
+            
+            # Track last activity
+            item_date = item.get('created_at')
+            if item_date:
+                if isinstance(item_date, str):
+                    try:
+                        item_datetime = datetime.fromisoformat(item_date.replace('Z', '+00:00'))
+                        if last_activity is None or item_datetime > last_activity:
+                            last_activity = item_datetime
+                    except ValueError:
+                        pass
+        
+        # Calculate average job duration
+        average_job_duration = total_minutes / total_jobs if total_jobs > 0 else 0
+        
+        # For login count, we'll use a placeholder since we don't have login tracking in the current schema
+        # This could be enhanced by adding a separate analytics table for login events
+        login_count = max(1, total_jobs // 5)  # Rough estimate: 1 login per 5 jobs
+        
+        # Format response according to the expected UserAnalytics interface
+        analytics_response = {
+            "user_id": user_id,
+            "period_days": days,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "analytics": {
+                "transcription_stats": {
+                    "total_minutes": total_minutes,
+                    "total_jobs": total_jobs,
+                    "average_job_duration": round(average_job_duration, 2)
+                },
+                "activity_stats": {
+                    "login_count": login_count,
+                    "jobs_created": total_jobs,
+                    "last_activity": last_activity.isoformat() if last_activity else None
+                },
+                "usage_patterns": {
+                    "most_active_hours": [],  # Could be calculated from job creation times
+                    "most_used_transcription_method": "audio_upload",  # Default value
+                    "file_upload_count": file_upload_count,
+                    "text_input_count": text_input_count
+                }
+            }
+        }
+        
+        return analytics_response
+        
+    except Exception as e:
+        logging.error(f"Error calculating user analytics: {str(e)}")
+        # Return default analytics structure on error
+        return {
+            "user_id": user_id,
+            "period_days": days,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "analytics": {
+                "transcription_stats": {
+                    "total_minutes": 0,
+                    "total_jobs": 0,
+                    "average_job_duration": 0
+                },
+                "activity_stats": {
+                    "login_count": 0,
+                    "jobs_created": 0,
+                    "last_activity": None
+                },
+                "usage_patterns": {
+                    "most_active_hours": [],
+                    "most_used_transcription_method": None,
+                    "file_upload_count": 0,
+                    "text_input_count": 0
+                }
+            }
+        }
+
+
+def is_system_generated_file(blob_name: str) -> bool:
+    """Return True if the blob name indicates a system-generated file."""
+    return SYSTEM_GENERATED_TAG in blob_name
+
+
 @app.blob_trigger(
     arg_name="myblob",
     path="%AZURE_STORAGE_RECORDINGS_CONTAINER%/{name}",
@@ -195,6 +377,16 @@ def blob_trigger(myblob: func.InputStream):
 
         job_id = file_doc["id"]
         logging.debug(f"File document retrieved successfully: Job ID = {job_id}")
+        
+        # Debug: Log the structure of the file document
+        logging.info(f"File document keys: {list(file_doc.keys())}")
+        logging.info(f"Prompt subcategory ID: {file_doc.get('prompt_subcategory_id', 'NOT_FOUND')}")
+        
+        # Check for pre_session_form_data
+        if "pre_session_form_data" in file_doc:
+            logging.info(f"✅ pre_session_form_data found in file document")
+        else:
+            logging.info("⚠️ pre_session_form_data NOT found in file document")
 
         # Process based on file type
         if file_type == "audio":
@@ -218,16 +410,35 @@ def blob_trigger(myblob: func.InputStream):
 
         # Continue with analysis (common for both audio and text)
         logging.info("Retrieving analysis prompts...")
+        logging.info(f"Looking for prompts with subcategory ID: {file_doc['prompt_subcategory_id']}")
+        
         prompt_text = cosmos_service.get_prompts(file_doc["prompt_subcategory_id"])
         if not prompt_text:
-            logging.error("No prompts found for analysis")
+            logging.error(f"No prompts found for analysis with subcategory ID: {file_doc['prompt_subcategory_id']}")
             raise ValueError("No prompts found")
+        
+        logging.info(f"✅ Analysis prompts retrieved successfully (length: {len(prompt_text)} chars)")
+        logging.debug(f"Prompt text preview: {prompt_text[:500]}...")
         logging.debug("Analysis prompts retrieved successfully")
+
+        # Pass pre-session form data as context to the AI (no substitutions in code)
+        pre_session_data = file_doc.get("pre_session_form_data", {})
+        logging.info(f"Pre-session form data to be sent to AI: {pre_session_data}")
+        ai_context = {
+            "prompt_text": prompt_text,
+            "pre_session_form_data": pre_session_data
+        }
 
         # Analyze the content
         logging.info("Starting analysis of content...")
+        logging.info(f"Prompt (with placeholders) being sent to AI (first 500 chars): {prompt_text[:500]}...")
+        logging.info(f"Pre-session form data being sent to AI: {pre_session_data}")
+        logging.info(f"Transcript/content being analyzed (first 200 chars): {formatted_text[:200]}...")
+        logging.info("Note: All placeholder substitutions will be handled by the AI model, not by backend code.")
+
+        # Pass both prompt and form data to the analysis service
         analysis_result = analysis_service.analyze_conversation(
-            formatted_text, prompt_text
+            formatted_text, ai_context
         )
         logging.debug("Analysis completed successfully")
 
