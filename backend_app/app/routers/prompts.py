@@ -1,15 +1,201 @@
 from fastapi import APIRouter, HTTPException, Depends
-from typing import Dict, Any, Optional, List
-from pydantic import BaseModel
+from typing import Dict, Any, Optional, List, Union
+from pydantic import BaseModel, Field
 import logging
 from datetime import datetime, timezone
+import uuid
 
 from app.core.config import AppConfig, CosmosDB, get_cosmos_db, DatabaseError
 from app.routers.auth import get_current_user
+from app.routers.auth import get_current_user
+from app.services.talking_points_service import (
+    talking_points_service,
+    TalkingPointField,
+    TalkingPointSection,
+    TalkingPointsData
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 router = APIRouter(prefix="/api", tags=["prompts"])
+
+
+# Talking Points Models
+class TalkingPointField(BaseModel):
+    """Individual field within a talking point section"""
+    name: str = Field(..., description="Field name/identifier")
+    type: str = Field(..., description="Field type: text, date, markdown, checkbox, number, select")
+    value: Union[str, bool, float, None] = Field(None, description="Field value")
+    label: Optional[str] = Field(None, description="Display label for the field")
+    placeholder: Optional[str] = Field(None, description="Placeholder text for input fields")
+    description: Optional[str] = Field(None, description="Help text describing the field")
+    required: Optional[bool] = Field(False, description="Whether the field is required")
+    options: Optional[str] = Field(None, description="Comma-separated options for select fields")
+
+
+class TalkingPointSection(BaseModel):
+    """A section containing multiple fields"""
+    fields: List[TalkingPointField] = Field(default_factory=list, description="List of fields in this section")
+
+
+# Validation and conversion functions for talking points
+def validate_talking_points_structure(talking_points: List[TalkingPointSection]) -> List[Dict[str, Any]]:
+    """
+    Validate and convert talking points to database format
+    """
+    validated_points = []
+    
+    for section in talking_points:
+        validated_fields = []
+        
+        for field in section.fields:
+            # Validate field type
+            if field.type not in ['text', 'date', 'markdown', 'checkbox', 'number', 'select']:
+                raise ValueError(f"Invalid field type: {field.type}")
+            
+            # Validate field value based on type
+            validated_value = field.value
+            if field.type == 'checkbox':
+                validated_value = bool(field.value) if field.value is not None else False
+            elif field.type == 'date':
+                # Additional date validation could be added here
+                validated_value = str(field.value) if field.value is not None else ""
+            elif field.type == 'number':
+                try:
+                    validated_value = float(field.value) if field.value is not None else 0
+                except (ValueError, TypeError):
+                    validated_value = 0
+            elif field.type in ['text', 'markdown', 'select']:
+                validated_value = str(field.value) if field.value is not None else ""
+            
+            validated_fields.append({
+                "name": field.name.strip(),
+                "type": field.type,
+                "value": validated_value,
+                "label": field.label or "",
+                "placeholder": field.placeholder or "",
+                "description": field.description or "",
+                "required": field.required or False,
+                "options": field.options or ""
+            })
+        
+        if validated_fields:  # Only add sections with fields
+            validated_points.append({
+                "fields": validated_fields
+            })
+    
+    return validated_points
+
+
+def convert_talking_points_to_response(talking_points_data: List[Dict[str, Any]]) -> List[TalkingPointSection]:
+    """
+    Convert database talking points to response format
+    """
+    sections = []
+    
+    for section_data in talking_points_data:
+        fields = []
+        for field_data in section_data.get("fields", []):
+            fields.append(TalkingPointField(
+                name=field_data.get("name", ""),
+                type=field_data.get("type", "text"),
+                value=field_data.get("value"),
+                label=field_data.get("label", ""),
+                placeholder=field_data.get("placeholder", ""),
+                description=field_data.get("description", ""),
+                required=field_data.get("required", False),
+                options=field_data.get("options", "")
+            ))
+        
+        sections.append(TalkingPointSection(fields=fields))
+    
+    return sections
+
+
+def migrate_legacy_talking_points(legacy_points: list) -> list:
+    """
+    Migrate legacy talking points format to new structured format
+    
+    Args:
+        legacy_points: List of strings (old format)
+        
+    Returns:
+        List of structured talking points (new format)
+    """
+    migrated_points = []
+    
+    for i, point in enumerate(legacy_points):
+        if isinstance(point, str):
+            # Legacy format: simple string
+            migrated_points.append({
+                "fields": [
+                    {
+                        "name": f"Point {i + 1}",
+                        "type": "text",
+                        "value": point,
+                        "label": f"Point {i + 1}",
+                        "placeholder": "",
+                        "description": "",
+                        "required": False,
+                        "options": ""
+                    }
+                ]
+            })
+        elif isinstance(point, dict) and "fields" in point:
+            # Already in new format, but ensure all fields have the new properties
+            migrated_fields = []
+            for field in point.get("fields", []):
+                migrated_field = {
+                    "name": field.get("name", f"Field {len(migrated_fields) + 1}"),
+                    "type": field.get("type", "text"),
+                    "value": field.get("value", ""),
+                    "label": field.get("label", field.get("name", f"Field {len(migrated_fields) + 1}")),
+                    "placeholder": field.get("placeholder", ""),
+                    "description": field.get("description", ""),
+                    "required": field.get("required", False),
+                    "options": field.get("options", "")
+                }
+                migrated_fields.append(migrated_field)
+            migrated_points.append({"fields": migrated_fields})
+        else:
+            # Unknown format, create default text field
+            migrated_points.append({
+                "fields": [
+                    {
+                        "name": f"Point {i + 1}",
+                        "type": "text", 
+                        "value": str(point),
+                        "label": f"Point {i + 1}",
+                        "placeholder": "",
+                        "description": "",
+                        "required": False,
+                        "options": ""
+                    }
+                ]
+            })
+    
+    return migrated_points
+
+
+def ensure_talking_points_structure(subcategory_data: dict) -> dict:
+    """
+    Ensure talking points are in the correct format, migrating if necessary
+    """
+    # Migrate pre-session talking points
+    pre_session = subcategory_data.get("preSessionTalkingPoints", [])
+    if pre_session and len(pre_session) > 0:
+        # Check if it's legacy format (list of strings)
+        if isinstance(pre_session[0], str):
+            subcategory_data["preSessionTalkingPoints"] = migrate_legacy_talking_points(pre_session)
+    
+    # Migrate in-session talking points  
+    in_session = subcategory_data.get("inSessionTalkingPoints", [])
+    if in_session and len(in_session) > 0:
+        # Check if it's legacy format (list of strings)
+        if isinstance(in_session[0], str):
+            subcategory_data["inSessionTalkingPoints"] = migrate_legacy_talking_points(in_session)
+    
+    return subcategory_data
 
 
 class PromptKey(BaseModel):
@@ -38,8 +224,8 @@ class CategoryResponse(CategoryBase):
 class SubcategoryBase(BaseModel):
     name: str
     prompts: Dict[str, str]
-    preSessionTalkingPoints: Optional[list] = []
-    inSessionTalkingPoints: Optional[list] = []
+    preSessionTalkingPoints: List[TalkingPointSection] = Field(default_factory=list)
+    inSessionTalkingPoints: List[TalkingPointSection] = Field(default_factory=list)
 
 
 class SubcategoryCreate(SubcategoryBase):
@@ -291,7 +477,6 @@ async def delete_category(
         )
 
 
-# Subcategory CRUD operations
 @router.post("/subcategories", response_model=SubcategoryResponse)
 async def create_subcategory(
     subcategory: SubcategoryCreate,
@@ -322,6 +507,20 @@ async def create_subcategory(
                 detail=f"Category with id '{subcategory.category_id}' not found",
             )
 
+        # Validate and convert talking points using the service
+        try:
+            # Convert Pydantic models to dict format for validation
+            pre_session_dict = [section.dict() for section in subcategory.preSessionTalkingPoints]
+            in_session_dict = [section.dict() for section in subcategory.inSessionTalkingPoints]
+            
+            validated_pre_session = talking_points_service.validate_talking_points_structure(pre_session_dict)
+            validated_in_session = talking_points_service.validate_talking_points_structure(in_session_dict)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid talking points structure: {str(e)}"
+            )
+
         timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
         subcategory_id = f"subcategory_{timestamp}_{subcategory.name}"
 
@@ -331,8 +530,8 @@ async def create_subcategory(
             "category_id": subcategory.category_id,
             "name": subcategory.name,
             "prompts": subcategory.prompts,
-            "preSessionTalkingPoints": subcategory.preSessionTalkingPoints or [],
-            "inSessionTalkingPoints": subcategory.inSessionTalkingPoints or [],
+            "preSessionTalkingPoints": validated_pre_session,
+            "inSessionTalkingPoints": validated_in_session,
             "created_at": timestamp,
             "updated_at": timestamp,
         }
@@ -340,6 +539,10 @@ async def create_subcategory(
         created_subcategory = cosmos_db.prompts_container.create_item(
             body=subcategory_data
         )
+        
+        # Ensure proper format for response
+        created_subcategory = talking_points_service.ensure_talking_points_structure(created_subcategory)
+        
         return created_subcategory
 
     except HTTPException:
@@ -383,6 +586,9 @@ async def list_subcategories(
                 )
             )
 
+        # Ensure proper talking points structure for all subcategories
+        subcategories = [talking_points_service.ensure_talking_points_structure(sub) for sub in subcategories]
+        
         return subcategories
 
     except Exception as e:
@@ -422,7 +628,10 @@ async def get_subcategory(
                 detail=f"Subcategory with id '{subcategory_id}' not found",
             )
 
-        return subcategories[0]
+        # Ensure proper talking points structure
+        subcategory = talking_points_service.ensure_talking_points_structure(subcategories[0])
+        
+        return subcategory
 
     except HTTPException:
         raise
@@ -465,11 +674,25 @@ async def update_subcategory(
                 detail=f"Subcategory with id '{subcategory_id}' not found",
             )
 
+        # Validate and convert talking points using the service
+        try:
+            # Convert Pydantic models to dict format for validation
+            pre_session_dict = [section.dict() for section in subcategory.preSessionTalkingPoints]
+            in_session_dict = [section.dict() for section in subcategory.inSessionTalkingPoints]
+            
+            validated_pre_session = talking_points_service.validate_talking_points_structure(pre_session_dict)
+            validated_in_session = talking_points_service.validate_talking_points_structure(in_session_dict)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid talking points structure: {str(e)}"
+            )
+
         subcategory_data = subcategories[0]
         subcategory_data["name"] = subcategory.name
         subcategory_data["prompts"] = subcategory.prompts
-        subcategory_data["preSessionTalkingPoints"] = subcategory.preSessionTalkingPoints or []
-        subcategory_data["inSessionTalkingPoints"] = subcategory.inSessionTalkingPoints or []
+        subcategory_data["preSessionTalkingPoints"] = validated_pre_session
+        subcategory_data["inSessionTalkingPoints"] = validated_in_session
         subcategory_data["updated_at"] = int(
             datetime.now(timezone.utc).timestamp() * 1000
         )
@@ -477,6 +700,10 @@ async def update_subcategory(
         updated_subcategory = cosmos_db.prompts_container.upsert_item(
             body=subcategory_data
         )
+        
+        # Ensure proper format for response
+        updated_subcategory = talking_points_service.ensure_talking_points_structure(updated_subcategory)
+        
         return updated_subcategory
 
     except HTTPException:

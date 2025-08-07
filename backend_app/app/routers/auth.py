@@ -407,6 +407,7 @@ async def register_user(request: Request, current_user: Dict[str, Any] = Depends
             "type": "user",
             "email": email,
             "hashed_password": get_password_hash(password),
+            "permission": PermissionLevel.USER.value,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -823,7 +824,7 @@ async def microsoft_sso_auth(request: Request):
                 "id": str(uuid.uuid4()),
                 "email": email,
                 "password": None,
-                "permission": "user",
+                "permission": PermissionLevel.USER.value,
                 "source": "microsoft",
                 "full_name": full_name,
                 "given_name": given_name,
@@ -888,11 +889,11 @@ async def microsoft_sso_auth(request: Request):
             "message": "Microsoft SSO login successful",
             "access_token": app_access_token,
             "token_type": "bearer",
-            "permission": user.get("permission", "user"),
+            "permission": user.get("permission", PermissionLevel.USER.value),
             "user": {
                 "email": user["email"],
                 "full_name": user.get("full_name"),
-                "permission": user.get("permission", "user")
+                "permission": user.get("permission", PermissionLevel.USER.value)
             }
         }
     except Exception as e:
