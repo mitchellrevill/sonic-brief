@@ -1,4 +1,4 @@
-import { Edit, Download, Copy, Eye } from "lucide-react";
+import { Edit, Download, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -48,10 +48,6 @@ export function PromptBrowseView({
     URL.revokeObjectURL(url);
   };
 
-  const handleDuplicatePrompt = () => {
-    // TODO: Implement prompt duplication
-    console.log('Duplicate prompt:', selectedSubcategory.name);
-  };
 
   return (
     <div className="flex-1 flex flex-col bg-background">
@@ -81,15 +77,7 @@ export function PromptBrowseView({
               <Download className="h-4 w-4 mr-1" />
               Export
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleDuplicatePrompt}
-              className="border-gray-300 dark:border-gray-600"
-            >
-              <Copy className="h-4 w-4 mr-1" />
-              Duplicate
-            </Button>
+
             <Button
               size="sm"
               onClick={handleEditPrompt}

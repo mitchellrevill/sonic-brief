@@ -112,7 +112,7 @@ export function PromptManagementSidebar({
       await addSubcategory(
         newSubcategoryName.trim(),
         getId(selectedCategoryForSub),
-        {}
+        { "default": "Enter your prompt content here..." }
       );
       setNewSubcategoryName("");
       setShowNewSubcategoryDialog(false);
