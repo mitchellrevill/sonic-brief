@@ -10,6 +10,7 @@ export function SimpleUploadFlow() {
   const [currentStep, setCurrentStep] = useState<UIStep>("category-selection");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
   const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string>("");
+  const [preSessionData, setPreSessionData] = useState<Record<string, any>>({});
 
   const { data: categories } = useQuery(getPromptManagementCategoriesQuery());
   const { data: subcategories } = useQuery(getPromptManagementSubcategoriesQuery());
@@ -18,20 +19,23 @@ export function SimpleUploadFlow() {
   const selectedCategory = categories?.find(cat => cat.id === selectedCategoryId);
   const selectedSubcategory = subcategories?.find(sub => sub.id === selectedSubcategoryId);
 
-  const handleSelectionComplete = (categoryId: string, subcategoryId: string) => {
+  const handleSelectionComplete = (categoryId: string, subcategoryId: string, formData: Record<string, any>) => {
     setSelectedCategoryId(categoryId);
     setSelectedSubcategoryId(subcategoryId);
+    setPreSessionData(formData);
     setCurrentStep("recording");
   };
 
   const handleBackToSelection = () => {
     setCurrentStep("category-selection");
+    setPreSessionData({});
   };
 
   const handleUploadComplete = () => {
     // Reset the flow to start over
     setSelectedCategoryId("");
     setSelectedSubcategoryId("");
+    setPreSessionData({});
     setCurrentStep("category-selection");
   };
 
@@ -46,6 +50,7 @@ export function SimpleUploadFlow() {
         subcategoryId={selectedSubcategoryId}
         categoryName={selectedCategory.name}
         subcategoryName={selectedSubcategory.name}
+        preSessionData={preSessionData}
         onBack={handleBackToSelection}
         onUploadComplete={handleUploadComplete}
       />

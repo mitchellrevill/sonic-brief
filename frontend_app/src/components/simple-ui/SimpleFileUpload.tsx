@@ -34,44 +34,13 @@ export function SimpleFileUpload({ categoryId, subcategoryId, onUploadComplete }
   };
 
   const convertToWav = async (file: File): Promise<File> => {
-    if (!file.type.startsWith("audio/") && !file.type.startsWith("video/")) return file;
-    setIsConverting(true);
-    setConversionStep("Loading FFmpeg...");
-    setConversionProgress(10);
-    try {
-      const ffmpeg = await loadFFmpeg();
-      setConversionStep("Preparing file...");
-      setConversionProgress(25);
-      const inputName = file.name;
-      const outputName = inputName.replace(/\.[^/.]+$/, "") + ".wav";
-      const fileData = await file.arrayBuffer();
-      await ffmpeg.writeFile(inputName, new Uint8Array(fileData));
-      setConversionStep("Converting to WAV...");
-      setConversionProgress(50);
-      await ffmpeg.exec([
-        "-i", inputName,
-        "-acodec", "pcm_s16le",
-        "-ar", "16000",
-        "-ac", "1",
-        "-y",
-        outputName,
-      ]);
-      setConversionStep("Finalizing...");
-      setConversionProgress(85);
-      const outputData = await ffmpeg.readFile(outputName);
-      const wavFile = new File([outputData], outputName, { type: "audio/wav" });
-      setConversionProgress(100);
-      setIsConverting(false);
-      await ffmpeg.deleteFile(inputName);
-      await ffmpeg.deleteFile(outputName);
-      return wavFile;
-    } catch (e) {
-      setIsConverting(false);
-      setConversionStep("");
-      setConversionProgress(0);
-      toast.error("Conversion failed. Uploading original file.");
-      return file;
-    }
+    // Use shared utility for conversion
+    const { convertToWavWithFFmpeg } = await import("@/lib/ffmpegConvert");
+    return await convertToWavWithFFmpeg(file, {
+      setIsConverting,
+      setConversionProgress,
+      setConversionStep,
+    });
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {

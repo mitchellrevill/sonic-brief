@@ -6,6 +6,7 @@ function isIOS() {
 }
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { 
@@ -18,25 +19,31 @@ import {
   Clock,
   Check,
   AlertCircle,
-  Eye
+  Eye,
+  ChevronLeft,
+  ChevronRight,
+  MessageSquare
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { uploadFile, fetchAudioBlob } from "@/lib/api";
 import { convertToWavWithFFmpeg } from "@/lib/ffmpegConvert";
 import { toast } from "sonner";
 import { useRouter } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { fetchSubcategories, type SubcategoryResponse } from "@/api/prompt-management";
 
 interface RecordingInterfaceProps {
   categoryId: string;
   subcategoryId: string;
   categoryName: string;
   subcategoryName: string;
+  preSessionData?: Record<string, any>;
   onBack: () => void;
   onUploadComplete: () => void;
 }
 
 export function RecordingInterface(props: RecordingInterfaceProps) {
-  const { categoryId, subcategoryId, categoryName, subcategoryName, onBack, onUploadComplete } = props;
+  const { categoryId, subcategoryId, categoryName, subcategoryName, preSessionData = {}, onBack, onUploadComplete } = props;
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [audioURL, setAudioURL] = useState<string | null>(null);
@@ -48,6 +55,100 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
   const [isConverting, setIsConverting] = useState(false);
   const [conversionProgress, setConversionProgress] = useState(0);
   const [conversionStep, setConversionStep] = useState("");
+  // Talking points state
+  const [currentTalkingPointIndex, setCurrentTalkingPointIndex] = useState(0);
+
+  // Fetch subcategory to get in-session talking points
+  const { data: subcategories } = useQuery({
+    queryKey: ['subcategories'],
+    queryFn: () => fetchSubcategories(),
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
+
+  const currentSubcategory = (subcategories as SubcategoryResponse[])?.find(sub => sub.id === subcategoryId);
+  const inSessionTalkingPoints = currentSubcategory?.inSessionTalkingPoints || [];
+  
+  // Flatten talking points for easy navigation
+  const allTalkingPoints = inSessionTalkingPoints.flatMap((section: any) => 
+    section.fields || []
+  );
+
+  console.log('Pre-session data received:', preSessionData);
+
+  const nextTalkingPoint = () => {
+    if (currentTalkingPointIndex < allTalkingPoints.length - 1) {
+      setCurrentTalkingPointIndex(prev => prev + 1);
+    }
+  };
+
+  const prevTalkingPoint = () => {
+    if (currentTalkingPointIndex > 0) {
+      setCurrentTalkingPointIndex(prev => prev - 1);
+    }
+  };
+
+  // TalkingPointsDisplay component
+  const TalkingPointsDisplay = () => {
+    if (!allTalkingPoints.length) return null;
+
+    const currentPoint = allTalkingPoints[currentTalkingPointIndex];
+
+    return (
+      <Card className="mb-6 border-blue-200 bg-blue-50/50">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <MessageSquare className="h-4 w-4 text-blue-600" />
+              Talking Points ({currentTalkingPointIndex + 1} of {allTalkingPoints.length})
+            </CardTitle>
+            <div className="flex gap-2 md:gap-1">
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-12 w-12 md:h-8 md:w-8 rounded-full flex items-center justify-center active:scale-95 transition-transform duration-100"
+                style={{ touchAction: 'manipulation' }}
+                onClick={prevTalkingPoint}
+                disabled={currentTalkingPointIndex === 0}
+                aria-label="Previous talking point"
+              >
+                <ChevronLeft className="h-6 w-6 md:h-4 md:w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-12 w-12 md:h-8 md:w-8 rounded-full flex items-center justify-center active:scale-95 transition-transform duration-100"
+                style={{ touchAction: 'manipulation' }}
+                onClick={nextTalkingPoint}
+                disabled={currentTalkingPointIndex === allTalkingPoints.length - 1}
+                aria-label="Next talking point"
+              >
+                <ChevronRight className="h-6 w-6 md:h-4 md:w-4" />
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="space-y-2">
+            <div className="font-medium text-sm text-blue-900">
+              {currentPoint?.name || `Point ${currentTalkingPointIndex + 1}`}
+            </div>
+            <div className="text-sm text-blue-700">
+              {currentPoint?.type === 'markdown' && currentPoint?.value ? (
+                <MarkdownRenderer content={currentPoint.value} />
+              ) : (
+                currentPoint?.value || 'No content available'
+              )}
+            </div>
+            {currentPoint?.type && currentPoint.type !== 'text' && (
+              <Badge variant="secondary" className="text-xs">
+                {currentPoint.type}
+              </Badge>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
 
   const router = useRouter();
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -159,7 +260,7 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
       setIsConverting(false);
       setConversionStep("");
 
-      const uploadResponse = await uploadFile(wavFile, categoryId, subcategoryId);
+      const uploadResponse = await uploadFile(wavFile, categoryId, subcategoryId, preSessionData);
       if (uploadResponse?.job_id) {
         setJobId(uploadResponse.job_id);
       }
@@ -239,6 +340,9 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
             <p className="text-sm text-muted-foreground">{categoryName} • {subcategoryName}</p>
           </div>
         </div>
+
+        {/* Talking Points Display */}
+        <TalkingPointsDisplay />
 
         {/* Recording Status */}
         <Card className="mb-6">

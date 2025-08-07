@@ -2,19 +2,44 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RetentionDisclaimer } from "@/components/ui/retention-disclaimer";
-import { ArrowRight, Folder, FileText } from "lucide-react";
+import { ArrowRight, Folder, FileText, FormInput } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getPromptManagementCategoriesQuery, getPromptManagementSubcategoriesQuery } from "@/queries/prompt-management.query";
+import { fetchSubcategories } from "@/api/prompt-management";
 import type { CategoryResponse, SubcategoryResponse } from "@/api/prompt-management";
+import { toast } from "sonner";
+import MDEditor from "@uiw/react-md-editor";
 
 interface CategorySelectionProps {
-  onSelectionComplete: (categoryId: string, subcategoryId: string) => void;
+  onSelectionComplete: (categoryId: string, subcategoryId: string, preSessionData: Record<string, any>) => void;
+}
+
+interface FormField {
+  name: string;
+  type: string;
+  label: string;
+  placeholder?: string;
+  description?: string;
+  required?: boolean;
+  options?: string;
+  value?: any;
+}
+
+interface FormSection {
+  fields: FormField[];
 }
 
 export function CategorySelection({ onSelectionComplete }: CategorySelectionProps) {
   const [selectedCategory, setSelectedCategory] = useState<CategoryResponse | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<SubcategoryResponse | null>(null);
+  const [preSessionFormData, setPreSessionFormData] = useState<Record<string, any>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { data: categories, isLoading: isCategoriesLoading } = useQuery(
     getPromptManagementCategoriesQuery()
@@ -24,14 +49,239 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
     getPromptManagementSubcategoriesQuery()
   );
 
+  // Fetch detailed subcategory info for pre-session form
+  const { data: subcategoryDetails } = useQuery({
+    queryKey: ['subcategories-detailed'],
+    queryFn: () => fetchSubcategories(),
+    staleTime: 5 * 60 * 1000,
+    enabled: !!selectedSubcategory
+  });
+
   // Filter subcategories for the selected category
   const availableSubcategories = subcategories?.filter(
     (sub) => sub.category_id === selectedCategory?.id
   ) || [];
 
-  const handleContinue = () => {
+  // Get current subcategory details for pre-session form
+  const currentSubcategoryDetails = subcategoryDetails?.find(sub => sub.id === selectedSubcategory?.id);
+  const preSessionSections = currentSubcategoryDetails?.preSessionTalkingPoints || [];
+
+  // Check if there are any form fields to display
+  const hasFormFields = preSessionSections.length > 0 && 
+    preSessionSections.some((section: FormSection) => section.fields && section.fields.length > 0);
+
+  const handleInputChange = (fieldName: string, value: any) => {
+    setPreSessionFormData(prev => ({
+      ...prev,
+      [fieldName]: value
+    }));
+  };
+
+  const validateForm = () => {
+    if (!hasFormFields) return true;
+    
+    const requiredFields: string[] = [];
+    
+    preSessionSections.forEach((section: FormSection) => {
+      section.fields?.forEach((field: FormField) => {
+        if (field.required && (!preSessionFormData[field.name] || preSessionFormData[field.name] === '')) {
+          requiredFields.push(field.label || field.name);
+        }
+      });
+    });
+
+    if (requiredFields.length > 0) {
+      toast.error(`Please fill in required fields: ${requiredFields.join(', ')}`);
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleContinue = async () => {
     if (selectedCategory && selectedSubcategory) {
-      onSelectionComplete(selectedCategory.id, selectedSubcategory.id);
+      if (!validateForm()) return;
+
+      setIsSubmitting(true);
+      try {
+        // Add a small delay for better UX
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        if (hasFormFields) {
+          toast.success("Pre-session form completed successfully!");
+        }
+        onSelectionComplete(selectedCategory.id, selectedSubcategory.id, preSessionFormData);
+      } catch (error) {
+        toast.error("Failed to process form data");
+      } finally {
+        setIsSubmitting(false);
+      }
+    }
+  };
+
+  const renderField = (field: FormField, sectionIndex: number, fieldIndex: number) => {
+    const fieldKey = field.name || `section_${sectionIndex}_field_${fieldIndex}`;
+    const fieldValue = preSessionFormData[fieldKey] ?? field.value ?? '';
+    // Defensive: always use string fallback for all string fields
+    const label = field.label ?? field.name ?? '';
+    const placeholder = field.placeholder ?? '';
+    const description = field.description ?? '';
+    const required = !!field.required;
+    // Defensive: always use string for options
+    const optionsStr = field.options ?? '';
+    const options = optionsStr ? optionsStr.split(',').map(opt => opt.trim()).filter(Boolean) : [];
+
+    switch (field.type) {
+      case 'text':
+        return (
+          <div key={fieldKey} className="space-y-2">
+            <Label htmlFor={fieldKey} className="flex items-center gap-2">
+              {label}
+              {required && <span className="text-red-500">*</span>}
+            </Label>
+            {description && (
+              <p className="text-sm text-muted-foreground">{description}</p>
+            )}
+            <Input
+              id={fieldKey}
+              value={fieldValue}
+              onChange={(e) => handleInputChange(fieldKey, e.target.value)}
+              placeholder={placeholder}
+              required={required}
+            />
+          </div>
+        );
+
+      case 'date':
+        return (
+          <div key={fieldKey} className="space-y-2">
+            <Label htmlFor={fieldKey} className="flex items-center gap-2">
+              {label}
+              {required && <span className="text-red-500">*</span>}
+            </Label>
+            {description && (
+              <p className="text-sm text-muted-foreground">{description}</p>
+            )}
+            <Input
+              id={fieldKey}
+              type="date"
+              value={fieldValue}
+              onChange={(e) => handleInputChange(fieldKey, e.target.value)}
+              required={required}
+            />
+          </div>
+        );
+
+      case 'number':
+        return (
+          <div key={fieldKey} className="space-y-2">
+            <Label htmlFor={fieldKey} className="flex items-center gap-2">
+              {label}
+              {required && <span className="text-red-500">*</span>}
+            </Label>
+            {description && (
+              <p className="text-sm text-muted-foreground">{description}</p>
+            )}
+            <Input
+              id={fieldKey}
+              type="number"
+              value={fieldValue}
+              onChange={(e) => handleInputChange(fieldKey, parseFloat(e.target.value) || 0)}
+              placeholder={placeholder}
+              required={required}
+            />
+          </div>
+        );
+
+      case 'markdown':
+        return (
+          <div key={fieldKey} className="space-y-2">
+            <Label htmlFor={fieldKey} className="flex items-center gap-2">
+              {label}
+              {required && <span className="text-red-500">*</span>}
+            </Label>
+            {description && (
+              <p className="text-sm text-muted-foreground">{description}</p>
+            )}
+            <div className="border rounded-md">
+              <MDEditor
+                value={fieldValue}
+                onChange={(val) => handleInputChange(fieldKey, val || '')}
+                data-color-mode="light"
+                height={120}
+                preview="edit"
+                hideToolbar={false}
+                visibleDragbar={false}
+              />
+            </div>
+          </div>
+        );
+
+      case 'checkbox':
+        return (
+          <div key={fieldKey} className="space-y-2">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id={fieldKey}
+                checked={!!fieldValue}
+                onCheckedChange={(checked) => handleInputChange(fieldKey, checked)}
+              />
+              <Label htmlFor={fieldKey} className="flex items-center gap-2">
+                {label}
+                {required && <span className="text-red-500">*</span>}
+              </Label>
+            </div>
+            {description && (
+              <p className="text-sm text-muted-foreground ml-6">{description}</p>
+            )}
+          </div>
+        );
+
+      case 'select':
+        return (
+          <div key={fieldKey} className="space-y-2">
+            <Label htmlFor={fieldKey} className="flex items-center gap-2">
+              {label}
+              {required && <span className="text-red-500">*</span>}
+            </Label>
+            {description && (
+              <p className="text-sm text-muted-foreground">{description}</p>
+            )}
+            <Select value={fieldValue} onValueChange={(value) => handleInputChange(fieldKey, value)}>
+              <SelectTrigger>
+                <SelectValue placeholder={placeholder || "Select an option"} />
+              </SelectTrigger>
+              <SelectContent>
+                {options.map((option, idx) => (
+                  <SelectItem key={idx} value={option}>
+                    {option}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        );
+
+      default:
+        return (
+          <div key={fieldKey} className="space-y-2">
+            <Label htmlFor={fieldKey} className="flex items-center gap-2">
+              {label}
+              {required && <span className="text-red-500">*</span>}
+            </Label>
+            {description && (
+              <p className="text-sm text-muted-foreground">{description}</p>
+            )}
+            <Textarea
+              id={fieldKey}
+              value={fieldValue}
+              onChange={(e) => handleInputChange(fieldKey, e.target.value)}
+              placeholder={placeholder}
+              required={required}
+              rows={3}
+            />
+          </div>
+        );
     }
   };
 
@@ -99,6 +349,15 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
               <span className={`ml-2 text-sm ${
                 selectedSubcategory ? 'text-foreground' : 'text-muted-foreground'
               }`}>
+                Pre-Session
+              </span>
+            </div>
+            <ArrowRight className="w-4 h-4 text-muted-foreground" />
+            <div className="flex items-center">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium bg-muted text-muted-foreground">
+                4
+              </div>
+              <span className="ml-2 text-sm text-muted-foreground">
                 Record
               </span>
             </div>
@@ -194,11 +453,12 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
                 ← Back
               </Button>
               <div>
-                <h2 className="text-xl font-semibold">Ready to Record</h2>
-                <p className="text-sm text-muted-foreground">Review your selection</p>
+                <h2 className="text-xl font-semibold">Ready for Pre-Session</h2>
+                <p className="text-sm text-muted-foreground">Review your selection and complete the pre-session form</p>
               </div>
             </div>
 
+            {/* Selection Summary */}
             <Card className="border-2 border-primary/20">
               <CardHeader>
                 <CardTitle className="text-lg">Your Selection</CardTitle>
@@ -215,12 +475,53 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
               </CardContent>
             </Card>
 
+            {/* Pre-Session Form */}
+            {hasFormFields ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <FormInput className="h-5 w-5" />
+                    Pre-Session Information
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Please fill out the following information before we begin the recording session.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {preSessionSections.map((section: FormSection, sectionIndex: number) => (
+                    <div key={sectionIndex} className="space-y-4">
+                      {section.fields?.length > 0 && (
+                        <div className="space-y-4">
+                          {section.fields.map((field: FormField, fieldIndex: number) => 
+                            renderField(field, sectionIndex, fieldIndex)
+                          )}
+                        </div>
+                      )}
+                      {sectionIndex < preSessionSections.length - 1 && (
+                        <div className="border-b border-border my-6" />
+                      )}
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-center text-muted-foreground">
+                    <FormInput className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No pre-session form required for this meeting type.</p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Button 
               onClick={handleContinue} 
+              disabled={isSubmitting}
               className="w-full h-14 text-lg font-medium"
               size="lg"
             >
-              Confirm 
+              {isSubmitting ? "Processing..." : "Continue to Recording"}
               <ArrowRight className="w-5 h-5 ml-2" />
             </Button>
           </div>
