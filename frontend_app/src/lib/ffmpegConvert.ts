@@ -33,6 +33,7 @@ export async function convertToWavWithFFmpeg(
     setConversionProgress?.(50);
     await ffmpeg.exec([
       "-i", inputName,
+      "-vn", // Remove any video stream
       "-acodec", "pcm_s16le",
       "-ar", "16000",
       "-ac", "1",
