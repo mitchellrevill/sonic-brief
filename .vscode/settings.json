@@ -5,7 +5,7 @@
     "azureFunctions.projectLanguage": "Python",
     "azureFunctions.projectRuntime": "~4",
     "debug.internalConsoleOptions": "neverOpen",
-    "appService.defaultWebAppToDeploy": "/subscriptions/493fbd66-b871-47ee-812c-a8cde6b9923d/resourceGroups/rg-sonic-brief/providers/Microsoft.Web/sites/sonic-web-app",
+    "appService.defaultWebAppToDeploy": "",
     "appService.deploySubpath": "backend_app",
     "chat.agent.maxRequests": 9999,              // let Agent mode run a lot of steps
     "github.copilot.chat.agent.autoFix": true,   // try auto‑fixing failed edits
