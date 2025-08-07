@@ -93,6 +93,7 @@ async def upload_file(
     text_content: str = Form(None),
     prompt_category_id: str = Form(None),
     prompt_subcategory_id: str = Form(None),
+    pre_session_form_data: str = Form(None),
 ) -> Dict[str, Any]:
     """
     Upload a file or process text content and create a job record.
@@ -113,6 +114,18 @@ async def upload_file(
     print(f"Received prompt_subcategory_id: {prompt_subcategory_id}")
     print(f"Received file: {file.filename if file else None}")
     print(f"Received text_content: {'Yes' if text_content else 'No'}")
+    print(f"Received pre_session_form_data: {'Yes' if pre_session_form_data else 'No'}")
+
+    # Parse pre-session form data if provided
+    parsed_form_data = {}
+    if pre_session_form_data:
+        try:
+            import json
+            parsed_form_data = json.loads(pre_session_form_data)
+            print(f"Parsed pre-session form data: {parsed_form_data}")
+        except json.JSONDecodeError as e:
+            print(f"Warning: Failed to parse pre_session_form_data: {e}")
+            parsed_form_data = {}
 
     if not prompt_category_id or not prompt_subcategory_id:
         raise HTTPException(
@@ -195,6 +208,7 @@ async def upload_file(
             "status": job_status,
             "transcription_id": None,
             "text_content": text_content if text_content else None,
+            "pre_session_form_data": parsed_form_data,  # Store the parsed form data
             "created_at": timestamp,
             "updated_at": timestamp,
         }

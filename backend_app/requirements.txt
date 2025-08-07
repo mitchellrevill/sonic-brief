@@ -1,34 +1,40 @@
+# Core Framework
 fastapi==0.104.1
-sqlalchemy==2.0.23
-psycopg2-binary==2.9.9
+uvicorn[standard]==0.32.0
+gunicorn==21.2.0
 python-multipart==0.0.6
-pydantic-settings==2.1.0
+
+# Data Validation & Settings
 pydantic[email]==2.5.2
+pydantic-settings==2.1.0
+
+# Authentication & Security
+python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 PyJWT==2.8.0
-pytest==7.4.3
 bcrypt==4.2.1
-aiohttp==3.9.1
+
+# Azure Integration
 azure-identity==1.16.1
 azure-core==1.32.0
 azure-cosmos==4.8.0
 azure-common==1.1.28
 azure-storage-blob==12.19.0
+
+# HTTP & Networking
 httpx==0.25.2
-uvicorn[standard]==0.32.0
-gunicorn==21.2.0
-requests==2.32.3
+aiohttp==3.9.1
+
+# Document Generation & Processing
 reportlab==4.0.4
-pandas==2.0.0
+python-docx==0.8.11
 mutagen==1.45.0
+
+# System & Configuration
 python-dotenv==1.0.1
-python-jose[cryptography]==3.3.0
 tenacity==8.2.3
 psutil==5.9.8
-python-docx==0.8.11
 
-# Additional dependencies for production deployment
-watchdog==3.0.0
-websockets==11.0.3
+# Performance (Linux/macOS only - comment out for Windows development)
 httptools==0.6.0
 uvloop==0.17.0
