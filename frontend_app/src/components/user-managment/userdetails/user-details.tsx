@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -39,6 +39,9 @@ export function UserDetailsPage() {
 
   const [user, setUser] = useState<User | null>(null);
   const [analytics, setAnalytics] = useState<UserAnalytics | null>(null);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const analyticsApiUrl = `${import.meta.env.VITE_API_URL}/api/analytics/users/${userId}?days=30`;
+  const reloadRef = useRef<HTMLButtonElement>(null);
   const [loading, setLoading] = useState(true);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [exportLoading, setExportLoading] = useState(false);
@@ -81,40 +84,42 @@ export function UserDetailsPage() {
     if (!userId) return;
     
     setAnalyticsLoading(true);
+    setAnalyticsError(null);
     try {
       const analyticsData = await getUserAnalytics(userId);
       console.log("User analytics data received:", analyticsData);
       
       // Check if the response has an error in the analytics field
       if (analyticsData.analytics && 'error' in analyticsData.analytics) {
-        console.warn("Analytics data has error:", (analyticsData.analytics as any).error);
-        // Set analytics to null or create a default structure
+        const errorMsg = (analyticsData.analytics as any).error || 'Unknown analytics error';
+        setAnalyticsError(`Analytics error: ${errorMsg}`);
         setAnalytics({
-          ...analyticsData,            analytics: {
-              transcription_stats: {
-                total_minutes: 0,
-                total_jobs: 0,
-                average_job_duration: 0
-              },
-              activity_stats: {
-                login_count: 0,
-                jobs_created: 0,
-                last_activity: null
-              },
-              usage_patterns: {
-                most_active_hours: [],
-                most_used_transcription_method: null,
-                file_upload_count: 0,
-                text_input_count: 0
-              }
+          ...analyticsData,
+          analytics: {
+            transcription_stats: {
+              total_minutes: 0,
+              total_jobs: 0,
+              average_job_duration: 0
+            },
+            activity_stats: {
+              login_count: 0,
+              jobs_created: 0,
+              last_activity: null
+            },
+            usage_patterns: {
+              most_active_hours: [],
+              most_used_transcription_method: null,
+              file_upload_count: 0,
+              text_input_count: 0
             }
+          }
         });
       } else {
-        console.log("Analytics total minutes:", analyticsData.analytics?.transcription_stats?.total_minutes);
         setAnalytics(analyticsData as UserAnalytics);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to fetch user analytics:", error);
+      setAnalyticsError(error?.message || "Failed to load user analytics. Please ensure analytics containers are created.");
       toast.error("Failed to load user analytics. Please ensure analytics containers are created.");
     } finally {
       setAnalyticsLoading(false);
@@ -310,6 +315,15 @@ export function UserDetailsPage() {
               </CardContent>
             </Card>
           ))}
+        </div>
+      ) : analyticsError ? (
+        <div className="text-center text-red-600 dark:text-red-400 my-4">
+          <div className="mb-2 font-semibold">Failed to load analytics data.</div>
+          <div className="mb-2">{analyticsError}</div>
+          <div className="mb-2 text-xs text-muted-foreground break-all">API: <code>{analyticsApiUrl}</code></div>
+          <Button ref={reloadRef} variant="outline" size="sm" onClick={fetchUserAnalyticsData}>
+            Reload Analytics
+          </Button>
         </div>
       ) : analytics ? (
         <Card className="bg-card/80 border border-muted-foreground/10 rounded-xl shadow-sm">
