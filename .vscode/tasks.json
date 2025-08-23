@@ -28,6 +28,16 @@
 			"options": {
 				"cwd": "${workspaceFolder}/az-func-audio"
 			}
+		},
+		{
+			"label": "frontend dev typecheck",
+			"type": "shell",
+			"command": "pnpm install ; pnpm --filter frontend_app install ; pnpm --filter frontend_app run build",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
 		}
 	]
 }
