@@ -3,7 +3,7 @@ import { createRouter, RouterProvider } from "@tanstack/react-router";
 import ReactDOM from "react-dom/client";
 
 import * as TanstackQuery from "./integrations/tanstack-query/root-provider";
-import { WakeLockProvider } from "./components/WakeLockProvider";
+import { WakeLockProvider } from "./lib/WakeLockProvider.tsx";
 // Import the generated route tree
 import { routeTree } from "./routeTree.gen";
 

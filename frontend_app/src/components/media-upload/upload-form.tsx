@@ -145,8 +145,9 @@ const getFileType = (file: File): keyof typeof FILE_TYPES | "other" => {
 };
 
 export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
+  // use empty string as the controlled Select value so resets are predictable
+  const [selectedCategory, setSelectedCategory] = useState<string>("");
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string>("");
   const [fileType, setFileType] = useState<keyof typeof FILE_TYPES | "other" | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [transcriptText, setTranscriptText] = useState("");
@@ -154,6 +155,8 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
   const [isConverting, setIsConverting] = useState(false);
   const [conversionProgress, setConversionProgress] = useState(0);
   const [conversionStep, setConversionStep] = useState("");
+  // Local submitting state to ensure the submit button is reliably reset
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -210,6 +213,7 @@ const convertToWav = async (file: File): Promise<File> => {
         ),
     });const onSubmit = useCallback(
     async (values: MediaUploadValues) => {
+      setIsSubmitting(true);
       console.log("🚀 Form submission started");
       console.log("📋 Submission details:", { 
         fileType, 
@@ -220,6 +224,18 @@ const convertToWav = async (file: File): Promise<File> => {
         promptSubcategory: values.promptSubcategory
       });
       
+      // Guard: ensure a media file exists before proceeding. Users can select
+      // dropdowns before attaching a file; prevent the submit flow from
+      // executing in that case and surface a validation error.
+      if (!values.mediaFile) {
+        console.warn("No media file provided - aborting submit");
+        toast.error("Please select or upload a media file before submitting.");
+        // Mark form error so UI can reflect it
+        form.setError("mediaFile", { type: "manual", message: "Please add a media file." });
+        setIsSubmitting(false);
+        return;
+      }
+
       let processedFile = values.mediaFile;
       // Sanitize filename before upload
       if (processedFile) {
@@ -320,11 +336,29 @@ const convertToWav = async (file: File): Promise<File> => {
         });
         const uploadEndTime = performance.now();
         const uploadDuration = ((uploadEndTime - uploadStartTime) / 1000).toFixed(2);
-        
+
         console.log("✅ Upload completed successfully!");
         console.log("⏱️ Upload took:", uploadDuration, "seconds");
         console.log("📋 Upload result:", result);
-        
+
+        // Reset form state after successful upload
+        console.log("🧹 Resetting form...");
+        form.reset({
+          mediaFile: undefined,
+          promptCategory: "",
+          promptSubcategory: "",
+        });
+        // Ensure controlled selects and form validation are in sync
+        setFileType(null);
+        setTranscriptText("");
+        setShowTranscriptInput(false);
+        setSelectedCategory(""); // Reset category selection
+        setSelectedSubcategory(""); // Reset subcategory selection
+        // Clear any lingering errors and re-run validation so form.formState.isValid updates
+        form.clearErrors();
+        // trigger full form validation update (non-blocking)
+        void form.trigger();
+        console.log("✨ Form reset completed successfully!");
       } catch (uploadError: unknown) {
         console.error("❌ Upload failed:");
         console.error("💥 Upload error details:", {
@@ -335,18 +369,10 @@ const convertToWav = async (file: File): Promise<File> => {
           timestamp: new Date().toISOString()
         });
         throw uploadError; // Re-throw to let the mutation handle it
-      }      console.log("🧹 Resetting form...");
-      form.reset({
-        mediaFile: undefined,
-        promptCategory: "",
-        promptSubcategory: "",
-      });
-      setFileType(null);
-      setTranscriptText("");
-      setShowTranscriptInput(false);
-      setSelectedCategory(null); // Reset category selection
-      setSelectedSubcategory(null); // Reset subcategory selection
-      console.log("✨ Form reset completed successfully!");
+      } finally {
+        // Ensure submitting state is cleared regardless of success or failure
+        setIsSubmitting(false);
+      }
     },
     [form, uploadMediaMutation, fileType]
   );  const handleFileSelect = (file: File) => {
@@ -591,10 +617,11 @@ const convertToWav = async (file: File): Promise<File> => {
                             onValueChange={(value) => {
                               field.onChange(value);
                               setSelectedCategory(value);
-                              setSelectedSubcategory(null);
+                              setSelectedSubcategory("");
                               form.setValue("promptSubcategory", "");
                             }}
-                            disabled={isLoadingCategories}
+                            // Disable category select until a media file (or transcript) is attached
+                            disabled={isLoadingCategories || !form.getValues("mediaFile")}
                           >
                             <FormControl>
                               <SelectTrigger className="w-full sm:w-64">
@@ -638,7 +665,8 @@ const convertToWav = async (file: File): Promise<File> => {
                             field.onChange(value);
                             setSelectedSubcategory(value);
                           }}
-                          disabled={!selectedCategory}
+                          // Disable subcategory until a file is attached and a category selected
+                          disabled={!form.getValues("mediaFile") || !selectedCategory}
                         >
                           <FormControl>
                             <SelectTrigger className="w-full sm:w-64">
@@ -714,11 +742,11 @@ const convertToWav = async (file: File): Promise<File> => {
           {/* Submit Button */}
           <Button
             type="submit"
-            disabled={isUploading || !form.formState.isValid || isConverting}
+            disabled={isUploading || isSubmitting || !form.formState.isValid || isConverting}
             className="w-full"
             size="lg"
           >
-            {isUploading ? (
+            {(isUploading || isSubmitting) ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Processing Upload...
