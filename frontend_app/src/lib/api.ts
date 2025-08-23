@@ -942,7 +942,6 @@ export interface UserAnalytics {
       average_job_duration: number;
     };
     activity_stats: {
-      login_count: number;
       jobs_created: number;
       last_activity: string | null;
     };
@@ -1251,11 +1250,11 @@ export async function exportUsersCSV(filters?: {
   return await response.blob();
 }
 
-export async function exportUserDetailsPDF(userId: string, includeAnalytics: boolean = true): Promise<Blob> {
+export async function exportUserDetailsPDF(userId: string, includeAnalytics: boolean = true, days: number = 30): Promise<Blob> {
   const token = localStorage.getItem("token");
   if (!token) throw new Error("No authentication token found. Please log in again.");
 
-  const response = await fetch(`${EXPORT_USERS_API}/${userId}/pdf?include_analytics=${includeAnalytics}`, {
+  const response = await fetch(`${EXPORT_USERS_API}/${userId}/pdf?include_analytics=${includeAnalytics}&days=${days}`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -1267,6 +1266,46 @@ export async function exportUserDetailsPDF(userId: string, includeAnalytics: boo
   }
 
   return await response.blob();
+}
+
+export type UserMinuteRecord = {
+  job_id: string;
+  timestamp: string;
+  audio_duration_minutes: number;
+  event_type?: string;
+  file_name?: string;
+  prompt_category_id?: string;
+  prompt_subcategory_id?: string;
+};
+
+export type UserMinutesResponse = {
+  user_id: string;
+  period_days: number;
+  start_date: string;
+  end_date: string;
+  total_minutes: number;
+  total_records: number;
+  records: UserMinuteRecord[];
+};
+
+export async function getUserMinutes(userId: string, days: number = 30): Promise<UserMinutesResponse> {
+  const token = localStorage.getItem("token");
+  if (!token) throw new Error("No authentication token found. Please log in again.");
+
+  const url = `${USER_ANALYTICS_API}/${userId}/minutes?days=${days}`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to fetch user minutes: ${response.status} ${text}`);
+  }
+  return response.json();
 }
 
 // Session Tracking API Functions
@@ -1860,5 +1899,39 @@ export async function updateAnalysisDocument(
     console.error("Error updating analysis document:", error);
     throw error;
   }
+}
+
+// User Audit Logs API Functions
+export interface UserAuditLogRecord {
+  id: string;
+  timestamp: string | null;
+  event_type: string;
+  resource_type?: string;
+  resource_id?: string;
+  metadata?: Record<string, any>;
+}
+
+export interface UserAuditLogsResponse {
+  user_id: string;
+  period_days: number;
+  start_date: string;
+  end_date: string;
+  records: UserAuditLogRecord[];
+}
+
+export async function getUserAuditLogs(userId: string, days: number = 30): Promise<UserAuditLogsResponse> {
+  const token = localStorage.getItem("token");
+  const url = `${USER_ANALYTICS_API}/${userId}/audit-logs?days=${days}`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: token ? `Bearer ${token}` : "",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch user audit logs (${response.status})`);
+  }
+  return response.json();
 }
 

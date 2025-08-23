@@ -16,6 +16,7 @@ export const USER_MANAGEMENT_API = `${BASE_URL}/api/auth/users`;
 // Analytics APIs
 export const ANALYTICS_API = `${BASE_URL}/api/analytics`;
 export const USER_ANALYTICS_API = `${BASE_URL}/api/analytics/users`;
+export const USER_MINUTES_API = `${BASE_URL}/api/analytics/users`; // append /{userId}/minutes
 export const SYSTEM_ANALYTICS_API = `${BASE_URL}/api/analytics/system`;
 export const ANALYTICS_DASHBOARD_API = `${BASE_URL}/api/analytics/dashboard`;
 export const SYSTEM_HEALTH_API = `${BASE_URL}/api/system/health`;

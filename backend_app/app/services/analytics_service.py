@@ -8,6 +8,7 @@ from collections import defaultdict
 
 # Use the improved logging utility
 from app.utils.logging_config import get_logger, log_completion, log_error_with_context
+from datetime import datetime, timezone, timedelta
 
 
 class AnalyticsService:
@@ -23,13 +24,24 @@ class AnalyticsService:
         # Verify containers on initialization
         if hasattr(cosmos_db, 'analytics_container') and cosmos_db.analytics_container is not None:
             self.logger.info("✓ Analytics container is available for analytics aggregation")
+            self._analytics_container_available = True
         else:
             self.logger.warning("⚠️ Analytics container is not available - analytics aggregation may fail")
+            self._analytics_container_available = False
+            
+        if hasattr(cosmos_db, 'sessions_container') and cosmos_db.sessions_container is not None:
+            self.logger.info("✓ Sessions container is available for session tracking")
+            self._sessions_container_available = True
+        else:
+            self.logger.error("❌ Sessions container is not available - session tracking will fail")
+            self._sessions_container_available = False
             
         if hasattr(cosmos_db, 'events_container') and cosmos_db.events_container is not None:
-            self.logger.info("✓ Events container is available for session tracking")
+            self.logger.info("✓ Events container is available for event tracking")
+            self._events_container_available = True
         else:
-            self.logger.warning("⚠️ Events container is not available - session tracking may fail")
+            self.logger.warning("⚠️ Events container is not available - event tracking may fail")
+            self._events_container_available = False
 
     async def track_event(
         self, 
@@ -184,6 +196,11 @@ class AnalyticsService:
             Session event ID
         """
         try:
+            # Check if sessions container is available
+            if not self._sessions_container_available:
+                self.logger.error("❌ Sessions container not available - cannot track session")
+                raise Exception("Sessions container not available")
+                
             session_event_id = str(uuid.uuid4())
             
             session_event = {
@@ -201,16 +218,40 @@ class AnalyticsService:
                 "partition_key": user_id
             }
             
-            # Store in analytics container
-            self.cosmos_db.events_container.create_item(body=session_event)
+            # Store in sessions container
+            self.logger.info(f"📝 Attempting to store session event in sessions_container...")
+            result = self.cosmos_db.sessions_container.create_item(body=session_event)
+            self.logger.info(f"✅ Session event stored successfully with ID: {session_event_id}")
+            
+            # Also create an audit log entry for important session events
+            if action in ['start', 'end']:
+                try:
+                    from app.services.audit_service import AuditService
+                    audit_service = AuditService(self.cosmos_db)
+                    await audit_service.log_audit_event(
+                        event_type=f"session_{action}",
+                        user_id=user_id,
+                        resource_type="session",
+                        resource_id=session_event_id,
+                        details={
+                            "page": page,
+                            "user_agent": user_agent,
+                            "ip_address": ip_address
+                        }
+                    )
+                    self.logger.info(f"✅ Audit log created for session {action}")
+                except Exception as audit_error:
+                    self.logger.warning(f"⚠️ Failed to create audit log: {str(audit_error)}")
+                    # Don't fail session tracking if audit logging fails
             
             self.logger.info(f"Session event tracked: session_{action} for user {user_id}")
             return session_event_id
             
         except Exception as e:
-            self.logger.error(f"Error tracking session event: {str(e)}")
-            # Don't fail the main operation if session tracking fails
-            return ""
+            self.logger.error(f"❌ Error tracking session event: {str(e)}")
+            self.logger.error(f"Container available: {self._sessions_container_available}")
+            # Don't fail the main operation if session tracking fails, but log the actual error
+            raise Exception(f"Session tracking failed: {str(e)}")
 
     async def get_active_users(self, minutes: int = 5) -> List[str]:
         """
@@ -236,7 +277,7 @@ class AnalyticsService:
             parameters = [{"name": "@cutoff_time", "value": cutoff_time.isoformat()}]
             
             active_users = []
-            for item in self.cosmos_db.events_container.query_items(
+            for item in self.cosmos_db.sessions_container.query_items(
                 query=query,
                 parameters=parameters,
                 enable_cross_partition_query=True
@@ -268,7 +309,7 @@ class AnalyticsService:
             FROM c 
             WHERE c.type = 'session' 
             AND c.user_id = @user_id
-            AND c.event_type IN ('session_start', 'session_end')
+            AND c.event_type IN ('session_start', 'session_end', 'session_heartbeat', 'session_page_view')
             AND c.timestamp >= @cutoff_time
             ORDER BY c.timestamp ASC
             """
@@ -279,27 +320,42 @@ class AnalyticsService:
             ]
             
             session_events = []
-            for item in self.cosmos_db.events_container.query_items(
+            for item in self.cosmos_db.sessions_container.query_items(
                 query=query,
                 parameters=parameters,
                 enable_cross_partition_query=True
             ):
                 session_events.append(item)
             
-            # Calculate session durations
-            total_duration = 0.0
-            session_start = None
-            
+            # Calculate session durations with idle detection
+            idle_threshold = timedelta(minutes=5)
+            total = timedelta(0)
+            start_ts: Optional[datetime] = None
+            last_active: Optional[datetime] = None
             for event in session_events:
-                if event["event_type"] == "session_start":
-                    session_start = datetime.fromisoformat(event["timestamp"].replace('Z', '+00:00'))
-                elif event["event_type"] == "session_end" and session_start:
-                    session_end = datetime.fromisoformat(event["timestamp"].replace('Z', '+00:00'))
-                    duration = (session_end - session_start).total_seconds() / 60  # Convert to minutes
-                    total_duration += duration
-                    session_start = None
-            
-            return total_duration
+                ts = datetime.fromisoformat(event["timestamp"].replace('Z', '+00:00'))
+                et = event.get("event_type")
+                if et == "session_start":
+                    start_ts = ts
+                    last_active = ts
+                elif et in ("session_heartbeat", "session_page_view") and start_ts:
+                    if last_active and ts - last_active > idle_threshold:
+                        total += (last_active - start_ts)
+                        start_ts = ts
+                    last_active = ts
+                elif et == "session_end" and start_ts:
+                    end_ts = ts
+                    if last_active and end_ts - last_active > idle_threshold:
+                        end_ts = last_active
+                    total += (end_ts - start_ts)
+                    start_ts = None
+                    last_active = None
+
+            if start_ts:
+                end_ts = last_active or datetime.now(timezone.utc)
+                total += (end_ts - start_ts)
+
+            return total.total_seconds() / 60.0
             
         except Exception as e:
             self.logger.error(f"Error calculating session duration: {str(e)}")
@@ -318,34 +374,75 @@ class AnalyticsService:
         """
         try:
             # Calculate date range
-            end_date = datetime.now(timezone.utc)
-            start_date = end_date - timedelta(days=days)
-            
-            self.logger.info(f"Getting user analytics for {user_id} from analytics container for {days} days")
-            
-            # Get user's analytics records from analytics container
-            user_analytics_records = await self._get_user_analytics_records(user_id, start_date, end_date)
-            
-            # Get user's session events
-            user_session_events = await self._get_user_session_events(user_id, start_date, end_date)
-            
-            # Aggregate user data
-            user_analytics = await self._aggregate_user_analytics_data(
-                user_analytics_records, 
-                user_session_events, 
-                start_date, 
-                end_date, 
-                days
+            end_dt = datetime.now(timezone.utc)
+            start_dt = end_dt - timedelta(days=days)
+
+            # Aggregate transcription minutes from analytics, fallback to jobs
+            minutes_total = 0.0
+            jobs_count = 0
+
+            query = (
+                "SELECT c.audio_duration_minutes, c.audio_duration_seconds FROM c WHERE c.user_id = @user_id "
+                "AND c.timestamp >= @start AND c.timestamp <= @end"
             )
-            
-            self.logger.info(f"User analytics aggregated for {user_id}: {user_analytics['transcription_stats']['total_jobs']} jobs, "
-                           f"{user_analytics['transcription_stats']['total_minutes']:.1f} minutes")
-            
-            return user_analytics
+            params = [
+                {"name": "@user_id", "value": user_id},
+                {"name": "@start", "value": start_dt.isoformat()},
+                {"name": "@end", "value": end_dt.isoformat()},
+            ]
+            try:
+                for item in self.cosmos_db.analytics_container.query_items(
+                    query=query, parameters=params, enable_cross_partition_query=True
+                ):
+                    m = item.get("audio_duration_minutes")
+                    if m is None and item.get("audio_duration_seconds") is not None:
+                        m = float(item["audio_duration_seconds"]) / 60.0
+                    if isinstance(m, (int, float)):
+                        minutes_total += float(m)
+                        jobs_count += 1
+            except Exception as qe:
+                self.logger.warning(f"analytics_container query failed, will fallback to jobs: {qe}")
+
+            if jobs_count == 0:
+                q2 = (
+                    "SELECT c.audio_duration_minutes, c.audio_duration_seconds FROM c WHERE c.user_id = @user_id "
+                    "AND c.created_at >= @start_ms"
+                )
+                params2 = [
+                    {"name": "@user_id", "value": user_id},
+                    {"name": "@start_ms", "value": int(start_dt.timestamp() * 1000)},
+                ]
+                try:
+                    for it in self.cosmos_db.jobs_container.query_items(
+                        query=q2, parameters=params2, enable_cross_partition_query=True
+                    ):
+                        m = it.get("audio_duration_minutes")
+                        if m is None and it.get("audio_duration_seconds") is not None:
+                            m = float(it["audio_duration_seconds"]) / 60.0
+                        if isinstance(m, (int, float)):
+                            minutes_total += float(m)
+                            jobs_count += 1
+                except Exception as jf:
+                    self.logger.warning(f"jobs_container fallback failed: {jf}")
+
+            avg = (minutes_total / jobs_count) if jobs_count > 0 else 0.0
+            return {
+                "user_id": user_id,
+                "period_days": days,
+                "start_date": start_dt.isoformat(),
+                "end_date": end_dt.isoformat(),
+                "analytics": {
+                    "transcription_stats": {
+                        "total_minutes": float(minutes_total),
+                        "total_jobs": int(jobs_count),
+                        "average_job_duration": float(avg),
+                    }
+                },
+            }
             
         except Exception as e:
             self.logger.error(f"Error getting user analytics for {user_id}: {str(e)}")
-            return await self._get_fallback_user_analytics(days)
+            # Fallback path: attempt to compute analytics from events/jobs directly
             end_date = datetime.now(timezone.utc)
             start_date = end_date - timedelta(days=days)
             
@@ -399,7 +496,11 @@ class AnalyticsService:
                 "period_days": days,
                 "start_date": start_date.isoformat(),
                 "end_date": end_date.isoformat(),
-                "analytics": analytics
+                "analytics": analytics or {
+                    "transcription_stats": {"total_minutes": 0.0, "total_jobs": 0, "average_job_duration": 0.0},
+                    "activity_stats": {"login_count": 0, "jobs_created": 0, "last_activity": None},
+                    "usage_patterns": {"most_active_hours": [], "most_used_transcription_method": None, "file_upload_count": 0, "text_input_count": 0},
+                },
             }
             
         except Exception as e:
@@ -408,27 +509,14 @@ class AnalyticsService:
             return {
                 "user_id": user_id,
                 "period_days": days,
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat(),
+                "start_date": start_date.isoformat() if 'start_date' in locals() and start_date else datetime.now(timezone.utc).isoformat(),
+                "end_date": end_date.isoformat() if 'end_date' in locals() and end_date else datetime.now(timezone.utc).isoformat(),
                 "analytics": {
                     "error": str(e),
-                    "transcription_stats": {
-                        "total_minutes": 0.0,
-                        "total_jobs": 0,
-                        "average_job_duration": 0.0
-                    },
-                    "activity_stats": {
-                        "login_count": 0,
-                        "jobs_created": 0,
-                        "last_activity": None
-                    },
-                    "usage_patterns": {
-                        "most_active_hours": [],
-                        "most_used_transcription_method": None,
-                        "file_upload_count": 0,
-                        "text_input_count": 0
-                    }
-                }
+                    "transcription_stats": {"total_minutes": 0.0, "total_jobs": 0, "average_job_duration": 0.0},
+                    "activity_stats": {"login_count": 0, "jobs_created": 0, "last_activity": None},
+                    "usage_patterns": {"most_active_hours": [], "most_used_transcription_method": None, "file_upload_count": 0, "text_input_count": 0},
+                },
             }
 
     async def _aggregate_user_events(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -562,3 +650,306 @@ class AnalyticsService:
         except Exception as e:
             self.logger.error(f"Error fetching recent jobs: {str(e)}")
             return []
+
+    async def _get_user_analytics_records(self, user_id: str, start_date: datetime, end_date: datetime) -> List[Dict[str, Any]]:
+        """Fetch per-user analytics records from analytics container within a time range.
+
+        Returns a list of dicts with keys: job_id, timestamp (ISO), event_type, audio_duration_minutes.
+        """
+        records: List[Dict[str, Any]] = []
+        try:
+            query = (
+                "SELECT c.job_id, c.timestamp, c.event_type, c.audio_duration_minutes, c.audio_duration_seconds "
+                "FROM c WHERE c.type = 'transcription_analytics' AND c.user_id = @user_id "
+                "AND c.timestamp >= @start AND c.timestamp <= @end"
+            )
+            params = [
+                {"name": "@user_id", "value": user_id},
+                {"name": "@start", "value": start_date.isoformat()},
+                {"name": "@end", "value": end_date.isoformat()},
+            ]
+            for item in self.cosmos_db.analytics_container.query_items(
+                query=query, parameters=params, enable_cross_partition_query=True
+            ):
+                minutes = item.get("audio_duration_minutes")
+                if minutes is None and item.get("audio_duration_seconds") is not None:
+                    minutes = float(item["audio_duration_seconds"]) / 60.0
+                # Keep records even if minutes missing; aggregation will handle None
+                records.append(
+                    {
+                        "job_id": item.get("job_id"),
+                        "timestamp": item.get("timestamp"),
+                        "event_type": item.get("event_type"),
+                        "audio_duration_minutes": float(minutes) if minutes is not None else None,
+                    }
+                )
+        except Exception as e:
+            self.logger.warning(f"_get_user_analytics_records failed: {e}")
+        return records
+
+    async def _get_user_session_events(self, user_id: str, start_date: datetime, end_date: datetime) -> List[Dict[str, Any]]:
+        """Fetch session-related events for a user in date range from sessions container.
+
+        Reads from voice_user_sessions (sessions_container) and returns basic fields.
+        """
+        events: List[Dict[str, Any]] = []
+        try:
+            query = (
+                "SELECT c.event_type, c.timestamp FROM c WHERE c.user_id = @user_id "
+                "AND c.timestamp >= @start AND c.timestamp <= @end"
+            )
+            params = [
+                {"name": "@user_id", "value": user_id},
+                {"name": "@start", "value": start_date.isoformat()},
+                {"name": "@end", "value": end_date.isoformat()},
+            ]
+            container = getattr(self.cosmos_db, "sessions_container", None) or getattr(self.cosmos_db, "events_container", None)
+            if container is None:
+                return events
+            for item in container.query_items(
+                query=query, parameters=params, enable_cross_partition_query=True
+            ):
+                events.append(item)
+        except Exception as e:
+            self.logger.warning(f"_get_user_session_events failed: {e}")
+        return events
+
+    async def _aggregate_user_analytics_data(
+        self,
+        analytics_records: List[Dict[str, Any]],
+        session_events: List[Dict[str, Any]],
+        start_date: datetime,
+        end_date: datetime,
+        days: int,
+    ) -> Dict[str, Any]:
+        """Aggregate analytics and session data into the public response shape."""
+        try:
+            # Minutes and jobs
+            minutes_list: List[float] = [
+                float(r["audio_duration_minutes"]) for r in analytics_records if r.get("audio_duration_minutes") is not None
+            ]
+            total_minutes = sum(minutes_list) if minutes_list else 0.0
+            # Count unique jobs if present; else fall back to count of records
+            job_ids = [r.get("job_id") for r in analytics_records if r.get("job_id")]
+            total_jobs = len(set(job_ids)) if job_ids else len(analytics_records)
+            avg_job_duration = (total_minutes / total_jobs) if total_jobs > 0 else 0.0
+
+            # Session stats
+            login_count = sum(1 for e in session_events if e.get("event_type") in ("user_login", "session_start"))
+            last_activity_candidates: List[str] = [
+                e.get("timestamp") for e in session_events if e.get("timestamp")
+            ] + [r.get("timestamp") for r in analytics_records if r.get("timestamp")]
+            last_activity = max(last_activity_candidates) if last_activity_candidates else None
+
+            return {
+                "transcription_stats": {
+                    "total_minutes": float(total_minutes),
+                    "total_jobs": int(total_jobs),
+                    "average_job_duration": float(avg_job_duration),
+                },
+                "activity_stats": {
+                    "login_count": int(login_count) if login_count is not None else 0,
+                    "jobs_created": int(total_jobs) if total_jobs is not None else 0,
+                    "last_activity": last_activity if last_activity is not None else None,
+                },
+                "usage_patterns": {
+                    "most_active_hours": [],
+                    "most_used_transcription_method": None,
+                    "file_upload_count": 0,
+                    "text_input_count": 0,
+                },
+            }
+        except Exception as e:
+            self.logger.warning(f"_aggregate_user_analytics_data failed: {e}")
+            return {
+                "transcription_stats": {
+                    "total_minutes": 0.0,
+                    "total_jobs": 0,
+                    "average_job_duration": 0.0,
+                },
+                "activity_stats": {
+                    "login_count": 0,
+                    "jobs_created": 0,
+                    "last_activity": None,
+                },
+                "usage_patterns": {
+                    "most_active_hours": [],
+                    "most_used_transcription_method": None,
+                    "file_upload_count": 0,
+                    "text_input_count": 0,
+                },
+            }
+
+    async def _get_user_analytics_from_jobs(self, user_id: str, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
+        """Fallback: compute analytics directly from voice_jobs container for a user and date range."""
+        try:
+            query = (
+                "SELECT c.id, c.created_at, c.audio_duration_minutes, c.audio_duration_seconds "
+                "FROM c WHERE c.type = 'job' AND c.user_id = @user_id AND c.created_at >= @start_ms AND c.created_at <= @end_ms"
+            )
+            params = [
+                {"name": "@user_id", "value": user_id},
+                {"name": "@start_ms", "value": int(start_date.timestamp() * 1000)},
+                {"name": "@end_ms", "value": int(end_date.timestamp() * 1000)},
+            ]
+            minutes_list: List[float] = []
+            count = 0
+            for item in self.cosmos_db.jobs_container.query_items(
+                query=query, parameters=params, enable_cross_partition_query=True
+            ):
+                count += 1
+                minutes = item.get("audio_duration_minutes")
+                if minutes is None and item.get("audio_duration_seconds") is not None:
+                    minutes = float(item["audio_duration_seconds"]) / 60.0
+                if minutes is not None:
+                    minutes_list.append(float(minutes))
+
+            total_minutes = sum(minutes_list) if minutes_list else 0.0
+            avg = (total_minutes / count) if count > 0 else 0.0
+            return {
+                "transcription_stats": {
+                    "total_minutes": float(total_minutes),
+                    "total_jobs": int(count),
+                    "average_job_duration": float(avg),
+                },
+                "activity_stats": {
+                    "login_count": 0,
+                    "jobs_created": int(count),
+                    "last_activity": None,
+                },
+                "usage_patterns": {
+                    "most_active_hours": [],
+                    "most_used_transcription_method": None,
+                    "file_upload_count": 0,
+                    "text_input_count": 0,
+                },
+            }
+        except Exception as e:
+            self.logger.error(f"_get_user_analytics_from_jobs failed: {e}")
+            return {
+                "transcription_stats": {
+                    "total_minutes": 0.0,
+                    "total_jobs": 0,
+                    "average_job_duration": 0.0,
+                },
+                "activity_stats": {
+                    "login_count": 0,
+                    "jobs_created": 0,
+                    "last_activity": None,
+                },
+                "usage_patterns": {
+                    "most_active_hours": [],
+                    "most_used_transcription_method": None,
+                    "file_upload_count": 0,
+                    "text_input_count": 0,
+                },
+            }
+
+    async def get_user_minutes_records(self, user_id: str, days: int = 30) -> Dict[str, Any]:
+        """Return per-record minutes for a user within the last N days.
+
+        Aggregates from analytics_container (event_type job_uploaded/job_completed) and
+        falls back to jobs data when needed.
+        """
+        try:
+            end_dt = datetime.now(timezone.utc)
+            start_dt = end_dt - timedelta(days=days)
+
+            # First, try analytics_container for detailed per-job records
+            query = (
+                "SELECT c.job_id, c.timestamp, c.event_type, c.audio_duration_minutes, c.file_name, "
+                "c.prompt_category_id, c.prompt_subcategory_id "
+                "FROM c WHERE c.user_id = @user_id AND c.timestamp >= @start_date "
+                "AND c.type = 'transcription_analytics' AND (IS_DEFINED(c.audio_duration_minutes) OR IS_DEFINED(c.audio_duration_seconds))"
+            )
+            params = [
+                {"name": "@user_id", "value": user_id},
+                {"name": "@start_date", "value": start_dt.isoformat()},
+            ]
+
+            records: List[Dict[str, Any]] = []
+            try:
+                for item in self.cosmos_db.analytics_container.query_items(
+                    query=query, parameters=params, enable_cross_partition_query=True
+                ):
+                    minutes = item.get("audio_duration_minutes")
+                    if minutes is None and item.get("audio_duration_seconds") is not None:
+                        minutes = float(item["audio_duration_seconds"]) / 60.0
+                    if minutes is None:
+                        continue
+                    records.append(
+                        {
+                            "job_id": item.get("job_id"),
+                            "timestamp": item.get("timestamp"),
+                            "event_type": item.get("event_type"),
+                            "audio_duration_minutes": float(minutes),
+                            "file_name": item.get("file_name"),
+                            "prompt_category_id": item.get("prompt_category_id"),
+                            "prompt_subcategory_id": item.get("prompt_subcategory_id"),
+                        }
+                    )
+            except Exception as e:
+                self.logger.warning(f"Analytics container query failed for user minutes: {str(e)}")
+
+            # Fallback: inspect jobs in analytics_container (type='job') for audio_duration fields
+            if not records:
+                job_query = (
+                    "SELECT c.id, c.created_at, c.audio_duration_minutes, c.audio_duration_seconds "
+                    "FROM c WHERE c.type = 'job' AND c.user_id = @user_id AND c.created_at >= @start_ms"
+                )
+                params2 = [
+                    {"name": "@user_id", "value": user_id},
+                    {"name": "@start_ms", "value": int(start_dt.timestamp() * 1000)},
+                ]
+                try:
+                    for item in self.cosmos_db.analytics_container.query_items(
+                        query=job_query, parameters=params2, enable_cross_partition_query=True
+                    ):
+                        minutes = item.get("audio_duration_minutes")
+                        if minutes is None and item.get("audio_duration_seconds") is not None:
+                            minutes = float(item["audio_duration_seconds"]) / 60.0
+                        if minutes is None:
+                            continue
+                        ts_ms = item.get("created_at")
+                        ts_iso = (
+                            datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
+                            if isinstance(ts_ms, (int, float))
+                            else None
+                        )
+                        records.append(
+                            {
+                                "job_id": item.get("id"),
+                                "timestamp": ts_iso,
+                                "event_type": "job_created",
+                                "audio_duration_minutes": float(minutes),
+                            }
+                        )
+                except Exception as e:
+                    self.logger.warning(f"Jobs fallback query failed for user minutes: {str(e)}")
+
+            # Aggregate totals
+            total_minutes = sum(r.get("audio_duration_minutes", 0.0) for r in records)
+            # Sort by timestamp descending
+            records.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
+
+            return {
+                "user_id": user_id,
+                "period_days": days,
+                "start_date": start_dt.isoformat(),
+                "end_date": end_dt.isoformat(),
+                "total_minutes": total_minutes,
+                "total_records": len(records),
+                "records": records,
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting user minutes records: {str(e)}")
+            return {
+                "user_id": user_id,
+                "period_days": days,
+                "start_date": None,
+                "end_date": None,
+                "total_minutes": 0.0,
+                "total_records": 0,
+                "records": [],
+                "error": str(e),
+            }

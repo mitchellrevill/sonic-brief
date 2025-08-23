@@ -101,3 +101,23 @@ class SystemHealthResponse(BaseModel):
 class JobAnalyticsResponse(BaseModel):
     jobs: List[Dict[str, Any]]
     count: int
+
+
+class UserMinuteRecord(BaseModel):
+    job_id: str
+    timestamp: str
+    audio_duration_minutes: float
+    event_type: Optional[str] = None
+    file_name: Optional[str] = None
+    prompt_category_id: Optional[str] = None
+    prompt_subcategory_id: Optional[str] = None
+
+
+class UserMinutesResponse(BaseModel):
+    user_id: str
+    period_days: int
+    start_date: str
+    end_date: str
+    total_minutes: float
+    total_records: int
+    records: List[UserMinuteRecord]
