@@ -1,10 +1,10 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends, status, Query, Response, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from app.core.config import AppConfig, CosmosDB, get_cosmos_db, DatabaseError
+from app.core.config import AppConfig, CosmosDB, DatabaseError, get_cosmos_db
 from app.services.analytics_service import AnalyticsService
 from app.services.export_service import ExportService
 from app.services.system_health_service import SystemHealthService
@@ -16,7 +16,8 @@ from app.models.analytics_models import (
     ExportRequest,
     ExportResponse,
     SystemHealthResponse,
-    JobAnalyticsResponse
+    JobAnalyticsResponse,
+    UserMinutesResponse
 )
 from app.routers.auth import get_current_user, require_analytics_access, require_user_view_access
 from app.middleware.permission_middleware import get_current_user_id
@@ -109,39 +110,7 @@ async def require_user_management_access(current_user: Dict[str, Any] = Depends(
     return current_user
 
 
-@router.post("/analytics/event")
-async def track_analytics_event(
-    event_request: AnalyticsEventRequest,
-    current_user: Dict[str, Any] = Depends(get_current_user)
-):
-    """
-    Track an analytics event
-    Note: This is typically called internally by other endpoints
-    """
-    try:
-        config = AppConfig()
-        cosmos_db = get_cosmos_db(config)
-        analytics_service = AnalyticsService(cosmos_db)
-        
-        event_id = await analytics_service.track_event(
-            event_type=event_request.event_type,
-            user_id=current_user["id"],
-            metadata=event_request.metadata,
-            job_id=event_request.job_id
-        )
-        
-        return {
-            "status": "success",
-            "event_id": event_id,
-            "message": "Analytics event tracked successfully"
-        }
-        
-    except Exception as e:
-        logger.error(f"Error tracking analytics event: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error tracking analytics event: {str(e)}"
-        )
+# Deprecated external analytics event endpoint removed as part of cleanup.
 
 
 @router.get("/analytics/users/{user_id}", response_model=UserAnalyticsResponse)
@@ -252,6 +221,62 @@ async def get_system_analytics(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error getting system analytics: {str(e)}"
+        )
+
+
+@router.get("/export/system/csv")
+async def export_system_analytics_csv(
+    days: int = Query(30, ge=1, le=365),
+    current_user: Dict[str, Any] = Depends(require_analytics_access)
+):
+    """Export system analytics as CSV, scoped by days."""
+    try:
+        config = AppConfig()
+        cosmos_db = get_cosmos_db(config)
+        export_service = ExportService(cosmos_db)
+        result = await export_service.export_system_analytics_csv(days)
+        if result.get('status') != 'success':
+            raise HTTPException(status_code=500, detail=result.get('message', 'Export failed'))
+        return FileResponse(
+            path=result['file_path'],
+            media_type=result['content_type'],
+            filename=result['filename'],
+            background=lambda: export_service.cleanup_temp_file(result['file_path'])
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting system analytics CSV: {e}")
+        raise HTTPException(status_code=500, detail="Failed to export system analytics CSV")
+
+
+@router.get("/analytics/users/{user_id}/minutes", response_model=UserMinutesResponse)
+async def get_user_minutes(
+    user_id: str,
+    days: int = Query(30, ge=1, le=365),
+    current_user: Dict[str, Any] = Depends(require_user_management_access)
+):
+    """Return per-job minute records for a user along with totals."""
+    try:
+        config = AppConfig()
+        cosmos_db = get_cosmos_db(config)
+        analytics_service = AnalyticsService(cosmos_db)
+        data = await analytics_service.get_user_minutes_records(user_id, days)
+        # Ensure required fields exist
+        return {
+            "user_id": data.get("user_id", user_id),
+            "period_days": data.get("period_days", days),
+            "start_date": data.get("start_date"),
+            "end_date": data.get("end_date"),
+            "total_minutes": data.get("total_minutes", 0.0),
+            "total_records": data.get("total_records", 0),
+            "records": data.get("records", []),
+        }
+    except Exception as e:
+        logger.error(f"Error getting user minutes: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting user minutes: {str(e)}"
         )
 
 
@@ -375,6 +400,7 @@ async def export_users(
 async def export_user_details_pdf(
     user_id: str,
     include_analytics: bool = Query(True),
+    days: int = Query(30, ge=1, le=365, description="Analytics scope in days"),
     current_user: Dict[str, Any] = Depends(require_user_view_access)
 ):
     """
@@ -384,8 +410,7 @@ async def export_user_details_pdf(
         config = AppConfig()
         cosmos_db = get_cosmos_db(config)
         export_service = ExportService(cosmos_db)
-        
-        result = await export_service.export_user_details_pdf(user_id, include_analytics)
+        result = await export_service.export_user_details_pdf(user_id, include_analytics, days)
         
         if result['status'] == 'error':
             raise HTTPException(
@@ -455,53 +480,114 @@ class SessionEventRequest(BaseModel):
     timestamp: Optional[str] = None
     session_duration: Optional[int] = None
 
-
-@router.post("/analytics/session")
-async def track_session_event(
-    session_request: SessionEventRequest,
-    request: Request,
+@router.get("/analytics/health")
+async def analytics_health_check(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """
-    Track user session events
-    
-    Actions:
-    - start: User session started
-    - heartbeat: User is actively using the app
-    - end: User session ended
-    - focus: User focused on the app window
-    - blur: User switched away from the app
-    - page_view: User navigated to a new page
-    """
+    """Health check endpoint for analytics services and containers."""
     try:
         config = AppConfig()
         cosmos_db = get_cosmos_db(config)
-        analytics_service = AnalyticsService(cosmos_db)
         
+        health_status = {
+            "status": "healthy",
+            "containers": {},
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+        # Check each container
+        containers_to_check = [
+            ("analytics_container", "Analytics"),
+            ("sessions_container", "Sessions"),
+            ("events_container", "Events"),
+            ("jobs_container", "Jobs"),
+            ("auth_container", "Auth")
+        ]
+        
+        for container_attr, container_name in containers_to_check:
+            try:
+                container = getattr(cosmos_db, container_attr, None)
+                if container is not None:
+                    # Try to read from the container (this will test connectivity)
+                    # We'll just check if we can query with a limit of 1
+                    list(container.query_items(
+                        query="SELECT TOP 1 c.id FROM c",
+                        enable_cross_partition_query=True
+                    ))
+                    health_status["containers"][container_name] = {
+                        "status": "available",
+                        "accessible": True
+                    }
+                else:
+                    health_status["containers"][container_name] = {
+                        "status": "not_configured",
+                        "accessible": False
+                    }
+            except Exception as e:
+                health_status["containers"][container_name] = {
+                    "status": "error",
+                    "accessible": False,
+                    "error": str(e)
+                }
+                health_status["status"] = "degraded"
+        
+        return health_status
+        
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+
+@router.post("/analytics/session")
+async def post_session_event(
+    session_request: SessionEventRequest,
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Track a user session event (start, heartbeat, end, focus, blur, page_view)."""
+    try:
+        logger.info(f"📊 Session tracking request: {session_request.action} for user {current_user['id']}")
+        
+        config = AppConfig()
+        cosmos_db = get_cosmos_db(config)
+        
+        # Log container availability
+        logger.info(f"Sessions container available: {hasattr(cosmos_db, 'sessions_container') and cosmos_db.sessions_container is not None}")
+        
+        analytics_service = AnalyticsService(cosmos_db)
+
         # Extract request metadata
         user_agent = request.headers.get("User-Agent")
-        ip_address = request.headers.get("X-Forwarded-For") or request.client.host
-        
+        ip_address = request.headers.get("X-Forwarded-For") or (request.client.host if request.client else None)
+
         session_event_id = await analytics_service.track_user_session(
             user_id=current_user["id"],
             action=session_request.action,
             page=session_request.page,
             user_agent=user_agent,
-            ip_address=ip_address
+            ip_address=ip_address,
         )
+
+        logger.info(f"✅ Session event tracked successfully: ID={session_event_id}")
         
         return {
             "status": "success",
             "session_event_id": session_event_id,
-            "message": f"Session {session_request.action} tracked successfully"
+            "message": f"Session {session_request.action} tracked successfully",
         }
-        
     except Exception as e:
-        logger.error(f"Error tracking session event: {str(e)}")
-        # Don't fail the request if session tracking fails
+        logger.error(f"❌ Error tracking session event: {str(e)}")
+        logger.error(f"Full error details: {repr(e)}")
+        
+        # Return error details for debugging
         return {
-            "status": "error",
-            "message": "Session tracking failed but request continues"
+            "status": "error", 
+            "session_event_id": "",
+            "message": f"Session tracking failed: {str(e)}"
         }
 
 
@@ -521,7 +607,15 @@ async def get_active_users(
         # Defensive: always return a list and count
         if not isinstance(active_users, list):
             active_users = []
-        return {"active_user_count": len(active_users), "active_users": active_users}
+        return {
+            "status": "success",
+            "data": {
+                "active_users": active_users,
+                "count": len(active_users),
+                "period_minutes": minutes,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        }
     except Exception as e:
         logger.error(f"Error getting active users: {str(e)}")
         raise HTTPException(
@@ -567,6 +661,110 @@ async def get_user_session_duration(
         )
 
 
+@router.get("/analytics/users/{user_id}/audit-logs")
+async def get_user_audit_logs(
+    user_id: str,
+    days: int = Query(30, ge=1, le=365),
+    current_user: Dict[str, Any] = Depends(require_user_management_access),
+):
+    """Return audit log items for a user within a date range."""
+    try:
+        config = AppConfig()
+        cosmos_db = get_cosmos_db(config)
+
+        end_dt = datetime.now(timezone.utc)
+        start_dt = end_dt - timedelta(days=days)
+
+        items = []
+        container = getattr(cosmos_db, "audit_container", None) or getattr(cosmos_db, "events_container", None)
+        if container is None:
+            # Fallback to jobs container directly
+            jobs = []
+            jq = (
+                "SELECT c.id, c.created_at FROM c WHERE c.user_id = @user_id AND c.created_at >= @start_ms ORDER BY c.created_at DESC"
+            )
+            jp = [
+                {"name": "@user_id", "value": user_id},
+                {"name": "@start_ms", "value": int(start_dt.timestamp() * 1000)},
+            ]
+            for j in cosmos_db.jobs_container.query_items(query=jq, parameters=jp, enable_cross_partition_query=True):
+                ts_ms = j.get("created_at")
+                ts_iso = (
+                    datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
+                    if isinstance(ts_ms, (int, float))
+                    else None
+                )
+                items.append(
+                    {
+                        "id": j.get("id"),
+                        "timestamp": ts_iso,
+                        "event_type": "job_created",
+                        "resource_type": "job",
+                        "resource_id": j.get("id"),
+                        "metadata": {},
+                    }
+                )
+            return {
+                "user_id": user_id,
+                "period_days": days,
+                "start_date": start_dt.isoformat(),
+                "end_date": end_dt.isoformat(),
+                "records": items,
+            }
+
+        query = (
+            "SELECT c.id, c.timestamp, c.event_type, c.resource_type, c.resource_id, c.metadata "
+            "FROM c WHERE c.user_id = @user_id AND c.timestamp >= @start AND c.timestamp <= @end "
+            "ORDER BY c.timestamp DESC"
+        )
+        params = [
+            {"name": "@user_id", "value": user_id},
+            {"name": "@start", "value": start_dt.isoformat()},
+            {"name": "@end", "value": end_dt.isoformat()},
+        ]
+        try:
+            for it in container.query_items(query=query, parameters=params, enable_cross_partition_query=True):
+                items.append(it)
+        except Exception as e:
+            logger.warning(f"Audit logs query failed: {e}; falling back to jobs")
+            # Fallback to jobs container if audit/events query fails
+            jq = (
+                "SELECT c.id, c.created_at FROM c WHERE c.user_id = @user_id AND c.created_at >= @start_ms ORDER BY c.created_at DESC"
+            )
+            jp = [
+                {"name": "@user_id", "value": user_id},
+                {"name": "@start_ms", "value": int(start_dt.timestamp() * 1000)},
+            ]
+            for j in cosmos_db.jobs_container.query_items(query=jq, parameters=jp, enable_cross_partition_query=True):
+                ts_ms = j.get("created_at")
+                ts_iso = (
+                    datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
+                    if isinstance(ts_ms, (int, float))
+                    else None
+                )
+                items.append(
+                    {
+                        "id": j.get("id"),
+                        "timestamp": ts_iso,
+                        "event_type": "job_created",
+                        "resource_type": "job",
+                        "resource_id": j.get("id"),
+                        "metadata": {},
+                    }
+                )
+
+        return {
+            "user_id": user_id,
+            "period_days": days,
+            "start_date": start_dt.isoformat(),
+            "end_date": end_dt.isoformat(),
+            "records": items,
+        }
+    except Exception as e:
+        logger.error(f"Error getting user audit logs: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get audit logs")
+
+
 @router.get("/analytics/jobs", response_model=JobAnalyticsResponse)
 async def get_recent_jobs(
     limit: int = Query(10, ge=1, le=100),
@@ -610,7 +808,3 @@ async def get_system_health(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error getting system health: {str(e)}"
         )
-
-
-
-

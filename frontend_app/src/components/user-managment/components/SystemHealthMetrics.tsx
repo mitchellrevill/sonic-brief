@@ -10,7 +10,7 @@ interface SystemHealthMetricsProps {
 
 export function SystemHealthMetrics({ systemHealth, healthLoading }: SystemHealthMetricsProps) {
   return (
-    <Card>
+  <Card className="bg-card/80 border border-muted-foreground/10 rounded-xl shadow-sm">
       <CardHeader>
         <CardTitle className="text-lg flex items-center gap-2">
           <Activity className="h-5 w-5" />
@@ -20,7 +20,7 @@ export function SystemHealthMetrics({ systemHealth, healthLoading }: SystemHealt
           </Badge>
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Live system performance metrics - API, Database, and Memory
+      Live system performance metrics — API, Database, and Memory
         </p>
       </CardHeader>
       <CardContent>

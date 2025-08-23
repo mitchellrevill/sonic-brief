@@ -15,7 +15,7 @@ interface AnalyticsChartProps {
 
 export function AnalyticsChart({ analyticsLoading, analyticsData, analyticsPeriod }: AnalyticsChartProps) {
   return (
-    <Card>
+  <Card className="bg-card/80 border border-muted-foreground/10 rounded-xl shadow-sm">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <TrendingUp className="h-5 w-5" />
@@ -35,8 +35,10 @@ export function AnalyticsChart({ analyticsLoading, analyticsData, analyticsPerio
           <div className="h-[300px] flex items-center justify-center">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
           </div>
+        ) : analyticsData.length === 0 ? (
+          <div className="h-[300px] flex items-center justify-center text-muted-foreground">No data in selected period</div>
         ) : (
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={300} aria-label="System usage analytics chart">
             <LineChart data={analyticsData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis 

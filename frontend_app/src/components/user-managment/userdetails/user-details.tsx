@@ -6,19 +6,21 @@ import {
   User as UserIcon,
   Shield,
   ShieldCheck,
-  Activity,
   Settings,
   UserPlus
 } from "lucide-react";
 import { 
   fetchUserById, 
   getUserAnalytics, 
+  getUserMinutes,
   exportUserDetailsPDF, 
   updateUserPermission, 
   changeUserPassword, 
   deleteUser,
   updateUserCapabilities,
-  type UserAnalytics 
+  getUserAuditLogs,
+  type UserAnalytics,
+  type UserAuditLogsResponse
 } from "@/lib/api";
 import type { User } from "@/lib/api";
 import { PermissionLevel, type UserCapabilities } from "@/types/permissions";
@@ -31,6 +33,7 @@ import { UserAnalyticsCharts } from "./UserAnalyticsCharts";
 import { UserAnalyticsSummary } from "./UserAnalyticsSummary";
 import { UserNotFound } from "./UserNotFound";
 import { UserDetailsSkeleton } from "./UserDetailsSkeleton";
+import { Link } from "@tanstack/react-router";
 
 export function UserDetailsPage() {
   // Extract userId from URL path
@@ -39,8 +42,8 @@ export function UserDetailsPage() {
 
   const [user, setUser] = useState<User | null>(null);
   const [analytics, setAnalytics] = useState<UserAnalytics | null>(null);
+  const [userMinutes, setUserMinutes] = useState<{ total_minutes: number; total_records: number } | null>(null);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
-  const analyticsApiUrl = `${import.meta.env.VITE_API_URL}/api/analytics/users/${userId}?days=30`;
   const reloadRef = useRef<HTMLButtonElement>(null);
   const [loading, setLoading] = useState(true);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
@@ -56,12 +59,25 @@ export function UserDetailsPage() {
   const [newPermission, setNewPermission] = useState<PermissionLevel>(PermissionLevel.USER);
   const [newPassword, setNewPassword] = useState("");
 
+  // Scope and audit log states
+  const [scopeDays, setScopeDays] = useState<number>(30);
+  const [auditLogs, setAuditLogs] = useState<UserAuditLogsResponse | null>(null);
+  const [auditLoading, setAuditLoading] = useState<boolean>(false);
+
+  const analyticsApiUrl = `${import.meta.env.VITE_API_URL}/api/analytics/users/${userId}?days=${scopeDays}`;
+
   useEffect(() => {
     if (userId) {
       fetchUserData();
-      fetchUserAnalyticsData();
     }
   }, [userId]);
+
+  useEffect(() => {
+    if (userId) {
+      fetchUserAnalyticsData();
+      fetchAuditLogs();
+    }
+  }, [userId, scopeDays]);
 
   const fetchUserData = async () => {
     if (!userId) return;
@@ -86,7 +102,7 @@ export function UserDetailsPage() {
     setAnalyticsLoading(true);
     setAnalyticsError(null);
     try {
-      const analyticsData = await getUserAnalytics(userId);
+      const analyticsData = await getUserAnalytics(userId, scopeDays);
       console.log("User analytics data received:", analyticsData);
       
       // Check if the response has an error in the analytics field
@@ -102,7 +118,6 @@ export function UserDetailsPage() {
               average_job_duration: 0
             },
             activity_stats: {
-              login_count: 0,
               jobs_created: 0,
               last_activity: null
             },
@@ -117,6 +132,14 @@ export function UserDetailsPage() {
       } else {
         setAnalytics(analyticsData as UserAnalytics);
       }
+
+      // Fetch per-job minutes summary
+      try {
+        const minutes = await getUserMinutes(userId, scopeDays);
+        setUserMinutes({ total_minutes: minutes.total_minutes, total_records: minutes.total_records });
+      } catch (e) {
+        console.debug('User minutes fetch failed:', e);
+      }
     } catch (error: any) {
       console.error("Failed to fetch user analytics:", error);
       setAnalyticsError(error?.message || "Failed to load user analytics. Please ensure analytics containers are created.");
@@ -126,12 +149,26 @@ export function UserDetailsPage() {
     }
   };
 
+  const fetchAuditLogs = async () => {
+    if (!userId) return;
+    setAuditLoading(true);
+    try {
+      const logs = await getUserAuditLogs(userId, scopeDays);
+      setAuditLogs(logs);
+    } catch (e) {
+      console.debug('Audit logs fetch failed:', e);
+      setAuditLogs(null);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
   const handleExportPDF = async () => {
     if (!userId) return;
     
     setExportLoading(true);
     try {
-      const blob = await exportUserDetailsPDF(userId, true);
+  const blob = await exportUserDetailsPDF(userId, true, scopeDays);
       
       // Create download link
       const url = window.URL.createObjectURL(blob);
@@ -304,14 +341,24 @@ export function UserDetailsPage() {
         deleteLoading={deleteLoading}
         handleDeleteUser={handleDeleteUser}
       />
+      {/* Scope Controls */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">Scope:</span>
+        {[1, 7, 30, 180].map((d) => (
+          <Button key={d} variant={scopeDays === d ? "default" : "outline"} size="sm" onClick={() => setScopeDays(d)}>
+            {d === 1 ? '1d' : d === 7 ? '7d' : d === 30 ? '30d' : '6mo'}
+          </Button>
+        ))}
+      </div>
+      
       {/* Combined Analytics Overview & Activity Section */}
       {analyticsLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {[...Array(4)].map((_, i) => (
-            <Card key={i}>
+            <Card key={i} className="bg-card/80 border border-muted-foreground/10 rounded-xl shadow-sm">
               <CardContent className="p-6">
-                <Skeleton className="h-4 w-[100px] mb-2" />
-                <Skeleton className="h-8 w-[60px]" />
+                <div className="h-4 w-24 bg-muted rounded mb-2 animate-pulse" />
+                <div className="h-8 w-16 bg-muted rounded animate-pulse" />
               </CardContent>
             </Card>
           ))}
@@ -326,42 +373,53 @@ export function UserDetailsPage() {
           </Button>
         </div>
       ) : analytics ? (
-        <Card className="bg-card/80 border border-muted-foreground/10 rounded-xl shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg font-semibold">
-              <Activity className="h-5 w-5" />
-              User Analytics & Activity
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <UserAnalyticsOverview
-              totalJobs={analytics.analytics.transcription_stats.total_jobs}
-              totalMinutes={formatDuration(analytics.analytics.transcription_stats.total_minutes)}
-              avgJobDuration={formatDuration(analytics.analytics.transcription_stats.average_job_duration)}
-              loginCount={analytics.analytics.activity_stats.login_count}
-            />
-            <UserAnalyticsCharts
-              barData={[
-                { name: 'Jobs Created', value: analytics.analytics.activity_stats.jobs_created || 0, fill: '#4caf50' },
-                { name: 'Logins', value: analytics.analytics.activity_stats.login_count || 0, fill: '#2196f3' },
-                { name: 'File Uploads', value: analytics.analytics.usage_patterns.file_upload_count || 0, fill: '#ff9800' },
-                { name: 'Text Inputs', value: analytics.analytics.usage_patterns.text_input_count || 0, fill: '#9c27b0' }
-              ]}
-              pieData={[
-                { name: 'File Uploads', value: analytics.analytics.usage_patterns.file_upload_count || 0, fill: '#ff9800' },
-                { name: 'Text Inputs', value: analytics.analytics.usage_patterns.text_input_count || 0, fill: '#9c27b0' }
-              ].filter(item => item.value > 0)}
-            />
-            <UserAnalyticsSummary
-              lastActivity={analytics.analytics.activity_stats.last_activity}
-              jobsCreated={analytics.analytics.activity_stats.jobs_created}
-            />
-          </CardContent>
-        </Card>
+        <>
+          <Card className="bg-card/80 border border-muted-foreground/10 rounded-xl shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg font-semibold">
+                User Analytics & Activity
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <UserAnalyticsOverview
+                totalJobs={analytics.analytics.transcription_stats?.total_jobs ?? 0}
+                totalMinutes={formatDuration(userMinutes?.total_minutes ?? analytics.analytics.transcription_stats?.total_minutes ?? 0)}
+                avgJobDuration={formatDuration(analytics.analytics.transcription_stats?.average_job_duration ?? 0)}
+              />
+              
+              <UserAnalyticsSummary
+                lastActivity={analytics.analytics.activity_stats?.last_activity ?? null}
+                jobsCreated={analytics.analytics.activity_stats?.jobs_created ?? 0}
+              />
+            </CardContent>
+          </Card>
+        </>
       ) : (
-        <div className="text-center text-muted-foreground">
-          No analytics data available for this user.
+        <div className="text-center text-muted-foreground">No analytics data available for this user.</div>
+      )}
+      
+      {/* Audit Logs Section */}
+      {auditLoading ? (
+        <div className="text-sm text-muted-foreground">Loading audit logs…</div>
+      ) : auditLogs && auditLogs.records.length > 0 ? (
+        <div className="mt-6">
+          <h3 className="text-base font-semibold mb-2">Audit Log</h3>
+          <div className="space-y-2">
+            {auditLogs.records.slice(0, 50).map((r) => (
+              <div key={r.id} className="text-sm p-2 border rounded-md flex items-center justify-between">
+                <div>
+                  <div className="font-medium">{r.event_type}</div>
+                  <div className="text-xs text-muted-foreground">{r.timestamp ? new Date(r.timestamp).toLocaleString() : ''}</div>
+                </div>
+                {r.resource_type === 'job' && r.resource_id ? (
+                  <Link to="/audio-recordings/$id" params={{ id: r.resource_id as string }} className="text-primary underline text-xs">View job</Link>
+                ) : null}
+              </div>
+            ))}
+          </div>
         </div>
+      ) : (
+        <div className="text-sm text-muted-foreground mt-6">No audit records in this period.</div>
       )}
       
       {/* User Capability Management */}

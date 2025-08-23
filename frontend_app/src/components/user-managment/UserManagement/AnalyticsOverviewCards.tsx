@@ -14,7 +14,7 @@ interface AnalyticsOverviewCardsProps {
 export function AnalyticsOverviewCards({ analyticsLoading, systemAnalytics, analyticsData, analyticsPeriod }: AnalyticsOverviewCardsProps) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
-      <Card>
+      <Card className="bg-card/80 border border-muted-foreground/10 rounded-xl shadow-sm">
         <CardContent className="p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-50 dark:bg-blue-950 rounded-lg">
@@ -42,7 +42,7 @@ export function AnalyticsOverviewCards({ analyticsLoading, systemAnalytics, anal
           </div>
         </CardContent>
       </Card>
-      <Card>
+      <Card className="bg-card/80 border border-muted-foreground/10 rounded-xl shadow-sm">
         <CardContent className="p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-green-50 dark:bg-green-950 rounded-lg">
@@ -63,7 +63,7 @@ export function AnalyticsOverviewCards({ analyticsLoading, systemAnalytics, anal
           </div>
         </CardContent>
       </Card>
-      <Card>
+      <Card className="bg-card/80 border border-muted-foreground/10 rounded-xl shadow-sm">
         <CardContent className="p-4">
           <ActiveUsersDisplay />
         </CardContent>

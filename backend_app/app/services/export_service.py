@@ -3,7 +3,7 @@ import csv
 import logging
 import tempfile
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -99,7 +99,7 @@ class ExportService:
                 'message': str(e)
             }
 
-    async def export_user_details_pdf(self, user_id: str, include_analytics: bool = True) -> Dict[str, Any]:
+    async def export_user_details_pdf(self, user_id: str, include_analytics: bool = True, days: int = 30) -> Dict[str, Any]:
         """
         Export individual user details to PDF format
         
@@ -124,7 +124,7 @@ class ExportService:
             if include_analytics:
                 from app.services.analytics_service import AnalyticsService
                 analytics_service = AnalyticsService(self.cosmos_db)
-                analytics_data = await analytics_service.get_user_analytics(user_id, days=30)
+                analytics_data = await analytics_service.get_user_analytics(user_id, days=days)
                 analytics = analytics_data.get('analytics', {})
             
             # Create temporary file
@@ -197,7 +197,7 @@ class ExportService:
             
             # Analytics Section
             if analytics:
-                story.append(Paragraph("Analytics Summary (Last 30 Days)", styles['Heading2']))
+                story.append(Paragraph(f"Analytics Summary (Last {days} Days)", styles['Heading2']))
                 
                 # Transcription Stats
                 transcription_stats = analytics.get('transcription_stats', {})
@@ -226,6 +226,34 @@ class ExportService:
                     
                     story.append(transcription_table)
                     story.append(Spacer(1, 15))
+
+                # Include detailed per-job minutes if available
+                try:
+                    from app.services.analytics_service import AnalyticsService
+                    analytics_service = AnalyticsService(self.cosmos_db)
+                    minutes_data = await analytics_service.get_user_minutes_records(user.get('id'), days=30)
+                    records = minutes_data.get('records', [])
+                    if records:
+                        story.append(Paragraph("Per-Job Duration Records", styles['Heading3']))
+                        minutes_table_data = [["Job ID", "Timestamp", "Minutes", "File Name"]]
+                        for r in records[:50]:  # cap rows to avoid huge PDFs
+                            minutes_table_data.append([
+                                r.get('job_id', ''),
+                                self._format_datetime(r.get('timestamp')),
+                                f"{float(r.get('audio_duration_minutes', 0.0)):.2f}",
+                                r.get('file_name', '') or ''
+                            ])
+                        table = Table(minutes_table_data, colWidths=[2*inch, 2*inch, 1*inch, 2*inch])
+                        table.setStyle(TableStyle([
+                            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+                            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                            ('FONTSIZE', (0, 0), (-1, -1), 8),
+                            ('ALIGN', (2, 1), (2, -1), 'RIGHT'),
+                        ]))
+                        story.append(table)
+                        story.append(Spacer(1, 15))
+                except Exception as e:
+                    self.logger.warning(f"Could not include per-job minutes in PDF: {str(e)}")
                 
                 # Activity Stats
                 activity_stats = analytics.get('activity_stats', {})
@@ -281,6 +309,73 @@ class ExportService:
                 'status': 'error',
                 'message': str(e)
             }
+
+    async def export_system_analytics_csv(self, days: int = 30) -> Dict[str, Any]:
+        """Export system analytics (per-job minutes) within the last N days to CSV."""
+        try:
+            end_dt = datetime.now(timezone.utc)
+            start_dt = end_dt - timedelta(days=days)
+
+            rows: List[List[str]] = []
+            headers = [
+                'job_id', 'user_id', 'timestamp', 'minutes', 'file_name'
+            ]
+
+            # Query analytics container for records in range
+            query = (
+                "SELECT c.id, c.job_id, c.user_id, c.timestamp, c.audio_duration_minutes, c.audio_duration_seconds, c.file_name "
+                "FROM c WHERE c.timestamp >= @start AND c.timestamp <= @end"
+            )
+            params = [
+                {"name": "@start", "value": start_dt.isoformat()},
+                {"name": "@end", "value": end_dt.isoformat()},
+            ]
+
+            try:
+                items = self.cosmos_db.analytics_container.query_items(
+                    query=query, parameters=params, enable_cross_partition_query=True
+                )
+                for it in items:
+                    job_id = it.get('job_id') or it.get('id') or ''
+                    user_id = it.get('user_id') or ''
+                    ts = it.get('timestamp') or ''
+                    minutes = it.get('audio_duration_minutes')
+                    if minutes is None and it.get('audio_duration_seconds') is not None:
+                        try:
+                            minutes = float(it['audio_duration_seconds']) / 60.0
+                        except Exception:
+                            minutes = 0
+                    try:
+                        minutes_str = f"{float(minutes):.2f}" if minutes is not None else ""
+                    except Exception:
+                        minutes_str = ""
+                    file_name = it.get('file_name') or ''
+                    rows.append([str(job_id), str(user_id), str(ts), minutes_str, str(file_name)])
+            except Exception as qe:
+                self.logger.error(f"Error querying analytics for export: {qe}")
+
+            # Create temporary CSV file
+            temp_file = tempfile.NamedTemporaryFile(
+                mode='w', suffix='.csv', delete=False, newline='', encoding='utf-8'
+            )
+            writer = csv.writer(temp_file)
+            writer.writerow(headers)
+            for r in rows:
+                writer.writerow(r)
+            temp_file.close()
+
+            timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+            filename = f'sonic-brief-system-analytics-{days}d-{timestamp}.csv'
+            return {
+                'status': 'success',
+                'file_path': temp_file.name,
+                'filename': filename,
+                'record_count': len(rows),
+                'content_type': 'text/csv'
+            }
+        except Exception as e:
+            self.logger.error(f"Error exporting system analytics CSV: {e}")
+            return {'status': 'error', 'message': str(e)}
 
     def _apply_user_filters(self, users: List[Dict[str, Any]], filters: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Apply filters to user list"""

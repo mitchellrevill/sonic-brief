@@ -1,4 +1,5 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Users, TrendingUp, BarChart3, AlertTriangle } from "lucide-react";
@@ -65,21 +66,50 @@ export function SystemAnalyticsTab({
             Comprehensive overview of system usage and performance metrics
           </p>
         </div>
-        <Select 
-          value={analyticsPeriod.toString()} 
-          onValueChange={(value) => setAnalyticsPeriod(value === 'total' ? 'total' : parseInt(value) as 7 | 30 | 180 | 365)}
-        >
-          <SelectTrigger className="w-40">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7">7 days</SelectItem>
-            <SelectItem value="30">30 days</SelectItem>
-            <SelectItem value="180">6 months</SelectItem>
-            <SelectItem value="365">12 months</SelectItem>
-            <SelectItem value="total">All time</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Select 
+            value={analyticsPeriod.toString()} 
+            onValueChange={(value) => setAnalyticsPeriod(value === 'total' ? 'total' : parseInt(value) as 7 | 30 | 180 | 365)}
+          >
+            <SelectTrigger className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7">7 days</SelectItem>
+              <SelectItem value="30">30 days</SelectItem>
+              <SelectItem value="180">6 months</SelectItem>
+              <SelectItem value="365">12 months</SelectItem>
+              <SelectItem value="total">All time</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              const period = analyticsPeriod === 'total' ? 30 : analyticsPeriod;
+              const resp = await fetch(`${import.meta.env.VITE_API_URL}/api/export/system/csv?days=${period}`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
+              });
+              if (!resp.ok) {
+                console.error('Failed to export system analytics CSV');
+                return;
+              }
+              const blob = await resp.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `system_analytics_${period}d.csv`;
+              document.body.appendChild(a);
+              a.click();
+              setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              }, 0);
+            }}
+          >
+            Export CSV
+          </Button>
+        </div>
       </div>
 
       {/* Enhanced Analytics Overview Cards */}
