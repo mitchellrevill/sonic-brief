@@ -2,7 +2,6 @@ import logging
 import time
 from typing import Dict, Any, Optional
 import requests
-from azure.identity import DefaultAzureCredential
 import os
 import sys
 import json
@@ -21,13 +20,26 @@ class TranscriptionService:
     def __init__(
         self,
         config: AppConfig,
-        credential: DefaultAzureCredential = None,
+        credential: Any = None,
         storage_service: StorageService = None,
     ) -> None:
         """Initialize the TranscriptionService with config, optional credential, and storage service."""
         self.config = config
         self.logger = logging.getLogger(__name__)
-        self.credential = credential if credential is not None else DefaultAzureCredential()
+        # Import DefaultAzureCredential lazily to avoid importing heavy native
+        # dependencies (cryptography) at module import time which can crash the
+        # Functions worker during indexing. Instantiate only when needed.
+        if credential is not None:
+            self.credential = credential
+        else:
+            try:
+                from azure.identity import DefaultAzureCredential
+                self.credential = DefaultAzureCredential()
+            except Exception:
+                # If credential cannot be created (for example during indexing
+                # when native libs are missing), set to None and defer failures
+                # until authentication is required.
+                self.credential = None
         self.storage_service = storage_service if storage_service is not None else StorageService(config)
         self.endpoint = f"https://{config.speech_deployment}.cognitiveservices.azure.com/speechtotext/v3.2"
         self.logger.info(
@@ -53,7 +65,12 @@ class TranscriptionService:
             )
 
             # Log which credential is being tried by DefaultAzureCredential
-            if isinstance(self.credential, DefaultAzureCredential):
+            try:
+                from azure.identity import DefaultAzureCredential as _DAC
+            except Exception:
+                _DAC = None
+
+            if _DAC is not None and isinstance(self.credential, _DAC):
                 self.logger.info(
                     "DefaultAzureCredential authentication sources",
                     extra={

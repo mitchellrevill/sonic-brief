@@ -3,7 +3,7 @@ import requests
 import logging
 from config import AppConfig
 from openai import AzureOpenAI
-from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -12,18 +12,30 @@ class AnalysisServiceError(Exception):
     pass
 
 class AnalysisService:
-    def __init__(self, config: AppConfig, credential: DefaultAzureCredential = None) -> None:
+    def __init__(self, config: AppConfig, credential: Any = None) -> None:
         """Initialize the AnalysisService with config and optional credential."""
         self.config = config
-        self.credential = credential if credential is not None else DefaultAzureCredential()
+        if credential is not None:
+            self.credential = credential
+        else:
+            try:
+                from azure.identity import DefaultAzureCredential
+                self.credential = DefaultAzureCredential()
+            except Exception:
+                self.credential = None
 
     def analyze_conversation(self, conversation: str, context: str) -> Dict[str, Any]:
         """Analyze conversation using Azure OpenAI and return analysis results."""
         try:
             logger.info("Getting Bearer Token...")
-            token_provider = get_bearer_token_provider(
-                self.credential, "https://cognitiveservices.azure.com/.default"
-            )
+            try:
+                from azure.identity import get_bearer_token_provider
+                token_provider = get_bearer_token_provider(
+                    self.credential, "https://cognitiveservices.azure.com/.default"
+                )
+            except Exception:
+                logger.error("Failed to obtain bearer token provider", exc_info=True)
+                raise
             logger.info("Bearer Token obtained successfully :")
             logger.info("Creating AzureOpenAI client...")
             client = AzureOpenAI(

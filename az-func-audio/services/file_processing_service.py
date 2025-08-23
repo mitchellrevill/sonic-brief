@@ -6,7 +6,6 @@ import tempfile
 from typing import Any, Dict
 from config import AppConfig
 from services.storage_service import StorageService
-from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
 from azure.storage.blob.aio import BlobServiceClient as AsyncBlobServiceClient
 from utils.file_types import get_file_type, get_supported_extensions
@@ -21,6 +20,7 @@ try:
     DOC_PROCESSING_AVAILABLE = True
 except ImportError:
     DOC_PROCESSING_AVAILABLE = False
+    # Optional document processing libraries not available
 
 class FileProcessingError(Exception):
     """Custom exception for file processing errors."""
@@ -30,12 +30,20 @@ class FileProcessingError(Exception):
 SYSTEM_GENERATED_TAG = "__SYS__"
 
 class FileProcessingService:
-    def __init__(self, config: AppConfig, storage_service: StorageService = None, credential: DefaultAzureCredential = None) -> None:
+    def __init__(self, config: AppConfig, storage_service: StorageService = None, credential: Any = None) -> None:
         """Initialize the FileProcessingService with config, optional storage service, and credential."""
         self.config = config
         self.logger = logging.getLogger(__name__)
         self.storage_service = storage_service if storage_service is not None else StorageService(config)
-        self.credential = credential if credential is not None else DefaultAzureCredential()
+        # Lazy credential creation - avoid importing azure.identity at module import time
+        if credential is not None:
+            self.credential = credential
+        else:
+            try:
+                from azure.identity import DefaultAzureCredential
+                self.credential = DefaultAzureCredential()
+            except Exception:
+                self.credential = None
         self.logger.info("Initialized FileProcessingService")
 
     def get_file_type(self, file_extension: str) -> str:

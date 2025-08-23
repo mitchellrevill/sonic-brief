@@ -1,9 +1,18 @@
 import os
 import logging
-from dotenv import load_dotenv
 import ast
 
-# Load environment variables
+# dotenv is used to load local .env files during development. In some container
+# builds the package may not be installed which would cause the Functions
+# worker to fail indexing (ModuleNotFoundError). Guard the import so the
+# app can still start; dependencies should still be installed via
+# requirements.txt in production/containers.
+try:
+    from dotenv import load_dotenv  # type: ignore
+except Exception:  # pragma: no cover - defensive fallback
+    load_dotenv = lambda *a, **k: None
+
+# Load environment variables (no-op when dotenv isn't available)
 load_dotenv()
 
 # Setup logging
@@ -30,6 +39,8 @@ class AppConfig:
             self.cosmos_database: str = os.getenv("AZURE_COSMOS_DB_NAME", "VoiceDB")
             self.cosmos_jobs_container: str = f"{prefix}jobs"
             self.cosmos_prompts_container: str = f"{prefix}prompts"            # Supported Audio Extensions List
+            # Sessions container (prefix + 'user_sessions' to match existing default)
+            self.cosmos_sessions_container: str = f"{prefix}user_sessions"
             self.supported_audio_extensions = {
                 ".wav",  # Default audio streaming format
                 ".pcm",  # PCM (Pulse Code Modulation)
@@ -90,9 +101,9 @@ class AppConfig:
             )
 
             # Speech settings
-            self.speech_max_speakers: int = int(os.getenv("AZURE_SPEECH_MAX_SPEAKERS"))
+            self.speech_max_speakers: int = int(os.getenv("AZURE_SPEECH_MAX_SPEAKERS", "10"))
             self.speech_transcription_locale: str = os.getenv(
-                "AZURE_SPEECH_TRANSCRIPTION_LOCALE"
+                "AZURE_SPEECH_TRANSCRIPTION_LOCALE", "en-US"
             )
 
             self.speech_deployment: str = os.getenv("AZURE_SPEECH_DEPLOYMENT")
