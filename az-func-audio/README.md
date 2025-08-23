@@ -1,6 +1,30 @@
-az cosmosdb sql role assignment create `
->     --resource-group "ai-voice-agent" `
->     --account-name "voice" `
->     --role-definition-id "/subscriptions/7febc3da-6cf5-4dd8-9de8-893009904239/resourceGroups/ai-voice-agent/providers/Microsoft.DocumentDB/databaseAccounts/voice/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002" `
->     --principal-id "9f26c927-81ff-439e-bfa4-15849b719f28" `
->     --scope "/subscriptions/7febc3da-6cf5-4dd8-9de8-893009904239/resourceGroups/ai-voice-agent/providers/Microsoft.DocumentDB/databaseAccounts/voice"
+# ...existing code...
+
+---
+
+## Session Cleanup Timer Trigger
+
+A timer-triggered Azure Function is now implemented to auto-close stale sessions in CosmosDB every 5 minutes.
+
+- **Location:** `services/session_cleanup.py`
+- **Registration:** See the bottom of `function_app.py`
+- **Schedule:** Every 5 minutes (`0 */5 * * * *`)
+- **Logic:** Marks sessions as closed if no heartbeat in the last 15 minutes.
+
+### How it works
+- Queries CosmosDB for sessions with status 'open' and a stale heartbeat.
+- Updates those sessions to 'closed' and sets `closed_at` timestamp.
+
+### Configuration
+- Edit `STALE_MINUTES` in `session_cleanup.py` to change the inactivity threshold.
+- Ensure `azure-functions` and `azure-cosmos` are present in `requirements.txt` (already included).
+
+### Deployment
+- Azure automatically detects timer triggers in Python Function Apps.
+- No manual registration needed beyond code changes.
+
+### Testing Locally
+- You can manually invoke `session_cleanup.main()` for local testing.
+
+---
+For questions or changes, see `session_cleanup.py` and `function_app.py`.

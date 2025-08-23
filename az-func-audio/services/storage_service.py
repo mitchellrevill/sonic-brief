@@ -1,8 +1,7 @@
 import os
 import logging
-from typing import Optional
+from typing import Optional, Any
 from azure.storage.blob import BlobServiceClient, BlobSasPermissions, generate_blob_sas
-from azure.identity import DefaultAzureCredential
 from azure.core.exceptions import AzureError
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
@@ -17,10 +16,18 @@ class StorageServiceError(Exception):
     pass
 
 class StorageService:
-    def __init__(self, config: AppConfig, credential: DefaultAzureCredential = None, blob_service_client: BlobServiceClient = None) -> None:
+    def __init__(self, config: AppConfig, credential: Any = None, blob_service_client: BlobServiceClient = None) -> None:
         """Initialize the StorageService with config, optional credential, and blob service client."""
         self.config = config
-        self.credential = credential if credential is not None else DefaultAzureCredential()
+        # Lazy import of DefaultAzureCredential to avoid import-time failures
+        if credential is not None:
+            self.credential = credential
+        else:
+            try:
+                from azure.identity import DefaultAzureCredential
+                self.credential = DefaultAzureCredential()
+            except Exception:
+                self.credential = None
 
         # Initialize blob service client
         self.blob_service_client = blob_service_client if blob_service_client is not None else BlobServiceClient(

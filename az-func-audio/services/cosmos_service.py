@@ -3,7 +3,7 @@ from datetime import datetime
 import logging
 from azure.cosmos import CosmosClient
 from config import AppConfig
-from azure.identity import DefaultAzureCredential
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -16,16 +16,22 @@ class CosmosService:
     def __init__(
         self,
         config: AppConfig,
-        credential: DefaultAzureCredential = None,
+        credential: Any = None,
         cosmos_client: CosmosClient = None,
     ) -> None:
         """Initialize the CosmosService with config, optional credential, and cosmos client."""
         self.config = config
-        self.credential = (
-            credential
-            if credential is not None
-            else DefaultAzureCredential(logging_enable=True)
-        )
+        # Lazy import of DefaultAzureCredential to avoid import-time failures
+        if credential is not None:
+            self.credential = credential
+        else:
+            try:
+                from azure.identity import DefaultAzureCredential
+                self.credential = DefaultAzureCredential(logging_enable=True)
+            except Exception:
+                # Defer credential creation failures until authentication is required
+                self.credential = None
+
         self.client = (
             cosmos_client
             if cosmos_client is not None
@@ -118,3 +124,18 @@ class CosmosService:
         except Exception as e:
             logger.error(f"Error retrieving prompts: {str(e)}")
             raise CosmosServiceError(f"Error retrieving prompts: {str(e)}") from e
+
+
+def get_cosmos_client() -> CosmosClient:
+    """Factory to create a CosmosClient using AppConfig and DefaultAzureCredential.
+
+    This mirrors the expectation in other modules (for example, session_cleanup.py)
+    which import `get_cosmos_client` from this module.
+    """
+    config = AppConfig()
+    try:
+        from azure.identity import DefaultAzureCredential
+        credential = DefaultAzureCredential(logging_enable=True)
+    except Exception:
+        credential = None
+    return CosmosClient(url=config.cosmos_endpoint, credential=credential)
