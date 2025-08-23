@@ -64,6 +64,8 @@ class AppConfig:
                     "analytics": f"{prefix}analytics",
                     "events": f"{prefix}events",
                     "user_sessions": f"{prefix}user_sessions",
+                    # Audit logs container (new)
+                    "audit_logs": f"{prefix}audit_logs",
                 },
             }
             logger.info(f"✓ Cosmos configuration initialized")
@@ -153,45 +155,45 @@ class CosmosDB:
             # Create containers if they don't exist
             containers = config.cosmos["containers"]
 
-            # Auth container
+            # IMPORTANT: With Azure AD (RBAC) tokens, creating databases/containers
+            # via the data plane is not supported. Containers must be provisioned
+            # via ARM (Terraform/Portal). So we only get clients here.
+
+            # Core containers
             auth_container_name = containers["auth"]
-            self.auth_container = self.database.get_container_client(
-                auth_container_name
-            )
-            self.logger.info(f"✓ Auth container {auth_container_name} is ready")
+            self.auth_container = self.database.get_container_client(auth_container_name)
+            self.logger.info(f"✓ Auth container client: {auth_container_name}")
 
-            # Jobs container
             jobs_container_name = containers["jobs"]
-            self.jobs_container = self.database.get_container_client(
-                jobs_container_name
-            )
-            self.logger.info(f"✓ Jobs container {jobs_container_name} is ready")
+            self.jobs_container = self.database.get_container_client(jobs_container_name)
+            self.logger.info(f"✓ Jobs container client: {jobs_container_name}")
 
-            # Prompts container
             prompts_container_name = containers["prompts"]
-            self.prompts_container = self.database.get_container_client(
-                prompts_container_name
-            )
-            self.logger.info(f"✓ Prompts container {prompts_container_name} is ready")
+            self.prompts_container = self.database.get_container_client(prompts_container_name)
+            self.logger.info(f"✓ Prompts container client: {prompts_container_name}")
 
-            # Analytics containers
+            # Analytics-related containers
             analytics_container_name = containers["analytics"]
-            self.analytics_container = self.database.get_container_client(
-                analytics_container_name
-            )
-            self.logger.info(f"✓ Analytics container {analytics_container_name} is ready")
+            self.analytics_container = self.database.get_container_client(analytics_container_name)
+            self.logger.info(f"✓ Analytics container client: {analytics_container_name}")
 
             events_container_name = containers["events"]
-            self.events_container = self.database.get_container_client(
-                events_container_name
-            )
-            self.logger.info(f"✓ Events container {events_container_name} is ready")
+            self.events_container = self.database.get_container_client(events_container_name)
+            self.logger.info(f"✓ Events container client: {events_container_name}")
 
             sessions_container_name = containers["user_sessions"]
-            self.sessions_container = self.database.get_container_client(
-                sessions_container_name
-            )
-            self.logger.info(f"✓ User sessions container {sessions_container_name} is ready")
+            self.sessions_container = self.database.get_container_client(sessions_container_name)
+            self.logger.info(f"✓ User sessions container client: {sessions_container_name}")
+
+            # Audit logs container (optional; may not be provisioned in older envs)
+            try:
+                audit_container_name = containers["audit_logs"]
+                self.audit_container = self.database.get_container_client(audit_container_name)
+                self.logger.info(f"✓ Audit logs container client: {audit_container_name}")
+            except Exception as e:
+                # Keep running even if audit container is missing; code will fallback
+                self.audit_container = None
+                self.logger.warning(f"Audit logs container not available: {e}")
 
         except KeyError as e:
             self.logger.error(f"Missing configuration key: {str(e)}")
