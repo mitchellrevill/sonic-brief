@@ -10,6 +10,7 @@ import { trackSessionEvent, type SessionEventRequest } from './api';
 export class SessionTracker {
   private heartbeatInterval: number | null = null;
   private heartbeatPeriodMs = 60000; // 1 minute
+  private idleTimeoutMs = 5 * 60 * 1000; // 5 minutes
   private isActive = true;
   private lastActivity = Date.now();
   private sessionStartTime = Date.now();
@@ -61,6 +62,13 @@ export class SessionTracker {
    */
   private startHeartbeat(): void {
     this.heartbeatInterval = window.setInterval(async () => {
+      // Auto-detect idle based on last activity
+      const now = Date.now();
+      if (now - this.lastActivity > this.idleTimeoutMs) {
+        this.isActive = false;
+      } else {
+        this.isActive = true;
+      }
       if (this.isActive) {
         await this.trackSessionEvent('heartbeat', { page: this.currentPage });
       }
