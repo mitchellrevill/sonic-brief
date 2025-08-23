@@ -15,6 +15,7 @@
     "verify": "pnpm type-check && pnpm lint --fix"
   },
   "dependencies": {
+    "@azure/msal-browser": "^4.21.0",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
     "@hookform/resolvers": "^5.0.1",
