@@ -35,6 +35,9 @@ python-dotenv==1.0.1
 tenacity==8.2.3
 psutil==5.9.8
 
-# Performance (Linux/macOS only - comment out for Windows development)
-httptools==0.6.0
-uvloop==0.17.0
+# Performance (Linux/macOS only) - these packages do not support Windows and will be skipped during local Windows development
+# httptools==0.6.0
+# uvloop==0.17.0
+
+# Note: If deploying to Linux/macOS production, re-enable `httptools` and `uvloop` in requirements.txt or use a separate
+# production requirements file that includes them.
