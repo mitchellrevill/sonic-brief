@@ -2,6 +2,7 @@
 Audit logging utilities for permission changes and access denials
 """
 import logging
+import asyncio
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from enum import Enum
@@ -80,12 +81,13 @@ class AuditLogger:
                 # Store in audit container (assuming it exists)
                 container = getattr(self.cosmos_db, 'audit_container', None)
                 if container:
-                    container.create_item(audit_entry)
+                    await asyncio.to_thread(container.create_item, audit_entry)
                 else:
                     # Fallback to events container
-                    self.cosmos_db.events_container.create_item(audit_entry)
-            except Exception as e:
-                self.logger.error(f"Failed to store audit log: {str(e)}")
+                    await asyncio.to_thread(self.cosmos_db.events_container.create_item, audit_entry)
+            except Exception:
+                # Log exception with stack trace for visibility
+                self.logger.exception("Failed to store audit log")
         
         return audit_entry["id"]
     
