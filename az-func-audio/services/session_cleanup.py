@@ -7,10 +7,10 @@ import azure.functions as func
 # Default container name; allow override via AppConfig or environment variable
 SESSION_CONTAINER = "user_sessions"  # CosmosDB container name
 HEARTBEAT_FIELD = "last_heartbeat"   # Field storing last heartbeat timestamp (ISO8601 string)
-SESSION_STATUS_FIELD = "status"      # Field storing session status ('open', 'closed')
-SESSION_EVENT_TYPE_FIELD = "event_type"  # Field for event type ('session_start', etc.)
+SESSION_STATUS_FIELD = "status"      # Field storing session status ('active', 'expired', 'closed')
+SESSION_TYPE_FIELD = "type"          # Field for document type ('session')
 PARTITION_KEY_FIELD = "partition_key"    # Field for partition key (user_id)
-STALE_MINUTES = 15  # Mark sessions as closed if no heartbeat in 15 minutes
+STALE_MINUTES = 15  # Mark sessions as expired if no heartbeat in 15 minutes
 
 # Timer trigger entry point
 def main(mytimer: func.TimerRequest) -> None:
@@ -54,30 +54,70 @@ def main(mytimer: func.TimerRequest) -> None:
             logging.error(f"Failed to obtain Cosmos DB container client: {e}", exc_info=True)
         return
 
-
-    # Query for sessions that are open, event_type 'session_start', and have a stale heartbeat
+    # Query for sessions that are active, type 'session', and have a stale heartbeat
     query = (
-        f"SELECT * FROM c WHERE c.{SESSION_STATUS_FIELD} = 'open' "
-        f"AND c.{SESSION_EVENT_TYPE_FIELD} = 'session_start' "
+        f"SELECT * FROM c WHERE c.{SESSION_STATUS_FIELD} = 'active' "
+        f"AND c.{SESSION_TYPE_FIELD} = 'session' "
         f"AND c.{HEARTBEAT_FIELD} < @stale_time"
     )
     stale_time = (utc_now - datetime.timedelta(minutes=STALE_MINUTES)).isoformat()
     params = [{"name": "@stale_time", "value": stale_time}]
 
     logging.debug(f"Session cleanup query: {query} params: {params}")
-    closed_count = 0
+    expired_count = 0
+    
     for item in container.query_items(query=query, parameters=params, enable_cross_partition_query=True):
-        # Mark session as closed
-        item[SESSION_STATUS_FIELD] = "closed"
-        item["closed_at"] = utc_now.isoformat()
-        # Optionally, add an audit entry or update metadata
+        # Mark session as expired instead of closed to distinguish from user-initiated logout
+        item[SESSION_STATUS_FIELD] = "expired"
+        item["expired_at"] = utc_now.isoformat()
+        item["expiry_reason"] = "heartbeat_timeout"
+        
+        # Calculate session duration for analytics
+        try:
+            created_at = datetime.datetime.fromisoformat(item.get("created_at", "").replace('Z', '+00:00'))
+            session_duration = (utc_now - created_at).total_seconds()
+            item["session_duration_seconds"] = session_duration
+        except Exception as e:
+            logging.warning(f"Could not calculate session duration for session {item.get('id')}: {e}")
+            item["session_duration_seconds"] = 0
+        
+        # Preserve activity metrics for analytics
+        item["final_activity_count"] = item.get("activity_count", 0)
+        item["final_endpoints_accessed"] = item.get("endpoints_accessed", [])
+        
+        # Optionally, add cleanup metadata
+        item["cleanup_metadata"] = {
+            "cleanup_timestamp": utc_now.isoformat(),
+            "cleanup_function": "session_cleanup_azure_function",
+            "stale_threshold_minutes": STALE_MINUTES
+        }
+        
         container.upsert_item(item)
-        closed_count += 1
-        logging.info(f"Closed stale session: {item.get('id')}")
+        expired_count += 1
+        logging.info(f"Expired stale session: {item.get('id')} for user {item.get('user_id')}")
 
-    if closed_count == 0:
-        logging.info("Session cleanup: no stale sessions found to close.")
+    # Also clean up old expired sessions (older than 30 days) to prevent container bloat
+    cleanup_cutoff = (utc_now - datetime.timedelta(days=30)).isoformat()
+    cleanup_query = (
+        f"SELECT c.id, c.{PARTITION_KEY_FIELD} FROM c WHERE c.{SESSION_STATUS_FIELD} IN ('expired', 'closed') "
+        f"AND c.{SESSION_TYPE_FIELD} = 'session' "
+        f"AND c.{HEARTBEAT_FIELD} < @cleanup_cutoff"
+    )
+    cleanup_params = [{"name": "@cleanup_cutoff", "value": cleanup_cutoff}]
+    
+    deleted_count = 0
+    for item in container.query_items(query=cleanup_query, parameters=cleanup_params, enable_cross_partition_query=True):
+        try:
+            container.delete_item(item=item["id"], partition_key=item[PARTITION_KEY_FIELD])
+            deleted_count += 1
+            logging.debug(f"Deleted old session: {item['id']}")
+        except Exception as e:
+            logging.warning(f"Failed to delete old session {item['id']}: {e}")
+
+    # Summary logging
+    if expired_count == 0 and deleted_count == 0:
+        logging.info("Session cleanup: no stale sessions found to expire or delete.")
     else:
-        logging.info(f"Session cleanup: closed {closed_count} stale session(s).")
+        logging.info(f"Session cleanup completed: expired {expired_count} stale session(s), deleted {deleted_count} old session(s).")
 
     logging.info("Session cleanup function completed.")

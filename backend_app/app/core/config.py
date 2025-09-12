@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import asyncio
 
 # Import permission utilities
-from app.utils.permission_queries import PermissionQueryOptimizer
+from ..utils.permission_queries import PermissionQueryOptimizer
 
 # Load environment variables
 load_dotenv()
@@ -45,13 +45,30 @@ class StorageConfig:
 
 
 class AppConfig:
+    """Application configuration singleton.
+
+    Creating AppConfig() multiple times now returns the same instance and
+    avoids re-running expensive initialization and duplicate logging.
+    """
+    _instance = None
+    _initialized = False
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(AppConfig, cls).__new__(cls)
+        return cls._instance
+
     def __init__(self):
+        # Avoid re-running initialization
+        if getattr(self, '_initialized', False):
+            return
+
         logger.info("🚀 Starting AppConfig initialization...")
         try:
             # Get the prefix first
             prefix = os.getenv("AZURE_COSMOS_DB_PREFIX", "voice_")
             logger.info(f"Using Cosmos DB prefix: {prefix}")
-            
+
             # Initialize cosmos configuration
             self.cosmos = {
                 "endpoint": get_required_env_var("AZURE_COSMOS_ENDPOINT"),
@@ -92,7 +109,8 @@ class AppConfig:
             # Initialize Azure Functions configuration
             self.azure_functions = {
                 "base_url": os.getenv("AZURE_FUNCTIONS_BASE_URL", "http://localhost:7071"),
-                "key": os.getenv("AZURE_FUNCTIONS_KEY", "")
+                # Enforce presence of functions key; do not allow empty defaults
+                "key": get_required_env_var("AZURE_FUNCTIONS_KEY")
             }
             logger.info("✓ Azure Functions configuration initialized")
 
@@ -101,9 +119,10 @@ class AppConfig:
             logger.error(f"❌ Error initializing AppConfig: {str(e)}")
             raise
 
+        self._initialized = True
+
 
 class DatabaseError(Exception):
-    """Custom exception for database errors"""
     pass
 
 
@@ -207,12 +226,12 @@ class CosmosDB:
 
         # Initialize permission utilities
         self._permission_optimizer = None
-        
+
         # Initialize permission cache using new settings
         self.logger.info("Initializing permission cache...")
-        from app.utils.permission_cache import get_permission_cache
+        from ..utils.permission_cache import get_permission_cache
         try:
-            from app.core.settings import get_settings
+            from .settings import get_settings
             settings = get_settings()
             self.permission_cache = get_permission_cache(settings)
             self.logger.info("✓ Permission cache initialized with custom settings")
@@ -221,56 +240,18 @@ class CosmosDB:
             self.logger.warning(f"Using default permission cache due to settings error: {e}")
             self.permission_cache = get_permission_cache()
             self.logger.info("✓ Permission cache initialized with defaults")
-        
-        # Initialize permission service with this CosmosDB instance
-        self.logger.info("Initializing permission service...")
-        self._initialize_permission_service()
-        
+
+        # Permission integration handled via model helpers; no legacy initialization required
+        self.logger.info("Permission integration will use model helpers; no shim initialization needed")
+
         # Mark as initialized to prevent re-initialization
         self._initialized = True
-        self.logger.info("✅ CosmosDB singleton initialization completed successfully")
-
-    def _initialize_permission_service(self):
-        """Initialize permission service with this CosmosDB instance"""
-        try:
-            from app.services.permissions import permission_service
-            permission_service.set_cosmos_db(self)
-            self.logger.info("✓ Permission service initialized with CosmosDB integration")
-        except Exception as e:
-            self.logger.warning(f"Failed to initialize permission service: {e}")
-            # Don't raise exception here to allow app to continue
-
-    @property
-    def permission_optimizer(self) -> PermissionQueryOptimizer:
-        """Lazy initialization of permission query optimizer"""
-        if self._permission_optimizer is None:
-            self._permission_optimizer = PermissionQueryOptimizer(
-                self.client,
-                self.config.cosmos["database"],
-                self.config.cosmos["containers"]["auth"],
-            )
-        return self._permission_optimizer
-
-    async def get_all_users(self):
-        """Get all users from the auth container, regardless of type."""
-        try:
-            query = "SELECT * FROM c"
-            users = list(
-                self.auth_container.query_items(
-                    query=query,
-                    enable_cross_partition_query=True,
-                )
-            )
-            return users
-        except Exception as e:
-            self.logger.error(f"Error retrieving all users: {str(e)}")
-            raise
 
     async def create_user(self, user_data: dict):
         """Create user with default permission level and caching support"""
         try:
             # Import here to avoid circular imports
-            from app.models.permissions import PermissionLevel
+            from ..models.permissions import PermissionLevel
             
             user_data["type"] = "user"
 
@@ -785,3 +766,28 @@ def reset_cosmos_db():
         CosmosDB._initialized = False
         _cosmos_db_instance = None
         logger.info("CosmosDB singleton instance reset")
+
+
+# Convenience cached accessors (cheap, explicit helpers)
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
+def get_app_config() -> AppConfig:
+    """Return the application config singleton.
+
+    Use this helper in modules that prefer a named accessor instead of
+    calling AppConfig() directly. It's cached to make intent clear.
+    """
+    return config
+
+
+@lru_cache(maxsize=1)
+def get_cosmos_db_cached(config_param: AppConfig = None) -> CosmosDB:
+    """Return the shared CosmosDB singleton initialized with the app config.
+
+    This wraps the existing `get_cosmos_db` function and caches the result.
+    """
+    # Accept optional config for the first call; default to module-level config
+    cfg = config_param if config_param is not None else config
+    return get_cosmos_db(cfg)

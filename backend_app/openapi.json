@@ -1,0 +1,24 @@
+﻿
+
+StatusCode        : 200
+StatusDescription : OK
+Content           : {"openapi":"3.1.0","info":{"title":"FastAPI","version":"0.1.0"},"paths":{"/api/auth/login":{"post":{"tags":
+                    ["auth","authentication","authentication"],"summary":"Login For Access Token","description":"...
+RawContent        : HTTP/1.1 200 OK
+                    Content-Length: 50927
+                    Content-Type: application/json
+                    Date: Thu, 11 Sep 2025 22:42:43 GMT
+                    Server: uvicorn
+                    
+                    {"openapi":"3.1.0","info":{"title":"FastAPI","version":"0.1.0"},"paths":...
+Forms             : 
+Headers           : {[Content-Length, 50927], [Content-Type, application/json], [Date, Thu, 11 Sep 2025 22:42:43 GMT], 
+                    [Server, uvicorn]}
+Images            : {}
+InputFields       : {}
+Links             : {}
+ParsedHtml        : 
+RawContentLength  : 50927
+
+
+

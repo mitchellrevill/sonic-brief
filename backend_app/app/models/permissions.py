@@ -61,7 +61,8 @@ def _perm_caps() -> Dict[PermissionLevel, Dict[str, bool]]:
             PermissionCapability.CAN_EDIT_OWN_JOBS: True,
             PermissionCapability.CAN_DELETE_OWN_JOBS: True,
             PermissionCapability.CAN_VIEW_SHARED_JOBS: True,
-            PermissionCapability.CAN_VIEW_PROMPTS: True,
+            # CAN_VIEW_PROMPTS intentionally removed from USER defaults to require
+            # explicit grant for prompt viewing when using capability-based gating.
             PermissionCapability.CAN_VIEW_SETTINGS: True,
             PermissionCapability.CAN_UPLOAD_FILES: True,
             PermissionCapability.CAN_DOWNLOAD_FILES: True,
