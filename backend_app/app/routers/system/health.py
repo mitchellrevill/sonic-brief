@@ -17,9 +17,10 @@ import logging
 
 from ...core.config import get_app_config, get_cosmos_db_cached, CosmosDB, DatabaseError
 from ...services.monitoring import SystemHealthService
-from app.models.analytics_models import SystemHealthResponse
-from app.core.dependencies import get_current_user, require_analytics_access
-from app.models.permissions import PermissionLevel, PermissionCapability, get_user_capabilities
+from ...models.analytics_models import SystemHealthResponse
+from ...core.dependencies import get_current_user, require_analytics_access
+from ...models.permissions import PermissionLevel, PermissionCapability, get_user_capabilities
+from ...core.async_utils import run_sync
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -80,10 +81,10 @@ async def get_detailed_health_check(
         # Database connectivity check
         try:
             test_query = "SELECT TOP 1 c.id FROM c"
-            list(cosmos_db.analytics_container.query_items(
+            await run_sync(lambda: list(cosmos_db.analytics_container.query_items(
                 query=test_query,
                 enable_cross_partition_query=True
-            ))
+            )))
             service_checks["database"] = True
             service_checks["analytics_container"] = True
             health_check["services"]["database"] = {
@@ -103,10 +104,10 @@ async def get_detailed_health_check(
         try:
             if hasattr(cosmos_db, 'sessions_container') and cosmos_db.sessions_container:
                 test_session_query = "SELECT TOP 1 c.id FROM c WHERE c.type = 'session'"
-                list(cosmos_db.sessions_container.query_items(
+                await run_sync(lambda: list(cosmos_db.sessions_container.query_items(
                     query=test_session_query,
                     enable_cross_partition_query=True
-                ))
+                )))
                 service_checks["sessions_container"] = True
                 health_check["services"]["sessions"] = {
                     "status": "healthy",
@@ -151,11 +152,11 @@ async def get_detailed_health_check(
                 recent_analytics_query = "SELECT VALUE COUNT(1) FROM c WHERE c.created_at >= @cutoff_time"
                 recent_analytics_params = [{"name": "@cutoff_time", "value": cutoff_time.isoformat()}]
                 
-                recent_analytics_count = list(cosmos_db.analytics_container.query_items(
+                recent_analytics_count = await run_sync(lambda: list(cosmos_db.analytics_container.query_items(
                     query=recent_analytics_query,
                     parameters=recent_analytics_params,
                     enable_cross_partition_query=True
-                ))
+                )))
                 
                 health_check["performance"]["recent_analytics_events"] = recent_analytics_count[0] if recent_analytics_count else 0
                 
@@ -168,11 +169,11 @@ async def get_detailed_health_check(
                     AND c.last_heartbeat >= @cutoff_time
                     """
                     
-                    recent_sessions_count = list(cosmos_db.sessions_container.query_items(
+                    recent_sessions_count = await run_sync(lambda: list(cosmos_db.sessions_container.query_items(
                         query=recent_sessions_query,
                         parameters=recent_analytics_params,
                         enable_cross_partition_query=True
-                    ))
+                    )))
                     
                     health_check["performance"]["active_sessions_last_15min"] = recent_sessions_count[0] if recent_sessions_count else 0
                 
@@ -218,35 +219,13 @@ async def get_detailed_health_check(
 
 @router.get("/health/quick")
 async def get_quick_health_check():
-    """Quick health check endpoint - no authentication required"""
-    try:
-        # Simple connectivity check
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
-        
-        # Quick database ping
-        test_query = "SELECT TOP 1 c.id FROM c"
-        list(cosmos_db.analytics_container.query_items(
-            query=test_query,
-            enable_cross_partition_query=True
-        ))
-        
-        return {
-            "status": "healthy",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "service": "analytics_api",
-            "version": "1.0.0"
-        }
-        
-    except Exception as e:
-        logger.error(f"Quick health check failed: {str(e)}")
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "service": "analytics_api",
-            "version": "1.0.0"
-        }
+    """Quick unauthenticated liveness: no DB or dependency access to prevent info leakage."""
+    return {
+        "status": "alive",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "service": "analytics_api",
+        "version": "1.0.0"
+    }
 
 
 @router.get("/status")
@@ -353,11 +332,11 @@ async def get_monitoring_metrics(
             analytics_query = "SELECT * FROM c WHERE c.created_at >= @cutoff_time"
             analytics_params = [{"name": "@cutoff_time", "value": cutoff_time.isoformat()}]
             
-            analytics_items = list(cosmos_db.analytics_container.query_items(
+            analytics_items = await run_sync(lambda: list(cosmos_db.analytics_container.query_items(
                 query=analytics_query,
                 parameters=analytics_params,
                 enable_cross_partition_query=True
-            ))
+            )))
             
             metrics["analytics_metrics"] = {
                 "total_events": len(analytics_items),
@@ -382,11 +361,11 @@ async def get_monitoring_metrics(
                 AND c.created_at >= @cutoff_time
                 """
                 
-                sessions = list(cosmos_db.sessions_container.query_items(
+                sessions = await run_sync(lambda: list(cosmos_db.sessions_container.query_items(
                     query=session_query,
                     parameters=analytics_params,
                     enable_cross_partition_query=True
-                ))
+                )))
                 
                 active_sessions = [s for s in sessions if s.get("status") == "active"]
                 total_activity = sum(s.get("activity_count", 0) for s in sessions)

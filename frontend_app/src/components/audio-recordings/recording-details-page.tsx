@@ -18,7 +18,9 @@ import { AnalysisDocumentViewer } from "@/components/analysis/analysis-document-
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { fetchCategories, fetchSubcategories } from "@/api/prompt-management";
 import { updateAnalysisDocument } from "@/lib/api";
-import { isAudioFile, getFileNameFromPath, getAudioDurationFromUrl } from "@/lib/file-utils";
+import { isAudioFile, getAudioDurationFromUrl } from "@/lib/file-utils";
+import { getDisplayName } from "@/lib/display-name-utils";
+import { EditableDisplayName } from "@/components/ui/editable-display-name";
 import { useState, useEffect } from "react";
 import {
   ArrowLeft,
@@ -65,7 +67,10 @@ const getFileExtension = (url: string | null): string => {
 
 interface ExtendedAudioRecording extends AudioRecording {
   analysis_text?: string;
+  displayname?: string;
+  display_name?: string;
   file_name?: string;
+  filename?: string;
 }
 
 interface RecordingDetailsPageProps {
@@ -146,8 +151,7 @@ export function RecordingDetailsPage({ recording: initialRecording }: RecordingD
     isLoading: isLoadingTranscription,
     isError: isTranscriptionError,
     error: transcriptionError,
-    isFetching: isFetchingTranscription,
-    failureCount: transcriptionFailureCount,
+  isFetching: isFetchingTranscription,
   } = useQuery(
     getAudioTranscriptionQuery(recording.id),
   );
@@ -254,9 +258,7 @@ export function RecordingDetailsPage({ recording: initialRecording }: RecordingD
   // Use duration from audio player if available, otherwise use pre-fetched duration
   const effectiveDuration = duration || audioDuration || 0;
   const effectiveFormattedDuration = duration ? formattedDuration : 
-    (audioDuration ? formatTime(audioDuration) : '0:00');  const fileName = recording.file_name || 
-    (recording.file_path ? getFileNameFromPath(recording.file_path) : null) || 
-    "Unnamed Recording";
+    (audioDuration ? formatTime(audioDuration) : '0:00');  const displayName = getDisplayName(recording);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-muted/20">
@@ -275,7 +277,10 @@ export function RecordingDetailsPage({ recording: initialRecording }: RecordingD
                 </Button>
               </Link>
               <div className="min-w-0">                <h1 className="text-2xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
-                  {fileName}
+                  <EditableDisplayName 
+                    job={recording}
+                    className="inline-flex"
+                  />
                 </h1>
                 <SmartBreadcrumb
                   items={[
@@ -461,11 +466,7 @@ export function RecordingDetailsPage({ recording: initialRecording }: RecordingD
                           <p className="text-sm text-muted-foreground">
                             Our AI is carefully converting speech to text
                           </p>
-                          {transcriptionFailureCount > 0 && (
-                            <p className="text-xs text-muted-foreground mt-2">
-                              Processing attempt {transcriptionFailureCount + 1}...
-                            </p>
-                          )}
+                          {/* Removed confusing "Processing attempt" line per UX feedback */}
                         </div>
                       </div>
                     ) : shouldShowTranscriptionError ? (
@@ -672,13 +673,39 @@ export function RecordingDetailsPage({ recording: initialRecording }: RecordingD
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Created:</span>
                       <span className="font-mono">
-                        {new Date(recording.created_at).toLocaleDateString()}
+                        {(() => {
+                          const parseDate = (input: any) => {
+                            if (input === undefined || input === null || input === "") return null;
+                            if (typeof input === "number") return input < 1e12 ? new Date(input * 1000) : new Date(input);
+                            if (/^\d+$/.test(String(input))) {
+                              const n = parseInt(String(input), 10);
+                              return n < 1e12 ? new Date(n * 1000) : new Date(n);
+                            }
+                            const d = new Date(String(input));
+                            return isNaN(d.getTime()) ? null : d;
+                          };
+                          const d = parseDate(recording.created_at);
+                          return d ? d.toLocaleDateString() : "-";
+                        })()}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Updated:</span>
                       <span className="font-mono">
-                        {new Date(recording.updated_at).toLocaleDateString()}
+                        {(() => {
+                          const parseDate = (input: any) => {
+                            if (input === undefined || input === null || input === "") return null;
+                            if (typeof input === "number") return input < 1e12 ? new Date(input * 1000) : new Date(input);
+                            if (/^\d+$/.test(String(input))) {
+                              const n = parseInt(String(input), 10);
+                              return n < 1e12 ? new Date(n * 1000) : new Date(n);
+                            }
+                            const d = new Date(String(input));
+                            return isNaN(d.getTime()) ? null : d;
+                          };
+                          const d = parseDate(recording.updated_at);
+                          return d ? d.toLocaleDateString() : "-";
+                        })()}
                       </span>
                     </div>
                   </div>
@@ -828,20 +855,20 @@ export function RecordingDetailsPage({ recording: initialRecording }: RecordingD
       />
 
       {/* Sharing Info Display - New Component */}
-      <JobSharingInfo jobId={recording.id} jobTitle={fileName} />
+      <JobSharingInfo jobId={recording.id} jobTitle={displayName} />
 
       {/* Share Dialog - New Component */}
       <JobShareDialog
         isOpen={shareDialogOpen}
         onOpenChange={setShareDialogOpen}
         jobId={recording.id}
-        jobTitle={fileName}
+        jobTitle={displayName}
       />      {/* Delete Dialog */}
       <JobDeleteDialog
         isOpen={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
         jobId={recording.id}
-        jobTitle={fileName}
+        jobTitle={displayName}
         onDeleteSuccess={() => {
           // Navigate back to the recordings list after successful delete
           window.location.href = "/audio-recordings";

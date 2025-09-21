@@ -33,6 +33,7 @@ export const SHARED_JOBS_API = `${BASE_URL}/api/jobs/shared`;
 export const JOB_DELETE_API = `${BASE_URL}/api/jobs`;
 export const ADMIN_DELETED_JOBS_API = `${BASE_URL}/api/admin/deleted-jobs`;
 export const ADMIN_PERMANENT_DELETE_API = `${BASE_URL}/api/admin/jobs`;
+export const ADMIN_JOBS_API = `${BASE_URL}/api/admin/jobs`;
 
 // Session Tracking APIs
 export const SESSION_TRACKING_API = `${BASE_URL}/api/analytics/session`;

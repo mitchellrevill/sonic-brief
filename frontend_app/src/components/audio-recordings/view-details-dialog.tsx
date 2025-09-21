@@ -62,6 +62,17 @@ export function ViewDetailsDialog({
       .catch(() => setTranscriptionText(null));
   }, [recording.transcription_file_path]);
 
+  function parseDate(input: any): Date | null {
+    if (input === undefined || input === null || input === "") return null;
+    if (typeof input === "number") return input < 1e12 ? new Date(input * 1000) : new Date(input);
+    if (/^\d+$/.test(String(input))) {
+      const n = parseInt(String(input), 10);
+      return n < 1e12 ? new Date(n * 1000) : new Date(n);
+    }
+    const d = new Date(String(input));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="h-[90vh] w-full max-w-[95vw] rounded-xl bg-white text-black shadow-lg dark:bg-gray-900 dark:text-white">
@@ -134,7 +145,7 @@ export function ViewDetailsDialog({
                 <Calendar className="mr-2" /> Created At
               </h3>
               <p className="font-medium">
-                {new Date(recording.created_at).toLocaleString()}
+                {parseDate(recording.created_at)?.toLocaleString() || "-"}
               </p>
             </div>
             <div>
@@ -142,7 +153,7 @@ export function ViewDetailsDialog({
                 <Calendar className="mr-2" /> Updated At
               </h3>
               <p className="font-medium">
-                {new Date(recording.updated_at).toLocaleString()}
+                {parseDate(recording.updated_at)?.toLocaleString() || "-"}
               </p>
             </div>
             <div>

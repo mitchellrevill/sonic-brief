@@ -18,7 +18,8 @@ import logging
 
 from ...core.config import get_app_config, get_cosmos_db_cached, CosmosDB, DatabaseError
 from ...core.dependencies import get_current_user, require_analytics_access
-from app.models.permissions import PermissionLevel, PermissionCapability
+from ...models.permissions import PermissionLevel, PermissionCapability
+from ...core.async_utils import run_sync
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -81,7 +82,7 @@ async def schedule_maintenance(
         # Store maintenance record (would typically go to a maintenance container)
         # For now, we'll store in analytics container with a special type
         try:
-            cosmos_db.analytics_container.create_item(maintenance_record)
+            await run_sync(lambda: cosmos_db.analytics_container.create_item(maintenance_record))
         except Exception as store_error:
             logger.error(f"Error storing maintenance record: {str(store_error)}")
             raise HTTPException(
@@ -151,11 +152,11 @@ async def perform_system_cleanup(
                     
                     parameters = [{"name": "@cutoff_date", "value": cutoff_date.isoformat()}]
                     
-                    old_sessions = list(cosmos_db.sessions_container.query_items(
+                    old_sessions = await run_sync(lambda: list(cosmos_db.sessions_container.query_items(
                         query=old_sessions_query,
                         parameters=parameters,
                         enable_cross_partition_query=True
-                    ))
+                    )))
                     
                     cleanup_results["results"]["sessions_found"] = len(old_sessions)
                     
@@ -164,10 +165,10 @@ async def perform_system_cleanup(
                         deleted_count = 0
                         for session in old_sessions:
                             try:
-                                cosmos_db.sessions_container.delete_item(
-                                    session["id"],
-                                    partition_key=session["id"]  # Assuming id is partition key
-                                )
+                                await run_sync(lambda s=session: cosmos_db.sessions_container.delete_item(
+                                    s["id"],
+                                    partition_key=s["id"]  # Assuming id is partition key
+                                ))
                                 deleted_count += 1
                             except Exception as delete_error:
                                 logger.warning(f"Could not delete session {session['id']}: {delete_error}")
@@ -191,11 +192,11 @@ async def perform_system_cleanup(
                 
                 parameters = [{"name": "@cutoff_date", "value": cutoff_date.isoformat()}]
                 
-                old_analytics = list(cosmos_db.analytics_container.query_items(
+                old_analytics = await run_sync(lambda: list(cosmos_db.analytics_container.query_items(
                     query=old_analytics_query,
                     parameters=parameters,
                     enable_cross_partition_query=True
-                ))
+                )))
                 
                 cleanup_results["results"]["analytics_found"] = len(old_analytics)
                 
@@ -204,10 +205,10 @@ async def perform_system_cleanup(
                     deleted_count = 0
                     for item in old_analytics:
                         try:
-                            cosmos_db.analytics_container.delete_item(
-                                item["id"],
-                                partition_key=item["id"]
-                            )
+                            await run_sync(lambda it=item: cosmos_db.analytics_container.delete_item(
+                                it["id"],
+                                partition_key=it["id"]
+                            ))
                             deleted_count += 1
                         except Exception as delete_error:
                             logger.warning(f"Could not delete analytics item {item['id']}: {delete_error}")
@@ -273,10 +274,10 @@ async def get_system_info(
         try:
             # Analytics container stats
             analytics_count_query = "SELECT VALUE COUNT(1) FROM c"
-            analytics_count = list(cosmos_db.analytics_container.query_items(
+            analytics_count = await run_sync(lambda: list(cosmos_db.analytics_container.query_items(
                 query=analytics_count_query,
                 enable_cross_partition_query=True
-            ))
+            )))
             system_info["containers"]["analytics"] = {
                 "total_items": analytics_count[0] if analytics_count else 0,
                 "status": "accessible"
@@ -291,10 +292,10 @@ async def get_system_info(
         try:
             if hasattr(cosmos_db, 'sessions_container') and cosmos_db.sessions_container:
                 sessions_count_query = "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'session'"
-                sessions_count = list(cosmos_db.sessions_container.query_items(
+                sessions_count = await run_sync(lambda: list(cosmos_db.sessions_container.query_items(
                     query=sessions_count_query,
                     enable_cross_partition_query=True
-                ))
+                )))
                 system_info["containers"]["sessions"] = {
                     "total_items": sessions_count[0] if sessions_count else 0,
                     "status": "accessible"
@@ -317,11 +318,11 @@ async def get_system_info(
             recent_analytics_query = "SELECT VALUE COUNT(1) FROM c WHERE c.created_at >= @week_ago"
             recent_analytics_params = [{"name": "@week_ago", "value": week_ago.isoformat()}]
             
-            recent_analytics_count = list(cosmos_db.analytics_container.query_items(
+            recent_analytics_count = await run_sync(lambda: list(cosmos_db.analytics_container.query_items(
                 query=recent_analytics_query,
                 parameters=recent_analytics_params,
                 enable_cross_partition_query=True
-            ))
+            )))
             
             system_info["statistics"]["recent_activity"] = {
                 "analytics_events_last_7_days": recent_analytics_count[0] if recent_analytics_count else 0
@@ -329,10 +330,10 @@ async def get_system_info(
             
             # Get unique users count
             unique_users_query = "SELECT DISTINCT c.user_id FROM c WHERE c.user_id != null"
-            unique_users = list(cosmos_db.analytics_container.query_items(
+            unique_users = await run_sync(lambda: list(cosmos_db.analytics_container.query_items(
                 query=unique_users_query,
                 enable_cross_partition_query=True
-            ))
+            )))
             
             system_info["statistics"]["total_unique_users"] = len(unique_users)
             
@@ -348,10 +349,10 @@ async def get_system_info(
             OFFSET 0 LIMIT 5
             """
             
-            maintenance_records = list(cosmos_db.analytics_container.query_items(
+            maintenance_records = await run_sync(lambda: list(cosmos_db.analytics_container.query_items(
                 query=maintenance_query,
                 enable_cross_partition_query=True
-            ))
+            )))
             
             system_info["maintenance"]["recent_maintenance"] = maintenance_records
             

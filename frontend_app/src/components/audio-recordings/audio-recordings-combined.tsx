@@ -3,7 +3,9 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
-import { isAudioFile, getFileNameFromPath, isWellSupportedAudioFormat } from "@/lib/file-utils";
+import { isAudioFile, isWellSupportedAudioFormat } from "@/lib/file-utils";
+import { getDisplayName } from "@/lib/display-name-utils";
+import { EditableDisplayName } from "@/components/ui/editable-display-name";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -68,6 +70,35 @@ import {
 } from "lucide-react";
 import { useForm } from "react-hook-form";
 
+// Helper: parse different created_at formats (number in ms/s, ISO string)
+function parseDate(input: string | number | undefined | null): Date | null {
+  if (input === undefined || input === null || input === "") return null;
+
+  // If it's already a number
+  if (typeof input === "number") {
+    // If looks like seconds (10 digits), convert to ms
+    if (input < 1e12) return new Date(input * 1000);
+    return new Date(input);
+  }
+
+  // If it's a numeric string, try to parse as int
+  if (/^\d+$/.test(String(input))) {
+    const n = parseInt(String(input), 10);
+    if (n < 1e12) return new Date(n * 1000);
+    return new Date(n);
+  }
+
+  // Fall back to Date parsing for ISO strings
+  const d = new Date(String(input));
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function formatDate(input: string | number | undefined | null) {
+  const d = parseDate(input);
+  if (!d) return "-";
+  return d.toLocaleDateString();
+}
+
 const RECORDS_PER_PAGE = 12;
 
 export function AudioRecordingsCombined({
@@ -108,7 +139,7 @@ export function AudioRecordingsCombined({
     data: audioRecordings,
     isLoading,
     refetch: refetchJobs,
-  } = useQuery(getAudioRecordingsQuery(cleanedFilters));
+  } = useQuery(getAudioRecordingsQuery({ ...cleanedFilters, page: currentPage, per_page: RECORDS_PER_PAGE }));
 
   // Refresh Handler (Keep Filters)
   const handleRefresh = async () => {
@@ -120,22 +151,17 @@ export function AudioRecordingsCombined({
     form.reset({ job_id: "", status: "all", created_at: "" });
   };
 
-  // Pagination Logic
-  const totalPages = Math.ceil(
-    (audioRecordings?.length || 0) / RECORDS_PER_PAGE,
-  );
-
-  const paginatedData = audioRecordings?.slice(
-    (currentPage - 1) * RECORDS_PER_PAGE,
-    currentPage * RECORDS_PER_PAGE,
-  );
+  // Pagination Logic - server-side. The query attaches total via `_total_count`.
+  const totalCount = (audioRecordings && (audioRecordings as any)._total_count) || (audioRecordings ? (audioRecordings as any).length : 0);
+  const totalPages = Math.max(1, Math.ceil(totalCount / RECORDS_PER_PAGE));
+  const paginatedData = audioRecordings || [];
   const handleViewDetails = (recording: any) => {
     localStorage.setItem("current_recording_id", recording.id);
-    router.navigate({
-      to: `/audio-recordings/$id`,
-      params: { id: recording.id },
-    });
-  };  const handlePlayAudio = (recording: any) => {
+    // Use the named param route so the router can resolve child route correctly
+    router.navigate({ to: "/audio-recordings/$id", params: { id: recording.id } });
+  };
+
+  const handlePlayAudio = (recording: any) => {
     if (isAudioFile(recording.file_path)) {
       // Check if it's a commonly supported format
       if (isWellSupportedAudioFormat(recording.file_path)) {
@@ -196,7 +222,7 @@ export function AudioRecordingsCombined({
                 <div className="flex items-center gap-4 text-sm text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <span className="font-medium text-foreground">
-                      {audioRecordings.length}
+                      {totalCount}
                     </span>
                     recordings
                   </span>
@@ -253,17 +279,18 @@ export function AudioRecordingsCombined({
                       <h3 className="font-semibold text-foreground">
                         Search & Filters
                       </h3>
-                      <p className="text-sm text-muted-foreground">
-                        Refine your search to find specific recordings
-                      </p>
+                      <div className="text-sm text-muted-foreground">
+                        {audioRecordings && (
+                          <>
+                            <span className="w-1 h-1 bg-muted-foreground rounded-full" />
+                            <span>
+                              {totalCount} total record
+                              {totalCount !== 1 ? "s" : ""}
+                            </span>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div
-                    className={cn(
-                      "transition-transform duration-200",
-                      filtersExpanded ? "rotate-180" : "",
-                    )}
-                  >
                     <RefreshCcw className="h-4 w-4" />
                   </div>
                 </Button>
@@ -387,9 +414,9 @@ export function AudioRecordingsCombined({
                         <div className="text-sm text-muted-foreground">
                           {audioRecordings && (
                             <span>
-                              Showing {paginatedData?.length || 0} of{" "}
-                              {audioRecordings.length} recordings
-                            </span>
+                                  Showing {paginatedData?.length || 0} of{" "}
+                                  {totalCount} recordings
+                                </span>
                           )}
                         </div>
                       </div>
@@ -448,12 +475,12 @@ export function AudioRecordingsCombined({
                 ))}
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 animate-in fade-in duration-300">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-fr animate-in fade-in duration-300">
                 {paginatedData && paginatedData.length > 0 ? (
                   paginatedData.map((recording: any, index: number) => (
                     <div
                       key={recording.id}
-                      className="animate-in slide-in-from-bottom-4 duration-300"
+                        className="animate-in slide-in-from-bottom-4 duration-300 h-full"
                       style={{ animationDelay: `${index * 100}ms` }}
                     >                      <AudioRecordingCard
                         recording={recording}
@@ -533,10 +560,12 @@ export function AudioRecordingsCombined({
                       paginatedData.map((row: any) => (
                         <TableRow key={row.id} className="hover:bg-muted/50 border-border/50">
                           <TableCell className="font-mono text-sm">{row.id}</TableCell>                          <TableCell className="max-w-[250px]">
-                            <div className="truncate font-medium text-primary">
-                              {row.file_name ||
-                                getFileNameFromPath(row.file_path) ||
-                                "Unnamed Recording"}
+                            <div className="truncate font-medium">
+                              <EditableDisplayName 
+                                job={row}
+                                className="min-w-0 text-primary"
+                                showEditIcon={false}
+                              />
                             </div>
                           </TableCell>
                           <TableCell>
@@ -548,9 +577,7 @@ export function AudioRecordingsCombined({
                             />
                           </TableCell>
                           <TableCell className="text-muted-foreground">
-                            {new Date(
-                              parseInt(row.created_at),
-                            ).toLocaleDateString()}
+                              {formatDate(row.created_at)}
                           </TableCell>
                           <TableCell className="text-right">
                             <DropdownMenu
@@ -687,20 +714,14 @@ export function AudioRecordingsCombined({
           isOpen={shareDialogOpen}
           onOpenChange={setShareDialogOpen}
           jobId={shareRecording.id}
-          jobTitle={
-            shareRecording.file_name ||
-            getFileNameFromPath(shareRecording.file_path)
-          }
+          jobTitle={getDisplayName(shareRecording)}
         />
       )}      {deleteRecording && (
         <JobDeleteDialog
           isOpen={deleteDialogOpen}
           onOpenChange={setDeleteDialogOpen}
           jobId={deleteRecording.id}
-          jobTitle={
-            deleteRecording.file_name ||
-            getFileNameFromPath(deleteRecording.file_path)
-          }
+          jobTitle={getDisplayName(deleteRecording)}
           onDeleteSuccess={refetchJobs}
         />      )}
       

@@ -5,6 +5,8 @@ import requests
 import os
 import sys
 import json
+import re
+from datetime import timedelta
 
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -26,6 +28,12 @@ class TranscriptionService:
         """Initialize the TranscriptionService with config, optional credential, and storage service."""
         self.config = config
         self.logger = logging.getLogger(__name__)
+        # Ensure logger is configured for Functions runtime if not already
+        try:
+            self._configure_logging()
+        except Exception:
+            # If configuration fails, fallback silently but keep existing logger
+            pass
         # Import DefaultAzureCredential lazily to avoid importing heavy native
         # dependencies (cryptography) at module import time which can crash the
         # Functions worker during indexing. Instantiate only when needed.
@@ -51,6 +59,30 @@ class TranscriptionService:
                 "max_speakers": config.speech_max_speakers,
             },
         )
+
+    def _configure_logging(self) -> None:
+        """Ensure a StreamHandler and level are set so logs appear in the Functions host."""
+        root = logging.getLogger()
+        # Determine log level from config if present, otherwise INFO
+        level_name = getattr(self.config, "log_level", "INFO") if hasattr(self, 'config') else os.getenv("LOG_LEVEL", "INFO")
+        try:
+            level = getattr(logging, str(level_name).upper(), logging.INFO)
+        except Exception:
+            level = logging.INFO
+
+        root.setLevel(level)
+
+        # Add a StreamHandler if no handlers present to ensure console output
+        has_stream = any(isinstance(h, logging.StreamHandler) for h in root.handlers)
+        if not has_stream:
+            sh = logging.StreamHandler()
+            fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+            sh.setFormatter(fmt)
+            sh.setLevel(level)
+            root.addHandler(sh)
+
+        # Mirror level on our logger
+        self.logger.setLevel(level)
 
     def _get_auth_token(self) -> str:
         """Get authentication token for Azure services."""
@@ -350,21 +382,116 @@ class TranscriptionService:
 
         self.logger.debug("Starting transcription formatting")
 
+        def _secs_to_timestamp(secs: float) -> str:
+            """Convert seconds to H:MM:SS.mmm timestamp."""
+            try:
+                td = timedelta(seconds=secs)
+                total_seconds = int(td.total_seconds())
+                hours = total_seconds // 3600
+                minutes = (total_seconds % 3600) // 60
+                seconds = total_seconds % 60
+                milliseconds = int((td.total_seconds() - int(td.total_seconds())) * 1000)
+                if hours > 0:
+                    return f"{hours}:{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+                return f"{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+            except Exception:
+                return "00:00:00.000"
+
+        def _extract_start_time(phrase: Dict[str, Any]) -> Optional[str]:
+            """Try several heuristic approaches to extract a phrase start time and return formatted timestamp."""
+            # 1) Common fields
+            for key in ("offset", "startOffset", "startTime", "offsetInTicks"):
+                if key in phrase and phrase[key] is not None:
+                    val = phrase[key]
+                    # If string like '00:00:12.3450000'
+                    if isinstance(val, str):
+                        m = re.match(r"(\d{2}):(\d{2}):(\d{2})(?:[.,](\d+))?", val)
+                        if m:
+                            hrs, mins, secs, frac = m.groups()
+                            frac = (frac or "0")[:3].ljust(3, "0")
+                            ts = f"{int(hrs)}:{int(mins):02d}:{int(secs):02d}.{frac}"
+                            self.logger.debug("Parsed H:M:S timestamp from string", extra={"raw": val, "parsed": ts, "key": key})
+                            return ts
+                        # Try ISO/float string
+                        try:
+                            f = float(val)
+                            ts = _secs_to_timestamp(f)
+                            self.logger.debug("Parsed numeric-like string to seconds", extra={"raw": val, "seconds": f, "parsed": ts, "key": key})
+                            return ts
+                        except Exception:
+                            pass
+                    # Numeric handling: ticks or ms or seconds
+                    try:
+                        n = int(val)
+                        # Heuristics:
+                        # - If very large, assume ticks (100ns units)
+                        if n > 10**10:
+                            secs = n / 10_000_000
+                            ts = _secs_to_timestamp(secs)
+                            self.logger.debug("Parsed ticks to seconds", extra={"raw": n, "seconds": secs, "parsed": ts, "key": key})
+                            return ts
+                        # - If looks like milliseconds
+                        if n > 10**6:
+                            secs = n / 1000.0
+                            ts = _secs_to_timestamp(secs)
+                            self.logger.debug("Parsed milliseconds to seconds", extra={"raw": n, "seconds": secs, "parsed": ts, "key": key})
+                            return ts
+                        # - otherwise seconds
+                        ts = _secs_to_timestamp(float(n))
+                        self.logger.debug("Parsed numeric seconds", extra={"raw": n, "parsed": ts, "key": key})
+                        return ts
+                    except Exception:
+                        pass
+
+            # 2) Look into nBest words offsets
+            try:
+                nb = phrase.get("nBest", [])
+                if nb:
+                    first = nb[0]
+                    words = first.get("words") or phrase.get("words")
+                    if words and isinstance(words, list) and len(words) > 0:
+                        w0 = words[0]
+                        for k in ("offset", "startOffset", "startTime", "offsetInTicks"):
+                            if k in w0 and w0[k] is not None:
+                                ts = _extract_start_time(w0)
+                                if ts:
+                                    self.logger.debug("Extracted timestamp from nBest words", extra={"word": w0, "parsed": ts})
+                                    return ts
+            except Exception:
+                pass
+
+            return None
+
         for phrase in results.get("recognizedPhrases", []):
             phrase_count += 1
             speaker = phrase.get("speaker", "Unknown")
             text = phrase.get("nBest", [{}])[0].get("display", "").strip()
             confidence = phrase.get("nBest", [{}])[0].get("confidence", 0)
 
+            # Extract a start timestamp for the phrase if available
+            start_ts = None
+            try:
+                start_ts = _extract_start_time(phrase)
+            except Exception:
+                start_ts = None
+
             if confidence < 0.8:
                 low_confidence_count += 1
 
             if text:
                 if speaker != current_speaker:
-                    formatted_lines.append(f"\n--- Speaker {speaker} ---")
+                    # Include timestamp in speaker boundary when available
+                    if start_ts:
+                        formatted_lines.append(f"\n--- Speaker {speaker} @ {start_ts} ---")
+                    else:
+                        formatted_lines.append(f"\n--- Speaker {speaker} ---")
                     current_speaker = speaker
 
-                line = text
+                # Prepend timestamp to each phrase line when available
+                if start_ts:
+                    line = f"[{start_ts}] {text}"
+                else:
+                    line = text
                 if confidence < 0.8:
                     line = f"{text} [Confidence: {confidence:.2f}]"
 

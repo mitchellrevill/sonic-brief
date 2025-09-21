@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { SmartBreadcrumb } from "@/components/ui/smart-breadcrumb";
 import { useBreadcrumbs } from "@/hooks/use-breadcrumbs";
+import { getDisplayName } from "@/lib/display-name-utils";
 import {
   Card,
   CardContent,
@@ -161,7 +162,7 @@ interface SharedJobCardProps {
 }
 
 function SharedJobCard({ job, isOwner }: SharedJobCardProps) {
-  const fileName = job.file_name || job.file_path?.split("/").pop() || "Unnamed Recording";
+  const displayName = getDisplayName(job);
   
   // Get user's permission for this job
   const userShare = !isOwner && job.shared_with?.[0];
@@ -178,8 +179,8 @@ function SharedJobCard({ job, isOwner }: SharedJobCardProps) {
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <FileAudio className="h-4 w-4 text-primary flex-shrink-0" />
-              <h3 className="font-medium text-sm truncate" title={fileName}>
-                {fileName}
+              <h3 className="font-medium text-sm truncate" title={displayName}>
+                {displayName}
               </h3>
             </div>
             <StatusBadge 

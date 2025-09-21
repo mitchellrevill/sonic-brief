@@ -23,7 +23,7 @@ from fastapi import BackgroundTasks
 
 from ...core.config import AppConfig, get_cosmos_db_cached
 from ..storage.blob_service import StorageService
-from ..content import AnalyticsService
+from ..analytics.analytics_service import AnalyticsService
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -122,6 +122,24 @@ class BackgroundProcessingService:
         self.config = config
         self.tasks: Dict[str, BackgroundTask] = {}
         self.circuit_breaker = CircuitBreaker()
+        # Normalize azure functions base url across different config shapes
+        # Older AppConfig stores azure_functions as a dict with key 'base_url'
+        # Newer or alternate shapes may expose azure_functions_base_url directly.
+        base_url = None
+        try:
+            if hasattr(config, 'azure_functions'):
+                af = config.azure_functions
+                if isinstance(af, dict):
+                    base_url = af.get('base_url')
+                else:
+                    base_url = getattr(af, 'base_url', None)
+            if not base_url:
+                base_url = getattr(config, 'azure_functions_base_url', None)
+        except Exception:
+            base_url = None
+
+        # Fallback to localhost function host for dev if nothing provided
+        self.azure_functions_base_url = base_url or "http://localhost:7071"
         
     async def submit_task(
         self, 
@@ -215,26 +233,21 @@ class BackgroundProcessingService:
         if headers:
             default_headers.update(headers)
         
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            try:
-                response = await client.post(
-                    function_url,
-                    json=payload,
-                    headers=default_headers
-                )
-                response.raise_for_status()
-                
-                self.circuit_breaker.record_success()
-                return response.json()
-                
-            except httpx.HTTPError as e:
-                self.circuit_breaker.record_failure()
-                logger.error(f"Azure Function call failed: {str(e)}")
-                raise
-            except Exception as e:
-                self.circuit_breaker.record_failure()
-                logger.error(f"Unexpected error calling Azure Function: {str(e)}")
-                raise
+        try:
+            from ...core.http_client import get_client
+            client = get_client()
+            response = await client.post(function_url, json=payload, headers=default_headers)
+            response.raise_for_status()
+            self.circuit_breaker.record_success()
+            return response.json()
+        except httpx.HTTPError as e:
+            self.circuit_breaker.record_failure()
+            logger.error(f"Azure Function call failed: {str(e)}")
+            raise
+        except Exception as e:
+            self.circuit_breaker.record_failure()
+            logger.error(f"Unexpected error calling Azure Function: {str(e)}")
+            raise
     
     async def process_audio_analysis(
         self, 

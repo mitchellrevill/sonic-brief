@@ -1,43 +1,3 @@
-from typing import Callable
-from starlette.types import ASGIApp, Receive, Scope, Send
-import time
-from fastapi import Request
-
-
-class SessionTrackingMiddleware:
-    """Minimal session tracking middleware shim.
-
-    This implementation records a simple heartbeat timestamp on the request state
-    and logs duration. It matches the constructor used in `main.py`:
-        SessionTrackingMiddleware(session_timeout_minutes=..., heartbeat_interval_minutes=...)
-
-    It's intentionally lightweight to avoid changing behavior during the refactor.
-    """
-
-    def __init__(self, app: ASGIApp, session_timeout_minutes: int = 15, heartbeat_interval_minutes: int = 5):
-        self.app = app
-        self.session_timeout_minutes = session_timeout_minutes
-        self.heartbeat_interval_minutes = heartbeat_interval_minutes
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        # Only handle http requests
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        start = time.time()
-
-        async def send_wrapper(message):
-            # pass-through
-            await send(message)
-
-        await self.app(scope, receive, send_wrapper)
-
-        # simple post-request work (non-blocking)
-        duration = time.time() - start
-        # store on scope to allow later inspection if needed
-        scope.setdefault("session_tracking", {})
-        scope["session_tracking"]["last_request_duration"] = duration
 """
 Comprehensive User Session Tracking Middleware
 
@@ -79,9 +39,10 @@ except Exception:
     tracemalloc = None
 
 # Import permission utilities
-from app.models.permissions import PermissionLevel, PermissionCapability
-from app.core.config import get_app_config, get_cosmos_db_cached
-from app.utils.logging_config import get_logger
+from ..models.permissions import PermissionLevel, PermissionCapability
+from ..core.dependencies import get_session_tracker
+from ..utils.logging_config import get_logger
+from ..core.async_utils import run_sync
 
 
 class SessionTrackingMiddleware(BaseHTTPMiddleware):
@@ -140,8 +101,6 @@ class SessionTrackingMiddleware(BaseHTTPMiddleware):
             '/api/auth/users/*/delete': 'user_deleted',
             
             # Job sharing (security-relevant as it affects access control)
-            '/api/upload/*/share': 'job_shared',
-            '/api/upload/*/unshare': 'job_unshared',
             '/api/jobs/*/share': 'job_shared',
             '/api/jobs/*/unshare': 'job_unshared',
             
@@ -179,6 +138,12 @@ class SessionTrackingMiddleware(BaseHTTPMiddleware):
                     self.logger.debug("tracemalloc started for Python allocation tracking")
                 except Exception as e:
                     self.logger.debug(f"Could not start tracemalloc: {e}")
+
+            # In-memory session tracker (DI-friendly). Use provider to get singleton.
+            try:
+                self.session_tracker = get_session_tracker()
+            except Exception:
+                self.session_tracker = None
 
     def _get_memory_info(self) -> Dict[str, Any]:
         """
@@ -291,10 +256,10 @@ class SessionTrackingMiddleware(BaseHTTPMiddleware):
                 for sess_id, _, _ in batch_items:
                     self._pending_upserts.pop(sess_id, None)
 
-                # Perform upserts sequentially in threads to avoid blocking the loop
+                # Perform upserts sequentially using run_sync to avoid blocking the event loop
                 for sess_id, session_item, container in batch_items:
                     try:
-                        await asyncio.to_thread(container.upsert_item, session_item)
+                        await run_sync(lambda s=session_item, c=container: c.upsert_item(s))
                         self.logger.debug(f"Batch upserted session {sess_id}")
                     except Exception as e:
                         self.logger.exception(f"Failed batch upserting session {sess_id}: {e}")
@@ -398,105 +363,55 @@ class SessionTrackingMiddleware(BaseHTTPMiddleware):
         """
         Track user session activity in the user_sessions container
         """
+        # Defensive import: ensure config and DB helpers are available before proceeding with
+        # session tracking. If not available (e.g., during a partial startup), skip tracking
+        # rather than raising a NameError which breaks the app.
         try:
-            from app.core.config import get_cosmos_db, AppConfig
-            
+            from ..core.config import get_app_config, get_cosmos_db_cached
             config = get_app_config()
             cosmos_db = get_cosmos_db_cached(config)
-            
-            if not hasattr(cosmos_db, 'sessions_container') or cosmos_db.sessions_container is None:
-                self.logger.warning("Sessions container not available")
-                return None
-            
-            # Extract user identifiers from JWT payload
-            user_email_or_id = user_info.get("id")  # This is the JWT 'sub' field (usually email)
-            user_email = user_info.get("email") or user_email_or_id
-            
-            # Try to resolve email to GUID for session tracking
-            user_id_for_session = user_email_or_id
-            try:
-                if user_email and not self._is_guid(user_email_or_id):
-                    # Only try to resolve if we don't already have a GUID
-                    resolved = await self._resolve_canonical_id(cosmos_db, user_email)
-                    if resolved and self._is_guid(resolved):
-                        user_id_for_session = resolved
-                        self.logger.debug(f"✅ Resolved GUID {user_id_for_session} for email {user_email}")
-                
-                # If we still don't have a GUID, skip session tracking
-                if not self._is_guid(user_id_for_session):
-                    self.logger.warning(f"⚠️ Skipping session tracking - no GUID available for user {user_email}")
-                    return None
-                    
-            except Exception as e:
-                self.logger.error(f"❌ Error resolving user GUID: {e}")
-                return None
-
-            # Create or update session using GUID
-            session_id = await self._get_or_create_session(cosmos_db, user_id_for_session, request, timestamp, user_email=user_email)
-
-            # Update session heartbeat
-            await self._update_session_heartbeat(cosmos_db, session_id, user_id_for_session, request, timestamp)
-            
-            return session_id
-            
         except Exception as e:
-            self.logger.error(f"Error tracking session activity: {str(e)}")
+            self.logger.debug(f"Skipping session tracking; config/cosmos unavailable: {e}")
             return None
-    
-    async def _get_or_create_session(
-        self, 
-        cosmos_db, 
-        user_id: str, 
-        request: Request, 
-        timestamp: datetime,
-        user_email: Optional[str] = None
-    ) -> str:
-        """
-        Get existing active session or create a new one
-        """
+
+        if not hasattr(cosmos_db, 'sessions_container') or cosmos_db.sessions_container is None:
+            # Provide diagnostic info listing available containers to help debug deployment issues
+            available = [k for k in ('auth_container','analytics_container','events_container','jobs_container','sessions_container','audit_container') if hasattr(cosmos_db, k) and getattr(cosmos_db, k) is not None]
+            self.logger.warning(f"Sessions container not available; available containers: {available}")
+            return None
+        
+        # Extract user identifiers from JWT payload
+        user_email_or_id = user_info.get("id")  # This is the JWT 'sub' field (usually email)
+        user_email = user_info.get("email") or user_email_or_id
+
+        # Try to resolve email to GUID for session tracking
+        user_id_for_session = user_email_or_id
         try:
-            # Look for existing active session
-            cutoff_time = timestamp - timedelta(minutes=self.session_timeout_minutes)
-            
-            # Try to find an active session by canonical user id or by email
-            query = """
-            SELECT TOP 1 * FROM c
-            WHERE c.type = 'session'
-            AND c.status = 'active'
-            AND c.last_heartbeat >= @cutoff_time
-            AND (
-                c.user_id = @user_id
-                OR (c.user_email = @user_email)
-            )
-            ORDER BY c.last_heartbeat DESC
-            """
+            if user_email and not self._is_guid(user_email_or_id):
+                # Only try to resolve if we don't already have a GUID
+                resolved = await self._resolve_canonical_id(cosmos_db, user_email)
+                if resolved and self._is_guid(resolved):
+                    user_id_for_session = resolved
+                    self.logger.debug(f"✅ Resolved GUID {user_id_for_session} for email {user_email}")
 
-            parameters = [
-                {"name": "@user_id", "value": user_id},
-                {"name": "@user_email", "value": user_email or ""},
-                {"name": "@cutoff_time", "value": cutoff_time.isoformat()}
-            ]
+            # If we still don't have a GUID, fall back to JWT 'sub' or email to allow session tracking
+            if not self._is_guid(user_id_for_session):
+                self.logger.debug(f"No GUID resolved for user {user_email}; falling back to JWT sub/email for session id: {user_id_for_session}")
+                # continue using the fallback identifier (user_id_for_session may be email or sub)
 
-            # Run cross-partition query in a thread
-            items = await asyncio.to_thread(
-                lambda: list(cosmos_db.sessions_container.query_items(
-                    query=query,
-                    parameters=parameters,
-                    enable_cross_partition_query=True
-                ))
-            )
-            
-            if items:
-                # Return existing session
-                return items[0]["id"]
-            else:
-                # Create new session
-                return await self._create_new_session(cosmos_db, user_id, request, timestamp, user_email=user_email)
-                
         except Exception as e:
-            self.logger.error(f"Error getting or creating session: {str(e)}")
-            # Fallback to creating a new session
-            return await self._create_new_session(cosmos_db, user_id, request, timestamp)
+            self.logger.error(f"❌ Error resolving user GUID: {e}")
+            return None
+
+        # Create or update session using GUID
+        session_id = await self._get_or_create_session(cosmos_db, user_id_for_session, request, timestamp, user_email=user_email)
+
+        # Update session heartbeat
+        await self._update_session_heartbeat(cosmos_db, session_id, user_id_for_session, request, timestamp)
+
+        return session_id
+    
+    # (Removed duplicate and incomplete _get_or_create_session definition. The correct implementation is below.)
 
     async def _resolve_canonical_id(self, cosmos_db, email: str) -> Optional[str]:
         """
@@ -512,16 +427,15 @@ class SessionTrackingMiddleware(BaseHTTPMiddleware):
             auth_params = [{"name": "@email", "value": email}]
 
             self.logger.debug(f"🔍 Querying auth container for email: {email}")
-            res = await asyncio.to_thread(
-                lambda: list(cosmos_db.auth_container.query_items(query=auth_query, parameters=auth_params, enable_cross_partition_query=True))
-            )
+            res = await run_sync(lambda: list(cosmos_db.auth_container.query_items(query=auth_query, parameters=auth_params, enable_cross_partition_query=True)))
             
             if res:
                 self.logger.debug(f"🔍 Auth query returned {len(res)} results: {res}")
                 if isinstance(res[0], dict) and res[0].get('id'):
                     candidate = res[0].get('id')
                     if self._is_guid(candidate):
-                        self.logger.info(f"✅ Found canonical GUID {candidate} for email {email}")
+                        # Do not log canonical id resolution at INFO level to reduce noise; keep at DEBUG
+                        self.logger.debug(f"✅ Found canonical GUID {candidate} for email {email}")
                         return candidate
                     else:
                         self.logger.warning(f"⚠️ Auth record ID {candidate} is not a valid GUID")
@@ -544,12 +458,17 @@ class SessionTrackingMiddleware(BaseHTTPMiddleware):
         user_id: str, 
         request: Request, 
         timestamp: datetime,
-        user_email: Optional[str] = None
+        user_email: Optional[str] = None,
+        prefer_upsert: bool = False
     ) -> str:
         """
         Create a new user session
         """
-        session_id = str(uuid.uuid4())
+        # Optionally use deterministic session id per user to avoid duplicate session docs
+        if prefer_upsert:
+            session_id = f"session_{user_id}"
+        else:
+            session_id = str(uuid.uuid4())
         
         # Extract request metadata
         user_agent = request.headers.get("User-Agent", "")
@@ -583,117 +502,168 @@ class SessionTrackingMiddleware(BaseHTTPMiddleware):
         
         # Use thread to run blocking SDK call
         try:
-            self.logger.info(f"📝 Creating session with data:")
-            self.logger.info(f"   - session_id: {session_id}")
-            self.logger.info(f"   - user_id: {user_id}")
-            self.logger.info(f"   - user_email: {user_email}")
-            self.logger.info(f"   - endpoint: {request.url.path}")
-            
-            await asyncio.to_thread(cosmos_db.sessions_container.create_item, session_data)
-            self.logger.info(f"🟢 Successfully created session {session_id} for user {user_id}")
+            # Keep creation details at DEBUG to avoid verbose INFO logs in production
+            self.logger.debug(f"Creating session: session_id={session_id}, user_id={user_id}, user_email={user_email}, endpoint={request.url.path}")
+
+            if prefer_upsert:
+                await run_sync(lambda: cosmos_db.sessions_container.upsert_item(session_data))
+            else:
+                await run_sync(lambda: cosmos_db.sessions_container.create_item(session_data))
+            self.logger.debug(f"Successfully created/upserted session {session_id} for user {user_id}")
             
             # Verify the session was created by querying it back
             try:
                 verify_query = "SELECT c.id, c.user_id, c.user_email, c.created_at FROM c WHERE c.id = @session_id"
                 verify_params = [{"name": "@session_id", "value": session_id}]
-                verify_result = list(cosmos_db.sessions_container.query_items(
+                verify_result = await run_sync(lambda: list(cosmos_db.sessions_container.query_items(
                     query=verify_query,
                     parameters=verify_params,
                     enable_cross_partition_query=True
-                ))
+                )))
                 if verify_result:
                     session_doc = verify_result[0]
-                    self.logger.info(f"✅ Session verification successful:")
-                    self.logger.info(f"   - Stored user_id: {session_doc.get('user_id')}")
-                    self.logger.info(f"   - Stored user_email: {session_doc.get('user_email')}")
+                    self.logger.debug(f"Session verification successful: stored_user_id={session_doc.get('user_id')}, stored_user_email={session_doc.get('user_email')}")
                 else:
-                    self.logger.error(f"❌ Session {session_id} not found after creation")
+                    self.logger.warning(f"Session {session_id} not found after creation")
             except Exception as verify_error:
                 self.logger.error(f"❌ Session verification failed: {verify_error}")
                 
         except Exception as e:
-            self.logger.exception(f"❌ Failed creating session {session_id} for user {user_id}: {e}")
+            # Only warn on failure; exception already recorded by SDK/logging in some environments
+            self.logger.warning(f"Failed creating session {session_id} for user {user_id}: {e}")
         
+        # Mirror minimal session info into in-memory tracker for quick reads
+        try:
+            if self.session_tracker:
+                self.session_tracker.upsert(session_id, {
+                    "id": session_id,
+                    "user_id": user_id,
+                    "created_at": session_data.get("created_at"),
+                    "last_heartbeat": session_data.get("last_heartbeat"),
+                    "last_endpoint": session_data.get("last_endpoint"),
+                })
+        except Exception:
+            # Don't let tracker failures block session creation
+            self.logger.debug("SessionTracker upsert failed during create (non-fatal)")
+
         return session_id
     
-    async def _update_session_heartbeat(
-        self, 
-        cosmos_db, 
-        session_id: str, 
-        user_id: str, 
-        request: Request, 
-        timestamp: datetime
-    ):
-        """
-        Update session heartbeat and activity
+    async def _get_or_create_session(
+        self,
+        cosmos_db,
+        user_id: str,
+        request: Request,
+        timestamp: datetime,
+        user_email: Optional[str] = None,
+    ) -> Optional[str]:
+        """Get an existing session for the user GUID or create a new one.
+
+        This implementation is defensive: if the sessions container is missing
+        it will create a session object via _create_new_session and return its id.
         """
         try:
-            # Read the current session (blocking call in a thread)
-            session_item = await asyncio.to_thread(cosmos_db.sessions_container.read_item, session_id, user_id)
+            if not hasattr(cosmos_db, 'sessions_container') or cosmos_db.sessions_container is None:
+                self.logger.debug("Sessions container unavailable, creating a new session")
+                return await self._create_new_session(cosmos_db, user_id, request, timestamp, user_email=user_email, prefer_upsert=True)
 
-            # Parse previous heartbeat and decide whether to enqueue an upsert
-            last_heartbeat_str = session_item.get("last_heartbeat")
-            should_write = True
-            if last_heartbeat_str:
-                try:
-                    last_heartbeat_dt = datetime.fromisoformat(last_heartbeat_str)
-                    delta = timestamp - last_heartbeat_dt
-                    # Only enqueue if heartbeat interval has passed
-                    if delta.total_seconds() < (self.heartbeat_interval_minutes * 60):
-                        should_write = False
-                except Exception:
-                    should_write = True
+            # Query for a recent session for this user GUID
+            query = "SELECT TOP 1 c.id FROM c WHERE c.user_id = @user_id ORDER BY c.created_at DESC"
+            params = [{"name": "@user_id", "value": user_id}]
 
-            # Always update in-memory session_item for latest activity; we'll enqueue the upsert when appropriate
-            session_item["last_heartbeat"] = timestamp.isoformat()
-            session_item["last_activity"] = timestamp.isoformat()
-            session_item["last_endpoint"] = request.url.path
-            session_item["activity_count"] = session_item.get("activity_count", 0) + 1
+            try:
+                res = await run_sync(lambda: list(cosmos_db.sessions_container.query_items(query=query, parameters=params, enable_cross_partition_query=True)))
+            except Exception as e:
+                self.logger.debug(f"Session query failed, will create new session: {e}")
+                return await self._create_new_session(cosmos_db, user_id, request, timestamp, user_email=user_email, prefer_upsert=True)
 
-            endpoints_accessed = session_item.get("endpoints_accessed", [])
-            if request.url.path not in endpoints_accessed:
-                endpoints_accessed.append(request.url.path)
-                session_item["endpoints_accessed"] = endpoints_accessed
+            if res and isinstance(res[0], dict) and res[0].get('id'):
+                return res[0].get('id')
 
-            if not should_write:
-                # If we're within heartbeat interval, just store pending state and return
-                # Ensure background worker is running
-                if self._batch_task is None:
-                    # Lazily create event and start worker on the running loop
-                    self._upsert_event = asyncio.Event()
-                    self._batch_task = asyncio.create_task(self._session_batch_worker())
+            # Fallback: create/upsert a new session (deterministic id) to avoid duplicates
+            return await self._create_new_session(cosmos_db, user_id, request, timestamp, user_email=user_email, prefer_upsert=True)
 
-                # Store latest session item to be upserted later
-                self._pending_upserts[session_id] = (session_item, cosmos_db.sessions_container)
-                # Signal worker
-                if self._upsert_event:
-                    self._upsert_event.set()
-                self.logger.debug(f"Queued heartbeat update for session {session_id} (debounced)")
-                # Emit diagnostic if pending queue grows
-                if self.enable_memory_diag:
-                    pending_count = len(self._pending_upserts)
-                    if pending_count >= self._memory_diag_pending_threshold:
-                        self.logger.warning(f"Pending upserts count high: {pending_count}")
-                        self._log_memory_snapshot(f"pending_queue_grew_{pending_count}")
+        except Exception as e:
+            self.logger.exception(f"Unexpected error in _get_or_create_session: {e}")
+            return None
+    
+    async def _update_session_heartbeat(
+        self,
+        cosmos_db,
+        session_id: str,
+        user_id: str,
+        request: Request,
+        timestamp: datetime
+    ) -> None:
+        """
+        Update session heartbeat and activity information
+        """
+        try:
+            if not hasattr(cosmos_db, 'sessions_container') or cosmos_db.sessions_container is None:
+                self.logger.debug("Sessions container unavailable, skipping heartbeat update")
                 return
 
-            # If we should write immediately (heartbeat interval passed), enqueue and signal
-            if self._batch_task is None:
-                self._upsert_event = asyncio.Event()
-                self._batch_task = asyncio.create_task(self._session_batch_worker())
-
-            self._pending_upserts[session_id] = (session_item, cosmos_db.sessions_container)
-            if self._upsert_event:
-                self._upsert_event.set()
-            self.logger.debug(f"Enqueued heartbeat update for session {session_id}")
-            if self.enable_memory_diag:
-                pending_count = len(self._pending_upserts)
-                if pending_count >= self._memory_diag_pending_threshold:
-                    self.logger.warning(f"Pending upserts count high after enqueue: {pending_count}")
-                    self._log_memory_snapshot(f"pending_queue_enqueued_{pending_count}")
+            # Query for the existing session
+            query = "SELECT * FROM c WHERE c.id = @session_id"
+            params = [{"name": "@session_id", "value": session_id}]
             
+            try:
+                results = await run_sync(lambda: list(cosmos_db.sessions_container.query_items(
+                    query=query, 
+                    parameters=params, 
+                    enable_cross_partition_query=True
+                )))
+                
+                if not results:
+                    self.logger.warning(f"Session {session_id} not found for heartbeat update")
+                    return
+                
+                session = results[0]
+                
+                # Update heartbeat information
+                session["last_heartbeat"] = timestamp.isoformat()
+                session["last_activity"] = timestamp.isoformat()
+                session["last_endpoint"] = request.url.path
+                session["activity_count"] = session.get("activity_count", 0) + 1
+                
+                # Update endpoints accessed list
+                endpoints_accessed = session.get("endpoints_accessed", [])
+                if request.url.path not in endpoints_accessed:
+                    endpoints_accessed.append(request.url.path)
+                    session["endpoints_accessed"] = endpoints_accessed
+                
+                # Update session metadata
+                user_agent = request.headers.get("User-Agent", "")
+                ip_address = self._get_client_ip(request)
+                session_metadata = session.get("session_metadata", {})
+                session_metadata.update({
+                    "last_user_agent": user_agent,
+                    "last_ip_address": ip_address,
+                    "last_browser": self._parse_browser_info(user_agent),
+                    "last_platform": self._parse_platform_info(user_agent)
+                })
+                session["session_metadata"] = session_metadata
+                
+                # Upsert the updated session using run_sync
+                await run_sync(lambda s=session, c=cosmos_db.sessions_container: c.upsert_item(s))
+                self.logger.debug(f"Updated heartbeat for session {session_id}")
+                
+            except Exception as e:
+                self.logger.error(f"Failed to update session heartbeat for {session_id}: {e}")
+                
         except Exception as e:
-            self.logger.error(f"Error updating session heartbeat: {str(e)}")
+            self.logger.error(f"Error updating session heartbeat: {e}")
+        finally:
+            # Also update in-memory tracker to reflect heartbeat
+            try:
+                if self.session_tracker and session_id:
+                    self.session_tracker.upsert(session_id, {
+                        "last_heartbeat": timestamp.isoformat(),
+                        "last_activity": timestamp.isoformat(),
+                        "last_endpoint": request.url.path,
+                        "activity_count": session.get("activity_count") if 'session' in locals() else 1
+                    })
+            except Exception:
+                self.logger.debug("SessionTracker upsert failed during heartbeat (non-fatal)")
     
     async def _check_and_log_audit_event(
         self, 
@@ -737,15 +707,18 @@ class SessionTrackingMiddleware(BaseHTTPMiddleware):
         Create an audit log entry in the audit_logs container
         """
         try:
-            from app.core.config import get_cosmos_db, AppConfig
-            
-            config = get_app_config()
-            cosmos_db = get_cosmos_db_cached(config)
-            
+            # Defensive import for config/DB. If unavailable, skip audit logging.
+            try:
+                from ..core.config import get_app_config, get_cosmos_db_cached
+                config = get_app_config()
+                cosmos_db = get_cosmos_db_cached(config)
+            except Exception as e:
+                self.logger.debug(f"Skipping audit log creation; config/cosmos unavailable: {e}")
+                return
+
             # Use audit container if available, otherwise sessions container as fallback
             container = None
             container_name = ""
-            
             if hasattr(cosmos_db, 'audit_container') and cosmos_db.audit_container is not None:
                 container = cosmos_db.audit_container
                 container_name = "audit_logs"
@@ -805,7 +778,7 @@ class SessionTrackingMiddleware(BaseHTTPMiddleware):
             }
             
             try:
-                await asyncio.to_thread(container.create_item, audit_data)
+                await run_sync(lambda: container.create_item(audit_data))
                 self.logger.info(f"📋 Created audit log {audit_id} for {event_type} by user {canonical_user_id} (email: {user_email})")
             except Exception as e:
                 self.logger.exception(f"Failed to create audit log {audit_id}: {e}")
@@ -829,17 +802,21 @@ class SessionTrackingMiddleware(BaseHTTPMiddleware):
             
             # Only log failures and sensitive operations
             if status_code >= 400 or self._is_sensitive_endpoint(request.url.path):
-                from app.core.config import get_cosmos_db, AppConfig
-                
-                config = get_app_config()
-                cosmos_db = get_cosmos_db_cached(config)
-                
+                # Defensive import for config/DB. If unavailable, skip audit completion logging.
+                try:
+                    from ..core.config import get_app_config, get_cosmos_db_cached
+                    config = get_app_config()
+                    cosmos_db = get_cosmos_db_cached(config)
+                except Exception as e:
+                    self.logger.debug(f"Skipping audit completion logging; config/cosmos unavailable: {e}")
+                    return
+
                 container = None
                 if hasattr(cosmos_db, 'audit_container') and cosmos_db.audit_container is not None:
                     container = cosmos_db.audit_container
                 elif hasattr(cosmos_db, 'sessions_container'):
                     container = cosmos_db.sessions_container
-                
+
                 if container:
                     # Resolve user email to GUID for audit completion logs as well
                     user_email = user_info.get("email") or user_info.get("id")
@@ -873,7 +850,7 @@ class SessionTrackingMiddleware(BaseHTTPMiddleware):
                     }
                     
                     try:
-                        await asyncio.to_thread(container.create_item, completion_data)
+                        await run_sync(lambda: container.create_item(completion_data))
                     except Exception as e:
                         self.logger.exception(f"Failed to create audit completion record: {e}")
                     
@@ -915,8 +892,8 @@ class SessionTrackingMiddleware(BaseHTTPMiddleware):
             r'^/api/auth/users/[^/]+/delete$',        # User deletion
             r'^/api/jobs/[^/]+/share$',               # Job sharing (access control)
             r'^/api/jobs/[^/]+/unshare$',             # Job unsharing (access control)
-            r'^/api/upload/[^/]+/share$',             # Upload sharing (access control)
-            r'^/api/upload/[^/]+/unshare$',           # Upload unsharing (access control)
+            r'^/api/jobs/[^/]+/share$',             # Job sharing (access control)
+            r'^/api/jobs/[^/]+/unshare$',           # Job unsharing (access control)
             r'^/api/admin/',                          # Any admin action
             # Note: intentionally not matching '^/api/auth/users$' to avoid auditing GET user lists
         ]
@@ -1055,3 +1032,4 @@ class SessionTrackingMiddleware(BaseHTTPMiddleware):
             return 'iOS'
         else:
             return 'Unknown'
+

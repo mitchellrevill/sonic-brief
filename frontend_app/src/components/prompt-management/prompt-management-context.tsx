@@ -28,7 +28,7 @@ interface PromptManagementContextType {
   refreshData: () => Promise<void>
   setSelectedCategory: (category: Category | null) => void
   setSelectedSubcategory: (subcategory: Subcategory | null) => void
-  addCategory: (name: string) => Promise<void>
+  addCategory: (name: string, parentId?: string | null) => Promise<void>
   addSubcategory: (name: string, categoryId: string, prompts: Record<string, string>) => Promise<void>
   editCategory: (categoryId: string, name: string) => Promise<void>
   editSubcategory: (subcategoryId: string, name: string, prompts: Record<string, string>) => Promise<void>
@@ -43,6 +43,7 @@ export function PromptManagementProvider({ children }: { children: React.ReactNo
   const [subcategories, setSubcategories] = useState<Array<Subcategory>>([])
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null)
   const [selectedSubcategory, setSelectedSubcategory] = useState<Subcategory | null>(null)
+  // Server-provided parent relationships are used; no client-side parentMap persisted.
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -73,12 +74,13 @@ export function PromptManagementProvider({ children }: { children: React.ReactNo
   }, [refreshData])
 
   const addCategory = useCallback(
-    async (name: string) => {
+    async (name: string, parentId?: string | null) => {
       setLoading(true)
       setError(null)
       try {
-        await createCategory(name)
-        await refreshData()
+  await createCategory(name, parentId ?? null)
+  // Refresh data to pick up server-side parent relationship
+  await refreshData()
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred while creating category")
         console.error("Error creating category:", err)

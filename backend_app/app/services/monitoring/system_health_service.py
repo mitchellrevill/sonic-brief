@@ -9,8 +9,9 @@ import json
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from azure.cosmos import exceptions as cosmos_exceptions
-from app.core.config import get_app_config, get_cosmos_db_cached
-from app.models.analytics_models import SystemHealthMetrics, SystemHealthResponse
+from ...core.config import get_app_config, get_cosmos_db_cached
+from ...core.async_utils import run_sync
+from ...models.analytics_models import SystemHealthMetrics, SystemHealthResponse
 
 # Optional psutil import
 try:
@@ -109,10 +110,10 @@ class SystemHealthService:
             # Real query to test database
             if hasattr(self.cosmos_db, 'auth_container') and self.cosmos_db.auth_container:
                 query = "SELECT TOP 1 c.id FROM c"
-                results = list(self.cosmos_db.auth_container.query_items(
+                results = await run_sync(lambda: list(self.cosmos_db.auth_container.query_items(
                     query=query, 
                     enable_cross_partition_query=True
-                ))
+                )))
                 # Verify we got a response
                 logger.debug(f"Database health check returned {len(results)} items")
             else:

@@ -226,14 +226,25 @@ class StorageService:
                 raise ValueError("Invalid blob URL: Missing path.")
 
             # Extract the blob name from the URL
-            if self.config.storage.recordings_container not in parsed_url.path:
-                raise ValueError(
-                    f"Blob URL does not contain the expected container: {self.config.storage.recordings_container}"
-                )
-
-            blob_name = parsed_url.path.split(
-                self.config.storage.recordings_container, 1
-            )[-1].lstrip("/")
+            # First try the expected recordings container
+            if self.config.storage.recordings_container in parsed_url.path:
+                blob_name = parsed_url.path.split(
+                    self.config.storage.recordings_container, 1
+                )[-1].lstrip("/")
+            else:
+                # For transcription files or other assets that might be in different containers,
+                # try to extract container and blob name from the URL path
+                path_parts = parsed_url.path.strip('/').split('/')
+                if len(path_parts) >= 2:
+                    # Assume format: /container_name/blob_name or /container_name/folder/blob_name
+                    container_name = path_parts[0]
+                    blob_name = '/'.join(path_parts[1:])
+                    self.logger.warning(f"Blob URL uses different container '{container_name}' instead of expected '{self.config.storage.recordings_container}'. Using container: {container_name}")
+                else:
+                    raise ValueError(f"Blob URL path format not recognized: {parsed_url.path}")
+            
+            if not blob_name:
+                raise ValueError("Could not extract blob name from URL")
             self.logger.debug(f"Extracted blob name: {blob_name}")
 
             # Create an async blob client

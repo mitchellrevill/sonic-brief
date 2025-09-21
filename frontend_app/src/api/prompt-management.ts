@@ -3,7 +3,7 @@ import {
   CATEGORIES_API,
   PROMPTS_API,
   SUBCATEGORIES_API,
-  UPLOAD_API,
+  JOBS_API,
 } from "@/lib/apiConstants";
 
 interface UploadResponse {
@@ -40,6 +40,7 @@ export interface CategoryResponse {
   name: string;
   created_at: string;
   updated_at: string;
+  parent_category_id?: string | null;
 }
 
 export interface SubcategoryResponse {
@@ -71,7 +72,7 @@ export async function uploadFile(
     formData.append("pre_session_form_data", JSON.stringify(preSessionFormData));
   }
 
-  const response = await httpClient.post(UPLOAD_API, formData, {
+  const response = await httpClient.post(JOBS_API, formData, {
     headers: {
       "Content-Type": "multipart/form-data",
     },
@@ -87,9 +88,10 @@ export async function fetchPrompts(): Promise<PromptsResponse> {
 }
 
 // New functions for category management
-export async function createCategory(name: string): Promise<CategoryResponse> {
-  const response = await httpClient.post(CATEGORIES_API, { name });
-
+export async function createCategory(name: string, parent_category_id?: string | null): Promise<CategoryResponse> {
+  const payload: any = { name };
+  if (typeof parent_category_id !== "undefined") payload.parent_category_id = parent_category_id;
+  const response = await httpClient.post(CATEGORIES_API, payload);
   return response.data;
 }
 
@@ -102,20 +104,22 @@ export async function fetchCategories(): Promise<Array<CategoryResponse>> {
 export interface UpdateCategoryArgs {
   categoryId: string | undefined;
   name: string;
+  parent_category_id?: string | null;
 }
 
 export async function updateCategory({
   categoryId,
   name,
+  parent_category_id,
 }: UpdateCategoryArgs): Promise<CategoryResponse> {
   if (!categoryId) {
     console.error("Category ID is undefined or empty");
     throw new Error("Invalid category ID. Cannot update category.");
   }
 
-  const response = await httpClient.put(`${CATEGORIES_API}/${categoryId}`, {
-    name,
-  });
+  const payload: any = { name };
+  if (typeof parent_category_id !== "undefined") payload.parent_category_id = parent_category_id;
+  const response = await httpClient.put(`${CATEGORIES_API}/${categoryId}`, payload);
 
   return response.data;
 }

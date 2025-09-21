@@ -31,6 +31,7 @@ export function PromptManagementSidebar({
   // Collapsible state management
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [showNewCategoryDialog, setShowNewCategoryDialog] = useState(false);
+  const [parentForNewCategory, setParentForNewCategory] = useState<string | null>(null);
   const [showNewSubcategoryDialog, setShowNewSubcategoryDialog] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newSubcategoryName, setNewSubcategoryName] = useState("");
@@ -93,13 +94,28 @@ export function PromptManagementSidebar({
     return subcategories.filter(sub => sub.category_id === categoryId);
   };
 
+  // Build one-level tree using server-provided `parent_category_id` on categories.
+  const rootCategories = categories.filter(cat => !cat.parent_category_id)
+
+  const childrenByParent: Record<string, Array<any>> = {}
+  categories.forEach(cat => {
+    const parent = (cat as any).parent_category_id
+    if (parent) {
+      childrenByParent[parent] = childrenByParent[parent] || []
+      childrenByParent[parent].push(cat)
+    }
+  })
+
   const handleCreateCategory = async () => {
     if (!newCategoryName.trim()) return;
     
     try {
-      await addCategory(newCategoryName.trim());
+      // Use nested category creation to allow optional parent
+      // @ts-ignore - provider exposes addNestedCategory when available
+      await (addCategory as any)(newCategoryName.trim(), parentForNewCategory || null);
       setNewCategoryName("");
       setShowNewCategoryDialog(false);
+      setParentForNewCategory(null);
     } catch (error) {
       console.error("Failed to create category:", error);
     }
@@ -152,7 +168,7 @@ export function PromptManagementSidebar({
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-semibold text-foreground">
-            Prompt Library
+            Prompts & Folders
           </h3>
         </div>
         <div className="flex gap-2">
@@ -160,16 +176,29 @@ export function PromptManagementSidebar({
             <DialogTrigger asChild>
               <Button size="sm" variant="outline" className="flex-1">
                 <Plus className="h-3 w-3 mr-1" />
-                Category
+                Folder
               </Button>
             </DialogTrigger>
-            <DialogContent>
+              <DialogContent>
               <DialogHeader>
-                <DialogTitle>Create New Category</DialogTitle>
+                <DialogTitle>Create Folder</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Parent folder (optional)</label>
+                  <select
+                    className="w-full mt-1 p-2 border rounded-md"
+                    value={parentForNewCategory || ""}
+                    onChange={(e) => setParentForNewCategory(e.target.value || null)}
+                  >
+                    <option value="">No parent (top-level)</option>
+                    {categories.map(cat => (
+                      <option key={getId(cat)} value={getId(cat)}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
                 <Input
-                  placeholder="Category name"
+                  placeholder="Folder name"
                   value={newCategoryName}
                   onChange={(e) => setNewCategoryName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleCreateCategory()}
@@ -187,15 +216,15 @@ export function PromptManagementSidebar({
           </Dialog>
 
           <Dialog open={showNewSubcategoryDialog} onOpenChange={setShowNewSubcategoryDialog}>
-            <DialogTrigger asChild>
+              <DialogTrigger asChild>
               <Button size="sm" variant="outline" className="flex-1">
                 <Plus className="h-3 w-3 mr-1" />
-                Prompt
+                Template
               </Button>
             </DialogTrigger>
-            <DialogContent>
+              <DialogContent>
               <DialogHeader>
-                <DialogTitle>Create New Prompt</DialogTitle>
+                <DialogTitle>Create Template</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 <div>
@@ -208,7 +237,7 @@ export function PromptManagementSidebar({
                       setSelectedCategoryForSub(cat || null);
                     }}
                   >
-                    <option value="">Select a category</option>
+                    <option value="">Select a folder</option>
                     {categories.map(cat => (
                       <option key={getId(cat)} value={getId(cat)}>
                         {cat.name}
@@ -239,94 +268,126 @@ export function PromptManagementSidebar({
       {/* Tree View */}
       <div className="flex-1 overflow-y-auto p-2">
         <div className="space-y-1">
-          {categories
-            .filter(cat => getId(cat))
-            .map((category) => {
-              const categoryId = getId(category);
-              const isExpanded = expandedCategories.has(categoryId);
-              const isSelected = selectedCategory && getId(selectedCategory) === categoryId;
-              const subcats = getSubcategoriesForCategory(categoryId);
+          {rootCategories.map((category) => {
+            const categoryId = getId(category)
+            const isExpanded = expandedCategories.has(categoryId)
+            const isSelected = selectedCategory && getId(selectedCategory) === categoryId
+            const subcats = getSubcategoriesForCategory(categoryId)
+            const childCats = childrenByParent[categoryId] || []
 
-              return (
-                <div key={categoryId} className="select-none">
-                  {/* Category Row */}
-                  <div
-                    className={`flex items-center px-2 py-1.5 rounded-md cursor-pointer transition-colors group ${
-                      isSelected 
-                        ? "bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300" 
-                        : "hover:bg-muted text-muted-foreground"
-                    }`}
-                    onClick={() => handleCategoryClick(category)}
+            return (
+              <div key={categoryId} className="select-none">
+                <div
+                  className={`flex items-center px-2 py-1.5 rounded-md cursor-pointer transition-colors group ${
+                    isSelected
+                      ? "bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300"
+                      : "hover:bg-muted text-muted-foreground"
+                  }`}
+                  onClick={() => handleCategoryClick(category)}
+                >
+                  <button
+                    className="mr-1 p-0.5 rounded hover:bg-muted"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleCategory(categoryId)
+                    }}
                   >
-                    {/* Expand/Collapse Button */}
-                    <button
-                      className="mr-1 p-0.5 rounded hover:bg-muted"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleCategory(categoryId);
-                      }}
-                    >
-                      {subcats.length > 0 ? (
-                        isExpanded ? (
-                          <ChevronDown className="h-3 w-3" />
-                        ) : (
-                          <ChevronRight className="h-3 w-3" />
-                        )
+                    {subcats.length + childCats.length > 0 ? (
+                      isExpanded ? (
+                        <ChevronDown className="h-3 w-3" />
                       ) : (
-                        <div className="h-3 w-3" />
-                      )}
-                    </button>
-
-                    {/* Category Icon */}
-                    {isExpanded ? (
-                      <FolderOpen className="h-4 w-4 mr-2 text-blue-500" />
+                        <ChevronRight className="h-3 w-3" />
+                      )
                     ) : (
-                      <Folder className="h-4 w-4 mr-2 text-blue-600 dark:text-blue-400" />
+                      <div className="h-3 w-3" />
                     )}
+                  </button>
 
-                    {/* Category Name */}
-                    <span className="flex-1 font-medium text-sm truncate">
-                      {category.name}
-                    </span>
-
-                    {/* Prompt Count */}
-                    <span className="text-xs text-blue-600 dark:text-blue-400 ml-2">
-                      {subcats.length}
-                    </span>
-                  </div>
-
-                  {/* Prompts (formerly subcategories) */}
-                  {isExpanded && subcats.length > 0 && (
-                    <div className="ml-4 mt-1 space-y-0.5">
-                      {subcats.map((subcategory) => {
-                        const subId = getId(subcategory);
-                        const isSubSelected = selectedSubcategory && getId(selectedSubcategory) === subId;
-
-                        return (
-                          <div
-                            key={subId}
-                            className={`flex items-center px-2 py-1 rounded-md cursor-pointer transition-colors ${
-                              isSubSelected 
-                                ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400" 
-                                : "hover:bg-muted text-foreground"
-                            }`}
-                            onClick={() => handleSubcategoryClick(subcategory)}
-                          >
-                            {/* File Icon */}
-                            <FileText className="h-3 w-3 mr-2 text-green-600 dark:text-green-400" />
-                            
-                            {/* Prompt Name */}
-                            <span className="flex-1 text-sm truncate">
-                              {subcategory.name}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
+                  {isExpanded ? (
+                    <FolderOpen className="h-4 w-4 mr-2 text-blue-500" />
+                  ) : (
+                    <Folder className="h-4 w-4 mr-2 text-blue-600 dark:text-blue-400" />
                   )}
+
+                  <span className="flex-1 font-medium text-sm truncate">{category.name}</span>
+
+                  <span className="text-xs text-blue-600 dark:text-blue-400 ml-2">{subcats.length + childCats.length}</span>
                 </div>
-              );
-            })}
+
+                {isExpanded && (
+                  <div className="ml-4 mt-1 space-y-0.5">
+                    {/* Child categories (folders) */}
+                    {childCats.map((child) => {
+                      const childId = getId(child)
+                      const isChildSelected = selectedCategory && getId(selectedCategory) === childId
+                      const childSubcats = getSubcategoriesForCategory(childId)
+
+                      return (
+                        <div key={childId} className="select-none">
+                          <div
+                            className={`flex items-center px-2 py-1 rounded-md cursor-pointer transition-colors ${
+                              isChildSelected ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400" : "hover:bg-muted text-muted-foreground"
+                            }`}
+                            onClick={() => handleCategoryClick(child)}
+                          >
+                            <Folder className="h-3 w-3 mr-2 text-blue-500" />
+                            <span className="flex-1 text-sm truncate">{child.name}</span>
+                            <span className="text-xs text-blue-600 dark:text-blue-400 ml-2">{childSubcats.length}</span>
+                          </div>
+
+                          {/* Prompts under child category */}
+                          {childSubcats.length > 0 && (
+                            <div className="ml-4 mt-1 space-y-0.5">
+                              {childSubcats.map((subcategory) => {
+                                const subId = getId(subcategory)
+                                const isSubSelected = selectedSubcategory && getId(selectedSubcategory) === subId
+
+                                return (
+                                  <div
+                                    key={subId}
+                                    className={`flex items-center px-2 py-1 rounded-md cursor-pointer transition-colors ${
+                                      isSubSelected ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400" : "hover:bg-muted text-foreground"
+                                    }`}
+                                    onClick={() => handleSubcategoryClick(subcategory)}
+                                  >
+                                    <FileText className="h-3 w-3 mr-2 text-green-600 dark:text-green-400" />
+                                    <span className="flex-1 text-sm truncate">{subcategory.name}</span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+
+                    {/* Prompts directly under root category */}
+                    {subcats.length > 0 && (
+                      <div className="ml-0 mt-1 space-y-0.5">
+                        {subcats.map((subcategory) => {
+                          const subId = getId(subcategory)
+                          const isSubSelected = selectedSubcategory && getId(selectedSubcategory) === subId
+
+                          return (
+                            <div
+                              key={subId}
+                              className={`flex items-center px-2 py-1 rounded-md cursor-pointer transition-colors ${
+                                isSubSelected ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400" : "hover:bg-muted text-foreground"
+                              }`}
+                              onClick={() => handleSubcategoryClick(subcategory)}
+                            >
+                              <FileText className="h-3 w-3 mr-2 text-green-600 dark:text-green-400" />
+                              <span className="flex-1 text-sm truncate">{subcategory.name}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       </div>
 
