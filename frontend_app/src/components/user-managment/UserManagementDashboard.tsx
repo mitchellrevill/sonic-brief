@@ -9,7 +9,6 @@ import { PermissionGuard } from "@/lib/permission";
 import { 
   fetchAllUsers, 
   getSystemAnalytics,
-  getSystemHealth,
   type User
 } from "@/lib/api";
 import { UserManagementHeader } from "./components/UserManagementHeader";
@@ -47,14 +46,6 @@ export function UserManagementDashboard() {
     enabled: guard.canViewAnalytics
   });
 
-  // Fetch system health metrics
-  const { data: systemHealth, isLoading: healthLoading } = useQuery({
-    queryKey: ['systemHealth'],
-    queryFn: getSystemHealth,
-    enabled: guard.canViewAnalytics,
-    refetchInterval: 30000, // Refresh every 30 seconds
-    staleTime: 25000 // Consider data stale after 25 seconds
-  });
 
   // Generate analytics data for chart with complete date range
   const analyticsData = useMemo(() => {
@@ -303,9 +294,8 @@ export function UserManagementDashboard() {
               systemAnalytics={systemAnalytics || null}
               analyticsLoading={analyticsLoading}
               analyticsData={analyticsData}
-              systemHealth={systemHealth}
-              healthLoading={healthLoading}
             />
+          
           </TabsContent>
         </Tabs>
       </div>

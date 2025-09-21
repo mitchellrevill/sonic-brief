@@ -9,6 +9,12 @@ interface SystemHealthMetricsProps {
 }
 
 export function SystemHealthMetrics({ systemHealth, healthLoading }: SystemHealthMetricsProps) {
+  // Defensive locals to avoid accessing properties on undefined
+  const metrics = systemHealth?.metrics ?? ({ api_response_time_ms: undefined, database_response_time_ms: undefined, memory_usage_percentage: undefined } as any);
+  const services = systemHealth?.services ?? ({} as Record<string, string>);
+  const overallStatus = systemHealth?.status ?? 'unknown';
+  const lastTimestamp = systemHealth?.timestamp ?? new Date().toISOString();
+
   return (
   <Card className="bg-card/80 border border-muted-foreground/10 rounded-xl shadow-sm">
       <CardHeader>
@@ -43,16 +49,16 @@ export function SystemHealthMetrics({ systemHealth, healthLoading }: SystemHealt
                   API Response Time
                 </div>
                 <div className="text-2xl font-bold">
-                  {systemHealth.metrics.api_response_time_ms > 0 ? 
-                    `${systemHealth.metrics.api_response_time_ms.toFixed(1)}ms` : 
+                  {typeof metrics.api_response_time_ms === 'number' && metrics.api_response_time_ms > 0 ? 
+                    `${metrics.api_response_time_ms.toFixed(1)}ms` : 
                     'N/A'
                   }
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {systemHealth.metrics.api_response_time_ms > 0 && 
-                    (systemHealth.metrics.api_response_time_ms < 100 ? 'Excellent' :
-                     systemHealth.metrics.api_response_time_ms < 500 ? 'Good' :
-                     systemHealth.metrics.api_response_time_ms < 1000 ? 'Slow' : 'Very Slow')
+                  {typeof metrics.api_response_time_ms === 'number' && metrics.api_response_time_ms > 0 && 
+                    (metrics.api_response_time_ms < 100 ? 'Excellent' :
+                     metrics.api_response_time_ms < 500 ? 'Good' :
+                     metrics.api_response_time_ms < 1000 ? 'Slow' : 'Very Slow')
                   }
                 </div>
               </div>
@@ -63,16 +69,16 @@ export function SystemHealthMetrics({ systemHealth, healthLoading }: SystemHealt
                   Database Response
                 </div>
                 <div className="text-2xl font-bold">
-                  {systemHealth.metrics.database_response_time_ms > 0 ? 
-                    `${systemHealth.metrics.database_response_time_ms.toFixed(1)}ms` : 
-                    systemHealth.metrics.database_response_time_ms === -1 ? 'Unavailable' : 'N/A'
+                  {typeof metrics.database_response_time_ms === 'number' && metrics.database_response_time_ms > 0 ? 
+                    `${metrics.database_response_time_ms.toFixed(1)}ms` : 
+                    metrics.database_response_time_ms === -1 ? 'Unavailable' : 'N/A'
                   }
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {systemHealth.metrics.database_response_time_ms > 0 && 
-                    (systemHealth.metrics.database_response_time_ms < 200 ? 'Excellent' :
-                     systemHealth.metrics.database_response_time_ms < 500 ? 'Good' :
-                     systemHealth.metrics.database_response_time_ms < 1000 ? 'Slow' : 'Very Slow')
+                  {typeof metrics.database_response_time_ms === 'number' && metrics.database_response_time_ms > 0 && 
+                    (metrics.database_response_time_ms < 200 ? 'Excellent' :
+                     metrics.database_response_time_ms < 500 ? 'Good' :
+                     metrics.database_response_time_ms < 1000 ? 'Slow' : 'Very Slow')
                   }
                 </div>
               </div>
@@ -83,21 +89,21 @@ export function SystemHealthMetrics({ systemHealth, healthLoading }: SystemHealt
                   Memory Usage
                 </div>
                 <div className="text-2xl font-bold">
-                  {systemHealth.metrics.memory_usage_percentage > 0 ? 
-                    `${systemHealth.metrics.memory_usage_percentage.toFixed(1)}%` : 
+                  {typeof metrics.memory_usage_percentage === 'number' && metrics.memory_usage_percentage > 0 ? 
+                    `${metrics.memory_usage_percentage.toFixed(1)}%` : 
                     'N/A'
                   }
                 </div>
-                {systemHealth.metrics.memory_usage_percentage > 0 && (
+                {typeof metrics.memory_usage_percentage === 'number' && metrics.memory_usage_percentage > 0 && (
                   <div className="flex items-center gap-2">
                     <div className="flex-1 bg-muted rounded-full h-2">
                       <div 
                         className={`h-2 rounded-full transition-all ${
-                          systemHealth.metrics.memory_usage_percentage > 90 ? 'bg-red-500' :
-                          systemHealth.metrics.memory_usage_percentage > 70 ? 'bg-yellow-500' :
+                          metrics.memory_usage_percentage > 90 ? 'bg-red-500' :
+                          metrics.memory_usage_percentage > 70 ? 'bg-yellow-500' :
                           'bg-green-500'
                         }`}
-                        style={{ width: `${Math.min(systemHealth.metrics.memory_usage_percentage, 100)}%` }}
+                        style={{ width: `${Math.min(metrics.memory_usage_percentage, 100)}%` }}
                       />
                     </div>
                   </div>
@@ -109,7 +115,7 @@ export function SystemHealthMetrics({ systemHealth, healthLoading }: SystemHealt
             <div className="pt-4 border-t">
               <h4 className="text-sm font-medium text-muted-foreground mb-3">Service Status</h4>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                {Object.entries(systemHealth.services)
+                {Object.entries(services)
                   .filter(([service]) => !service.includes('error')) // Filter out error messages
                   .map(([service, status]) => (
                   <div key={service} className="flex items-center gap-2">
@@ -129,17 +135,17 @@ export function SystemHealthMetrics({ systemHealth, healthLoading }: SystemHealt
             <div className="mt-4 p-3 bg-muted/30 rounded-lg">
               <div className="flex items-center gap-2">
                 <div className={`w-3 h-3 rounded-full ${
-                  systemHealth.status === 'healthy' ? 'bg-green-500' :
-                  systemHealth.status === 'degraded' ? 'bg-yellow-500' :
+                  overallStatus === 'healthy' ? 'bg-green-500' :
+                  overallStatus === 'degraded' ? 'bg-yellow-500' :
                   'bg-red-500'
                 }`} />
                 <span className="font-medium">Overall Status: </span>
-                <span className="capitalize">{systemHealth.status}</span>
+                <span className="capitalize">{overallStatus}</span>
               </div>
             </div>
             
             <div className="mt-4 text-xs text-muted-foreground">
-              Last updated: {new Date(systemHealth.timestamp).toLocaleString()}
+              Last updated: {new Date(lastTimestamp).toLocaleString()}
               <br />
               <span className="text-xs text-muted-foreground/80">
                 Note: Only API, Database, and Memory metrics provide real data. Other metrics are not monitored.

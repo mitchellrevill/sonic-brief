@@ -37,7 +37,12 @@ export function UserOverviewCards({
             <div>
               <p className="text-sm font-medium text-muted-foreground">Active Users</p>
               <p className="text-2xl font-bold">
-                {analyticsLoading ? "..." : systemAnalytics?.analytics?.overview?.active_users || "0"}
+                {analyticsLoading ? "..." : (
+                  systemAnalytics?.active_users ??
+                  systemAnalytics?.analytics?.active_users ??
+                  systemAnalytics?.analytics?.overview?.active_users ??
+                  "0"
+                )}
               </p>
             </div>
             <TrendingUp className="h-8 w-8 text-muted-foreground" />
@@ -79,7 +84,12 @@ export function UserOverviewCards({
             <div>
               <p className="text-sm font-medium text-muted-foreground">Peak Active Users</p>
               <p className="text-2xl font-bold">
-                {analyticsLoading ? "..." : systemAnalytics?.analytics?.overview?.peak_active_users || "0"}
+                {analyticsLoading ? "..." : (
+                  systemAnalytics?.peak_active_users ??
+                  systemAnalytics?.analytics?.peak_active_users ??
+                  systemAnalytics?.analytics?.overview?.peak_active_users ??
+                  "0"
+                )}
               </p>
             </div>
             <Users className="h-8 w-8 text-muted-foreground" />

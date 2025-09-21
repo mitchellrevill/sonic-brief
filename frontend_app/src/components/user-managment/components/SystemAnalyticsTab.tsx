@@ -5,10 +5,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Users, TrendingUp, BarChart3, AlertTriangle } from "lucide-react";
 import { AnalyticsChart } from "../UserManagement/AnalyticsChart";
 import { AnalyticsOverviewCards } from "../UserManagement/AnalyticsOverviewCards";
-import { SystemHealthMetrics } from "./SystemHealthMetrics";
+// System health metrics removed per request
 import { UserDistributionCard } from "./UserDistributionCard";
 import { AnalyticsRecordsTable } from "./AnalyticsRecordsTable";
-import type { User, SystemAnalytics, SystemHealthResponse } from "@/lib/api";
+import type { User, SystemAnalytics } from "@/lib/api";
 
 interface SystemAnalyticsTabProps {
   analyticsPeriod: 7 | 30 | 180 | 365 | 'total';
@@ -18,8 +18,6 @@ interface SystemAnalyticsTabProps {
   systemAnalytics: SystemAnalytics | null;
   analyticsLoading: boolean;
   analyticsData: { date: string; totalMinutes: number; activeUsers: number }[];
-  systemHealth: SystemHealthResponse | undefined;
-  healthLoading: boolean;
 }
 
 export function SystemAnalyticsTab({
@@ -30,8 +28,6 @@ export function SystemAnalyticsTab({
   systemAnalytics,
   analyticsLoading,
   analyticsData,
-  systemHealth,
-  healthLoading
 }: SystemAnalyticsTabProps) {
   // Check if data is mock data
   const isMockData = systemAnalytics?.analytics?._is_mock_data === true;
@@ -207,11 +203,7 @@ export function SystemAnalyticsTab({
         </div>
       </div>
 
-      {/* System Health Section */}
-      <SystemHealthMetrics
-        systemHealth={systemHealth}
-        healthLoading={healthLoading}
-      />
+      {/* System Health metric removed */}
 
       {/* User Distribution and Activity Records */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
