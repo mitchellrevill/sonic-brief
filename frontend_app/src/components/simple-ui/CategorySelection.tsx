@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RetentionDisclaimer } from "@/components/ui/retention-disclaimer";
-import { ArrowRight, Folder, FileText, FormInput } from "lucide-react";
+import { ArrowRight, Folder, FormInput, FileText } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getPromptManagementCategoriesQuery, getPromptManagementSubcategoriesQuery } from "@/queries/prompt-management.query";
 import { fetchSubcategories } from "@/api/prompt-management";
@@ -38,6 +38,7 @@ interface FormSection {
 export function CategorySelection({ onSelectionComplete }: CategorySelectionProps) {
   const [selectedCategory, setSelectedCategory] = useState<CategoryResponse | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<SubcategoryResponse | null>(null);
+  const [expandedParentCategoryId, setExpandedParentCategoryId] = useState<string>("");
   const [preSessionFormData, setPreSessionFormData] = useState<Record<string, any>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -106,7 +107,6 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
       try {
         // Add a small delay for better UX
         await new Promise(resolve => setTimeout(resolve, 300));
-        
         if (hasFormFields) {
           toast.success("Pre-session form completed successfully!");
         }
@@ -122,12 +122,10 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
   const renderField = (field: FormField, sectionIndex: number, fieldIndex: number) => {
     const fieldKey = field.name || `section_${sectionIndex}_field_${fieldIndex}`;
     const fieldValue = preSessionFormData[fieldKey] ?? field.value ?? '';
-    // Defensive: always use string fallback for all string fields
     const label = field.label ?? field.name ?? '';
     const placeholder = field.placeholder ?? '';
     const description = field.description ?? '';
     const required = !!field.required;
-    // Defensive: always use string for options
     const optionsStr = field.options ?? '';
     const options = optionsStr ? optionsStr.split(',').map(opt => opt.trim()).filter(Boolean) : [];
 
@@ -151,7 +149,6 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
             />
           </div>
         );
-
       case 'date':
         return (
           <div key={fieldKey} className="space-y-2">
@@ -171,7 +168,6 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
             />
           </div>
         );
-
       case 'number':
         return (
           <div key={fieldKey} className="space-y-2">
@@ -192,7 +188,6 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
             />
           </div>
         );
-
       case 'markdown':
         return (
           <div key={fieldKey} className="space-y-2">
@@ -216,7 +211,6 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
             </div>
           </div>
         );
-
       case 'checkbox':
         return (
           <div key={fieldKey} className="space-y-2">
@@ -236,7 +230,6 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
             )}
           </div>
         );
-
       case 'select':
         return (
           <div key={fieldKey} className="space-y-2">
@@ -261,7 +254,6 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
             </Select>
           </div>
         );
-
       default:
         return (
           <div key={fieldKey} className="space-y-2">
@@ -364,40 +356,92 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
           </div>
         </div>
 
-        {/* Category Selection */}
+        {/* Category Selection - Progressive disclosure */}
         {!selectedCategory && (
-          <div className="space-y-4">
+          <div className="space-y-6">
             <h2 className="text-xl font-semibold text-center mb-6">Choose Service Area</h2>
-            <div className="grid gap-4">
-              {categories?.map((category) => (
-                <Card 
-                  key={category.id} 
-                  className="cursor-pointer transition-all hover:shadow-md hover:scale-[1.02] border-2 hover:border-primary/50"
-                  onClick={() => setSelectedCategory(category)}
-                >
-                  <CardContent className="p-6">
-                    <div className="flex items-center space-x-4">
-                      <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-                        <Folder className="w-6 h-6 text-primary" />
+            
+            {(() => {
+              const rootCategories = (categories || []).filter(cat => !(cat as any).parent_category_id);
+              const childrenByParent: Record<string, Array<any>> = {};
+              (categories || []).forEach(cat => {
+                const parent = (cat as any).parent_category_id;
+                if (parent) {
+                  childrenByParent[parent] = childrenByParent[parent] || [];
+                  childrenByParent[parent].push(cat);
+                }
+              });
+
+              const toggleExpand = (parentId: string) => setExpandedParentCategoryId(cur => cur === parentId ? "" : parentId);
+              return (
+                <div className="space-y-2" role="radiogroup" aria-label="Service Areas">
+                  {rootCategories.map((category: CategoryResponse) => {
+                    const hasChildren = childrenByParent[category.id]?.length > 0;
+                    const expanded = expandedParentCategoryId === category.id;
+                    const isSelected = !!(selectedCategory && (selectedCategory as any).id === category.id);
+                    return (
+                      <div key={category.id} className="border rounded-md bg-card/70 backdrop-blur-sm border-border/30 overflow-hidden">
+                        <div className="flex items-start justify-between gap-4 p-4 cursor-pointer hover:border-primary/40 transition"
+              onClick={() => setSelectedCategory(category)}
+                             role="radio" aria-checked={isSelected}>
+                          <div className="flex-shrink-0">
+                            <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
+                              <Folder className="w-6 h-6 text-primary" />
+                            </div>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start gap-2 flex-wrap">
+                              <p className="font-medium leading-tight">{category.name}</p>
+                              {hasChildren && (
+                                <button type="button" onClick={(e) => { e.stopPropagation(); toggleExpand(category.id); }}
+                                        className="text-[11px] mt-0.5 rounded px-2 py-0.5 border border-border/40 hover:border-primary/40 hover:text-primary transition bg-background/40">
+                                  {expanded ? 'Hide' : 'Show'} subcategories
+                                </button>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2">
+                              {(subcategories?.filter(sub => sub.category_id === category.id).length || 0)} meeting types
+                              {hasChildren && ` • ${childrenByParent[category.id].length} subcategories`}
+                            </p>
+                          </div>
+                          <ArrowRight className="w-5 h-5 text-muted-foreground" />
+                        </div>
+                        {hasChildren && expanded && (
+                          <div className="px-4 pb-4">
+                            <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3" role="radiogroup" aria-label="Child Categories">
+                              {childrenByParent[category.id].map(child => {
+                                const childSelected = !!(selectedCategory && (selectedCategory as any).id === child.id);
+                                return (
+                                  <button
+                                    key={child.id}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={childSelected}
+                                    onClick={(e) => { e.stopPropagation(); setSelectedCategory(child); }}
+                                    className={[
+                                      "text-left w-full rounded-lg border p-3 transition bg-muted/40 hover:bg-muted/60",
+                                      childSelected ? "border-primary/60 ring-2 ring-primary/30" : "border-border/40 hover:border-primary/40"
+                                    ].join(" ")}
+                                  >
+                                    <p className="text-sm font-medium leading-snug text-foreground">{child.name}</p>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <div className="flex-1">
-                        <h3 className="text-lg font-medium text-foreground">{category.name}</h3>
-                        <p className="text-sm text-muted-foreground">
-                          {subcategories?.filter(sub => sub.category_id === category.id).length || 0} meeting types available
-                        </p>
-                      </div>
-                      <ArrowRight className="w-5 h-5 text-muted-foreground" />
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         )}
 
-        {/* Subcategory Selection */}
+        {/* Subcategory Selection - appears when category is selected */}
         {selectedCategory && !selectedSubcategory && (
-          <div className="space-y-4">
+          <div className="space-y-6">
             <div className="flex items-center space-x-4 mb-6">
               <Button 
                 variant="ghost" 
@@ -408,40 +452,110 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
               </Button>
               <div>
                 <h2 className="text-xl font-semibold">Choose Meeting Type</h2>
-                <p className="text-sm text-muted-foreground">Service Area: {selectedCategory.name}</p>
+                <p className="text-sm text-muted-foreground">Selected: {selectedCategory.name}</p>
               </div>
             </div>
-            
-            <div className="grid gap-4">
-              {availableSubcategories.map((subcategory) => (
-                <Card 
-                  key={subcategory.id} 
-                  className="cursor-pointer transition-all hover:shadow-md hover:scale-[1.02] border-2 hover:border-primary/50"
-                  onClick={() => setSelectedSubcategory(subcategory)}
-                >
-                  <CardContent className="p-6">
-                    <div className="flex items-center space-x-4">
-                      <div className="w-12 h-12 bg-secondary/50 rounded-lg flex items-center justify-center">
-                        <FileText className="w-6 h-6 text-secondary-foreground" />
+
+            {(() => {
+              const rootCategories = (categories || []).filter(cat => !(cat as any).parent_category_id);
+              const childrenByParent: Record<string, Array<any>> = {};
+              (categories || []).forEach(cat => {
+                const parent = (cat as any).parent_category_id;
+                if (parent) {
+                  childrenByParent[parent] = childrenByParent[parent] || [];
+                  childrenByParent[parent].push(cat);
+                }
+              });
+
+              const isRootCategory = rootCategories.find(cat => cat.id === selectedCategory.id);
+              const selectedCategoryChildren = isRootCategory ? childrenByParent[selectedCategory.id] : [];
+
+              return (
+                <div className="space-y-6">
+                  {/* Show child categories if the selected category has them */}
+                  {selectedCategoryChildren?.length > 0 && (
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-medium">Choose a {selectedCategory.name} subcategory:</h3>
+                      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3" role="radiogroup" aria-label="Subcategories">
+                        {selectedCategoryChildren.map((child: any) => {
+                          const childSelected = !!(selectedCategory && (selectedCategory as any).id === child.id);
+                          return (
+                            <button
+                              key={child.id}
+                              type="button"
+                              role="radio"
+                              aria-checked={childSelected}
+                              onClick={() => setSelectedCategory(child)}
+                              className={[
+                                "group text-left w-full rounded-xl border p-4 transition shadow-sm hover:shadow-md focus:outline-none",
+                                "bg-card/70 backdrop-blur-sm",
+                                childSelected
+                                  ? "border-primary/60 ring-2 ring-primary/30"
+                                  : "border-border/40 hover:border-primary/40"
+                              ].join(" ")}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <Folder className="w-5 h-5 text-primary/70 group-hover:text-primary" />
+                                  <p className="font-medium leading-snug text-sm md:text-base text-foreground group-hover:text-primary">{child.name}</p>
+                                </div>
+                                {childSelected && (
+                                  <span className="inline-block rounded-full bg-primary/15 text-primary text-[10px] px-2 py-0.5 font-semibold tracking-wide">Selected</span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
-                      <div className="flex-1">
-                        <h3 className="text-lg font-medium text-foreground">{subcategory.name}</h3>
-                        <div className="flex items-center space-x-2 mt-1">
-                          <Badge variant="secondary" className="text-xs">
-                            {Object.keys(subcategory.prompts).length} analysis prompts
-                          </Badge>
-                        </div>
-                      </div>
-                      <ArrowRight className="w-5 h-5 text-muted-foreground" />
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                  )}
+
+                  {/* Show subcategories for the selected category */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium">Meeting Types:</h3>
+                    <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3" role="radiogroup" aria-label="Meeting Types">
+                      {availableSubcategories.map((subcategory: SubcategoryResponse) => {
+                        const active = !!(selectedSubcategory && (selectedSubcategory as any).id === (subcategory as any).id);
+                        return (
+                          <button
+                            key={subcategory.id}
+                            type="button"
+                            role="radio"
+                            aria-checked={active}
+                            onClick={() => setSelectedSubcategory(subcategory)}
+                            className={[
+                              "group text-left w-full rounded-xl border p-4 transition shadow-sm hover:shadow-md focus:outline-none",
+                              "bg-card/70 backdrop-blur-sm",
+                              active
+                                ? "border-primary/60 ring-2 ring-primary/30"
+                                : "border-border/40 hover:border-primary/40"
+                            ].join(" ")}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <FileText className="w-5 h-5 text-primary/70 group-hover:text-primary" />
+                                <p className="font-medium leading-snug text-sm md:text-base text-foreground group-hover:text-primary">{subcategory.name}</p>
+                              </div>
+                              {active && (
+                                <span className="inline-block rounded-full bg-primary/15 text-primary text-[10px] px-2 py-0.5 font-semibold tracking-wide">Selected</span>
+                              )}
+                            </div>
+                            {/* Room for description or metadata later */}
+                          </button>
+                        );
+                      })}
+                      {!availableSubcategories.length && (
+                        <span className="text-sm text-muted-foreground">No meeting types available for this category.</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
-        {/* Final confirmation */}
+        {/* Pre-Session Form and Final step */}
         {selectedCategory && selectedSubcategory && (
           <div className="space-y-6">
             <div className="flex items-center space-x-4 mb-6">
@@ -453,8 +567,8 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
                 ← Back
               </Button>
               <div>
-                <h2 className="text-xl font-semibold">Ready for Pre-Session</h2>
-                <p className="text-sm text-muted-foreground">Review your selection and complete the pre-session form</p>
+                <h2 className="text-xl font-semibold">Pre-Session Form</h2>
+                <p className="text-sm text-muted-foreground">Complete any required information before recording</p>
               </div>
             </div>
 

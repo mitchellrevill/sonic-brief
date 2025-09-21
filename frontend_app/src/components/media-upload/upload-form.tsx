@@ -27,15 +27,8 @@ function sanitizeFilename(filename: string): string {
 }
 import type { MediaUploadValues } from "@/schema/audio-upload.schema";
 import { useCallback, useState } from "react";
-import { fetchPrompts, uploadFile } from "@/api/prompt-management";
+import { uploadFile, fetchCategories, fetchSubcategories } from "@/api/prompt-management";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -44,40 +37,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Form, FormField, FormItem, FormMessage } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+// Removed legacy Select imports after UX modernization
 import { Badge } from "@/components/ui/badge";
 import { mediaUploadSchema } from "@/schema/audio-upload.schema";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import {
-  Loader2,
-  RefreshCcw,
-  Upload,
-  FileText,
-  Film,
-  Music,
-  Image,
-  File,
-  X,
-  CheckCircle2,
-  AlertCircle
-} from "lucide-react";
+import { Loader2, RefreshCcw, Upload, FileText, Film, Music, Image, File, ChevronDown, ChevronUp, Copy, Check } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { useEffect, useRef } from "react";
@@ -145,18 +112,21 @@ const getFileType = (file: File): keyof typeof FILE_TYPES | "other" => {
 };
 
 export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
-  // use empty string as the controlled Select value so resets are predictable
   const [selectedCategory, setSelectedCategory] = useState<string>("");
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>("");
+  // Parent category currently expanded to show its child categories (hierarchical folders)
+  const [expandedParentCategoryId, setExpandedParentCategoryId] = useState<string>("");
   const [fileType, setFileType] = useState<keyof typeof FILE_TYPES | "other" | null>(null);
-  const [isDragOver, setIsDragOver] = useState(false);
+  // legacy inner zone drag state removed (full-page drag implemented)
+  const [isWindowDrag, setIsWindowDrag] = useState(false); // full-page drag highlight
   const [transcriptText, setTranscriptText] = useState("");
   const [showTranscriptInput, setShowTranscriptInput] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
   const [conversionProgress, setConversionProgress] = useState(0);
   const [conversionStep, setConversionStep] = useState("");
-  // Local submitting state to ensure the submit button is reliably reset
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [promptPreviewOpen, setPromptPreviewOpen] = useState(true);
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -176,9 +146,13 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
     isLoading: isLoadingCategories,
     refetch: refetchCategories,
   } = useQuery({
-    queryKey: ["sonic-brief", "prompts"],
-    queryFn: fetchPrompts,
-    select: (data) => data.data,
+    queryKey: ["sonic-brief", "prompt-management", "categories"],
+    queryFn: fetchCategories,
+  });
+
+  const { data: subcategories } = useQuery({
+    queryKey: ["sonic-brief", "prompt-management", "subcategories"],
+    queryFn: () => fetchSubcategories(),
   });
 
 const convertToWav = async (file: File): Promise<File> => {
@@ -385,13 +359,12 @@ const convertToWav = async (file: File): Promise<File> => {
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    setIsDragOver(false);
-
+    setIsWindowDrag(false);
     const files = Array.from(e.dataTransfer.files);
-    if (files.length > 0) {
-      handleFileSelect(files[0]);
-    }
-  };  const handleTranscriptUpload = () => {
+    if (files.length > 0) handleFileSelect(files[0]);
+  };
+
+  const handleTranscriptUpload = () => {
     if (!transcriptText.trim()) {
       toast.error("Please enter transcript text");
       return;
@@ -432,8 +405,6 @@ const convertToWav = async (file: File): Promise<File> => {
     toast.success("Transcript uploaded successfully!");
   };
 
-  const selectedCategoryData = categories?.find((cat) => cat.category_id === selectedCategory);
-
   const renderFileIcon = () => {
     if (!fileType || fileType === "other") 
       return <File className="h-8 w-8 text-muted-foreground" />;
@@ -460,304 +431,334 @@ const convertToWav = async (file: File): Promise<File> => {
     );
   };
 
+  // window level drag listeners
+  useEffect(() => {
+    const onDragEnter = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes("Files")) {
+        setIsWindowDrag(true);
+      }
+    };
+    const onDragOver = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes("Files")) {
+        e.preventDefault();
+        setIsWindowDrag(true);
+      }
+    };
+    const onDragLeave = (e: DragEvent) => {
+      if ((e.target as HTMLElement) === document.documentElement) {
+        setIsWindowDrag(false);
+      }
+    };
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault();
+      setIsWindowDrag(false);
+      if (e.dataTransfer?.files?.length) {
+        handleFileSelect(e.dataTransfer.files[0] as File);
+      }
+    };
+    window.addEventListener("dragenter", onDragEnter);
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onDragEnter);
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
+
+  const promptPreviewText = (() => {
+    if (!selectedSubcategory || !subcategories) return "";
+    const sub = subcategories.find(s => s.id === selectedSubcategory);
+    if (!sub?.prompts) return "No prompts found for this meeting type.";
+    return Object.entries(sub.prompts)
+      .map(([k, v]) => `${k}:\n${v}`)
+      .join('\n\n---\n\n');
+  })();
+
+  const handleCopyPrompt = () => {
+    if (!promptPreviewText) return;
+    navigator.clipboard.writeText(promptPreviewText).then(() => {
+      setCopiedPrompt(true);
+      setTimeout(() => setCopiedPrompt(false), 1500);
+    });
+  };
+
+  const handleCategorySelect = (id: string) => {
+    if (!form.getValues("mediaFile")) return;
+    setSelectedCategory(id);
+    setSelectedSubcategory("");
+    form.setValue("promptCategory", id, { shouldValidate: true });
+    form.setValue("promptSubcategory", "", { shouldValidate: true });
+  };
+  const handleSubcategorySelect = (id: string) => {
+    setSelectedSubcategory(id);
+    form.setValue("promptSubcategory", id, { shouldValidate: true });
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 relative">
+      {isWindowDrag && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-background/80 backdrop-blur-sm border-4 border-dashed border-primary/40 pointer-events-none">
+          <div className="text-center space-y-4">
+            <Upload className="h-16 w-16 mx-auto text-primary animate-bounce" />
+            <p className="text-2xl font-semibold bg-gradient-to-r from-primary to-foreground bg-clip-text text-transparent">Drop to Upload</p>
+            <p className="text-sm text-muted-foreground">We will auto-detect the file type.</p>
+          </div>
+        </div>
+      )}
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-          {/* Combined Upload and Prompt Selection Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Upload className="h-5 w-5" />
-                Upload Media & Select Meeting Type
-              </CardTitle>
-              <CardDescription>
-                Upload your file and select the service area and meeting type for analysis.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* File Upload Section */}
-              <FormField
-                control={form.control}
-                name="mediaFile"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Media File</FormLabel>
-                    <FormControl>
-                      <div className="space-y-4">
-                        <div
-                          className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer hover:bg-muted/50 ${
-                            isDragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25"
-                          } ${field.value ? "border-green-500 bg-green-50 dark:bg-green-950" : ""}`}
-                          onDrop={handleDrop}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            setIsDragOver(true);
-                          }}
-                          onDragLeave={() => setIsDragOver(false)}
-                          onClick={() => fileInputRef.current?.click()}
-                        >
-                          <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept="audio/*,video/*,image/*,.pdf,.doc,.docx,.txt,.rtf,.srt,.vtt,.json"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) handleFileSelect(file);
-                            }}
-                            className="hidden"
-                          />
-                          {field.value ? (
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-center">{renderFileIcon()}</div>
-                              <div className="space-y-1">
-                                <p className="font-medium">{field.value.name}</p>
-                                <p className="text-sm text-muted-foreground">
-                                  {(field.value.size / 1024 / 1024).toFixed(2)} MB
-                                </p>
-                                {renderFileTypeInfo()}
-                              </div>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  field.onChange(undefined);
-                                  setFileType(null);
-                                  setTranscriptText("");
-                                  setShowTranscriptInput(false);
-                                }}
-                                className="mt-2"
-                              >
-                                <X className="h-4 w-4 mr-1" />
-                                Remove
-                              </Button>
-                            </div>
-                          ) : (
-                            <div className="space-y-2">
-                              <Upload className="h-12 w-12 mx-auto text-muted-foreground" />
-                              <div>
-                                <p className="text-lg font-medium">Drop files here or click to browse</p>
-                                <p className="text-sm text-muted-foreground">
-                                  Supports audio, video, documents, transcripts, and images
-                                </p>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        {/* Transcript Input Option */}
-                        <div className="flex items-center justify-center">
-                          <span className="text-sm text-muted-foreground">or</span>
-                        </div>
-                        <div className="space-y-2">
-                          {!showTranscriptInput ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              onClick={() => setShowTranscriptInput(true)}
-                              disabled={!!field.value}
-                              className="w-full"
-                            >
-                              <FileText className="h-4 w-4 mr-2" />
-                              {field.value ? "Remove file first to add text" : "Paste Transcript Text"}
-                            </Button>
-                          ) : (
-                            <div className="space-y-3">
-                              <Textarea
-                                placeholder="Paste your transcript text here..."
-                                value={transcriptText}
-                                onChange={(e) => setTranscriptText(e.target.value)}
-                                rows={6}
-                                className="resize-none"
-                                disabled={!!field.value}
-                              />
-                              <div className="flex gap-2">
-                                <Button
-                                  type="button"
-                                  onClick={handleTranscriptUpload}
-                                  disabled={!transcriptText.trim() || !!field.value}
-                                  className="flex-1"
-                                >
-                                  <CheckCircle2 className="h-4 w-4 mr-2" />
-                                  Use Transcript
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  onClick={() => {
-                                    setShowTranscriptInput(false);
-                                    setTranscriptText("");
-                                  }}
-                                >
-                                  Cancel
-                                </Button>
-                              </div>
-                            </div>
-                          )}
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-10">
+          <input type="hidden" {...form.register("promptCategory")} />
+            <input type="hidden" {...form.register("promptSubcategory")} />
+          {/* Hero / Drop Zone */}
+          <FormField
+            control={form.control}
+            name="mediaFile"
+            render={({ field }) => (
+              <FormItem>
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  onDrop={handleDrop}
+                  onDragOver={(e) => { e.preventDefault(); setIsWindowDrag(true); }}
+                  className={`relative group rounded-xl border border-dashed bg-card px-6 py-12 transition hover:border-primary/50 cursor-pointer ${field.value ? 'border-solid border-primary/50' : ''}`}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="audio/*,video/*,image/*,.pdf,.doc,.docx,.txt,.rtf,.srt,.vtt,.json"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleFileSelect(f);
+                    }}
+                    className="hidden"
+                  />
+                  {!field.value && !showTranscriptInput && (
+                    <div className="relative z-10 mx-auto max-w-xl text-center space-y-6">
+                      <div className="flex justify-center">
+                        <div className="p-6 rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/30 group-hover:scale-105 transform transition">
+                          <Upload className="h-10 w-10" />
                         </div>
                       </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              {/* Service Area and Meeting Type Selection */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="promptCategory"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Service Area</FormLabel>
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-2 gap-2 sm:gap-0">
-                          <Select
-                            value={selectedCategory || ""}
-                            onValueChange={(value) => {
-                              field.onChange(value);
-                              setSelectedCategory(value);
-                              setSelectedSubcategory("");
-                              form.setValue("promptSubcategory", "");
-                            }}
-                            // Disable category select until a media file (or transcript) is attached
-                            disabled={isLoadingCategories || !form.getValues("mediaFile")}
-                          >
-                            <FormControl>
-                              <SelectTrigger className="w-full sm:w-64">
-                                <SelectValue placeholder="Select a service area" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {categories?.map((category) => (
-                                <SelectItem key={category.category_id} value={category.category_id} className="!bg-background !text-foreground hover:!bg-muted">
-                                  {category.category_name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => refetchCategories()}
-                            disabled={isLoadingCategories}
-                            className="flex items-center w-full sm:w-auto px-2"
-                          >
-                            <RefreshCcw className="h-4 w-4" />
-                            <span className="ml-2 hidden sm:inline">
-                              {isLoadingCategories ? "Refreshing..." : "Refresh"}
-                            </span>
-                          </Button>
+                      <div className="space-y-2">
+                        <h2 className="text-2xl font-bold tracking-tight">Drop your media or click to browse</h2>
+                        <p className="text-sm text-muted-foreground">Audio, video, documents, transcripts, images. We will handle conversion automatically.</p>
+                      </div>
+                      <div className="flex flex-wrap justify-center gap-2 text-xs text-muted-foreground">
+                        <span className="px-2 py-1 rounded-full bg-muted/60">MP3</span>
+                        <span className="px-2 py-1 rounded-full bg-muted/60">WAV</span>
+                        <span className="px-2 py-1 rounded-full bg-muted/60">MP4</span>
+                        <span className="px-2 py-1 rounded-full bg-muted/60">DOCX</span>
+                        <span className="px-2 py-1 rounded-full bg-muted/60">PDF</span>
+                        <span className="px-2 py-1 rounded-full bg-muted/60">TXT</span>
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                        <Button type="button" variant="default" className="sm:w-auto w-full">Browse Files</Button>
+                        <Button type="button" variant="outline" className="sm:w-auto w-full" onClick={(e) => { e.stopPropagation(); setShowTranscriptInput(true); }}>Paste Transcript</Button>
+                      </div>
+                    </div>
+                  )}
+                  {showTranscriptInput && !field.value && (
+                    <div className="relative z-10 max-w-2xl mx-auto space-y-4">
+                      <Textarea rows={6} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} placeholder="Paste transcript text here..." className="resize-none bg-background/70" />
+                      <div className="flex gap-2">
+                        <Button type="button" onClick={handleTranscriptUpload} disabled={!transcriptText.trim()}>Use Transcript</Button>
+                        <Button type="button" variant="outline" onClick={() => { setShowTranscriptInput(false); setTranscriptText(""); }}>Cancel</Button>
+                      </div>
+                    </div>
+                  )}
+                  {field.value && (
+                    <div className="relative z-10 max-w-3xl mx-auto grid gap-8 md:grid-cols-2 items-start">
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-4">
+                          {renderFileIcon()}
+                          <div>
+                            <p className="font-semibold text-lg break-all">{field.value.name}</p>
+                            <p className="text-xs text-muted-foreground">{(field.value.size / 1024 / 1024).toFixed(2)} MB</p>
+                          </div>
                         </div>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="promptSubcategory"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Meeting Type</FormLabel>
-                        <Select
-                          value={selectedSubcategory || ""}
-                          onValueChange={(value) => {
-                            field.onChange(value);
-                            setSelectedSubcategory(value);
-                          }}
-                          // Disable subcategory until a file is attached and a category selected
-                          disabled={!form.getValues("mediaFile") || !selectedCategory}
-                        >
-                          <FormControl>
-                            <SelectTrigger className="w-full sm:w-64">
-                              <SelectValue placeholder="Select a meeting type" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {selectedCategoryData?.subcategories.map((subcategory) => (
-                              <SelectItem key={subcategory.subcategory_id} value={subcategory.subcategory_id} className="!bg-background !text-foreground hover:!bg-muted">
-                                {subcategory.subcategory_name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                        {renderFileTypeInfo()}
+                        <div className="flex flex-wrap gap-2">
+                          <Button type="button" size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}>Replace</Button>
+                          <Button type="button" size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); field.onChange(undefined); setFileType(null); setShowTranscriptInput(false); setTranscriptText(""); }}>Remove</Button>
+                        </div>
+                      </div>
+                      <div className="space-y-3 text-sm text-muted-foreground">
+                        <p className="font-medium text-foreground">Next Steps</p>
+                        <ol className="list-decimal list-inside space-y-1">
+                          <li>Select a Service Area</li>
+                          <li>Choose Meeting Type</li>
+                          <li>Review prompts & Upload</li>
+                        </ol>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                {/* Right Column - Prompt Preview */}
-                <div className="space-y-2">
-                  <FormLabel htmlFor="prompt-preview">Prompt Preview</FormLabel>
-                  <div className="h-[200px] border rounded-md bg-muted/50">
-                    <Textarea
-                      id="prompt-preview"
-                      value={(() => {
-                        if (!selectedSubcategory || !selectedCategoryData) {
-                          return "";
-                        }
-                        const subcategory = selectedCategoryData.subcategories.find(
-                          sub => sub.subcategory_id === selectedSubcategory
-                        );
-                        if (!subcategory?.prompts) {
-                          return "No prompts found for this meeting type.";
-                        }
-                        // Format prompts for display
-                        return Object.entries(subcategory.prompts)
-                          .map(([key, value]) => `${key}:\n${value}`)
-                          .join('\n\n---\n\n');
-                      })()}
-                      placeholder="Select a service area and meeting type to view the associated prompts..."
-                      readOnly
-                      className="h-full resize-none bg-transparent border-none focus:ring-0 text-sm"
-                    />
-                  </div>
-                  <FormDescription>
-                    This displays the prompts that will be used for AI analysis when you select a meeting type.
-                  </FormDescription>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          {/* Processing Info */}
-          {fileType && (
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="h-5 w-5 text-blue-500 mt-0.5" />
-                  <div className="space-y-1">
-                    <p className="font-medium text-sm">Processing Information</p>
-                    <p className="text-sm text-muted-foreground">
-                      {fileType === "audio" && "Audio will be transcribed and analyzed using AI prompts."}
-                      {fileType === "video" && "Audio will be extracted from video, transcribed, and analyzed."}
-                      {fileType === "document" && "Text content will be extracted and analyzed using AI prompts."}
-                      {fileType === "transcript" && "Transcript will be directly analyzed using AI prompts."}
-                      {fileType === "image" && "Text will be extracted using OCR and analyzed using AI prompts."}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-          {/* Submit Button */}
-          <Button
-            type="submit"
-            disabled={isUploading || isSubmitting || !form.formState.isValid || isConverting}
-            className="w-full"
-            size="lg"
-          >
-            {(isUploading || isSubmitting) ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Processing Upload...
-              </>
-            ) : (
-              <>
-                <Upload className="mr-2 h-4 w-4" />
-                Upload and Process
-              </>
+                <FormMessage />
+              </FormItem>
             )}
-          </Button>
+          />
+
+          {/* Categories */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">1. Service Area</h3>
+              <Button type="button" size="sm" variant="outline" onClick={() => refetchCategories()} disabled={isLoadingCategories}>
+                <RefreshCcw className="h-4 w-4 mr-2" /> {isLoadingCategories ? 'Refreshing' : 'Refresh'}
+              </Button>
+            </div>
+            
+            {(() => {
+              const rootCategories = (categories || []).filter(cat => !cat.parent_category_id);
+              const childrenByParent: Record<string, Array<any>> = {};
+              (categories || []).forEach(cat => {
+                const parent = cat.parent_category_id;
+                if (parent) {
+                  childrenByParent[parent] = childrenByParent[parent] || [];
+                  childrenByParent[parent].push(cat);
+                }
+              });
+
+              // We no longer jump to a separate child section. Instead each root category can expand inline.
+              const toggleExpand = (parentId: string) => {
+                setExpandedParentCategoryId(cur => cur === parentId ? "" : parentId);
+              };
+
+              return (
+                <div className="space-y-4">
+                  {/* Main Categories */}
+                  <div className="space-y-2" role="radiogroup" aria-label="Service Areas">
+                    {rootCategories.map(category => {
+                      const active = category.id === selectedCategory;
+                      const hasChildren = (childrenByParent[category.id]?.length || 0) > 0;
+                      const expanded = expandedParentCategoryId === category.id;
+                      return (
+                        <div key={category.id} className="border rounded-md bg-white/60 dark:bg-card border-border/30 overflow-hidden">
+                          <div className={`flex items-start justify-between gap-3 p-4 cursor-pointer transition hover:border-primary/40 ${active ? 'ring-2 ring-primary/30 border-primary' : ''}`}
+                               onClick={() => handleCategorySelect(category.id)}
+                               role="radio" aria-checked={active}>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium leading-tight flex items-center gap-2">
+                                {category.name}
+                                {hasChildren && (
+                                  <button type="button" onClick={(e) => { e.stopPropagation(); toggleExpand(category.id); }}
+                                          className="text-xs rounded px-2 py-0.5 border border-border/40 hover:border-primary/40 hover:text-primary transition">
+                                    {expanded ? 'Hide' : 'Show'} subcategories
+                                  </button>
+                                )}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                                {subcategories?.filter(sub => sub.category_id === category.id).length || 0} meeting types
+                                {hasChildren && ` • ${childrenByParent[category.id].length} subcategories`}
+                              </p>
+                            </div>
+                            {active && <Check className="h-4 w-4 text-primary flex-shrink-0" />}
+                          </div>
+                          {hasChildren && expanded && (
+                            <div className="px-4 pb-4">
+                              <div className="flex flex-wrap gap-2">
+                                {childrenByParent[category.id].map(child => {
+                                  const childActive = child.id === selectedCategory;
+                                  return (
+                                    <button
+                                      key={child.id}
+                                      type="button"
+                                      disabled={!form.getValues('mediaFile')}
+                                      onClick={() => handleCategorySelect(child.id)}
+                                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition ${childActive ? 'bg-primary text-primary-foreground border-primary shadow-sm' : 'bg-muted/70 hover:bg-muted border-border/40 hover:border-primary/30 hover:text-foreground text-muted-foreground'} disabled:opacity-50`}
+                                    >
+                                      {child.name}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {!rootCategories.length && (
+                      <div className="text-sm text-muted-foreground">{isLoadingCategories ? 'Loading categories...' : 'No categories found.'}</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+            <FormMessage />
+          </div>
+
+          {/* Subcategories */}
+          {selectedCategory && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">2. Meeting Type</h3>
+              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Meeting Type">
+                {subcategories?.filter(sub => sub.category_id === selectedCategory).map(sub => {
+                  const active = sub.id === selectedSubcategory;
+                  return (
+                    <button
+                      key={sub.id}
+                      type="button"
+                      onClick={() => handleSubcategorySelect(sub.id)}
+                      role="radio"
+                      aria-checked={active}
+                      className={`px-3 py-1.5 rounded-full text-sm border transition ${active ? 'bg-primary text-primary-foreground border-primary shadow-sm' : 'bg-muted/80 hover:bg-muted/100 border-border/40'}`}
+                    >
+                      {sub.name}
+                    </button>
+                  );
+                })}
+                {!subcategories?.filter(sub => sub.category_id === selectedCategory).length && (
+                  <span className="text-sm text-muted-foreground">No meeting types.</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Prompt Preview */}
+          {selectedSubcategory && (
+            <div className="space-y-3">
+              <button type="button" onClick={() => setPromptPreviewOpen(o => !o)} className="w-full flex items-center justify-between rounded-lg border border-border/40 bg-background/60 backdrop-blur px-4 py-3 text-left hover:border-primary/40 transition">
+                <div>
+                  <p className="font-medium">3. Prompt Preview</p>
+                  <p className="text-xs text-muted-foreground">These prompts will shape the AI analysis.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" disabled={!promptPreviewText} onClick={(e) => { e.stopPropagation(); handleCopyPrompt(); }}>
+                    {copiedPrompt ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                  {promptPreviewOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                </div>
+              </button>
+              {promptPreviewOpen && (
+                <div className="rounded-xl border border-border/40 bg-card p-4 max-h-[260px] overflow-y-auto text-xs whitespace-pre-wrap font-mono leading-relaxed selection:bg-primary/20 shadow-sm">
+                  {promptPreviewText || 'No prompts.'}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Processing Info */}
+          {/* You can add a processing info component here if needed, or remove this block */}
+          <div className="pt-4">
+            <Button
+              type="submit"
+              disabled={isUploading || isSubmitting || !form.getValues('mediaFile') || !selectedCategory || !selectedSubcategory || isConverting}
+              className="w-full h-14 text-base font-medium shadow-lg rounded-xl bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary focus-visible:ring-primary/50"
+            >
+              {(isUploading || isSubmitting) ? (
+                <>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Processing Upload...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 h-5 w-5" />
+                  Upload & Analyze
+                </>
+              )}
+            </Button>
+          </div>
         </form>
       </Form>
       {/* Conversion Progress Dialog */}
