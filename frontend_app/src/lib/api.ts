@@ -1,15 +1,15 @@
 import {
   ADMIN_DELETED_JOBS_API,
   ADMIN_PERMANENT_DELETE_API,
+  ADMIN_JOBS_API,
   CATEGORIES_API,
-  JOB_DELETE_API,
-  JOB_SHARE_API,
+
   LOGIN_API,
   PROMPTS_API,
   REGISTER_API,
   SHARED_JOBS_API,
   SUBCATEGORIES_API,
-  UPLOAD_API,
+
   USER_MANAGEMENT_API,
   USER_ANALYTICS_API,
   SYSTEM_ANALYTICS_API,
@@ -268,7 +268,7 @@ export async function uploadFile(
   if (preSessionFormData && Object.keys(preSessionFormData).length > 0) {
     formData.append("pre_session_form_data", JSON.stringify(preSessionFormData));
   }
-  const response = await fetch(UPLOAD_API, {
+  const response = await fetch(JOBS_API, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -684,18 +684,23 @@ interface JobDeleteResponse {
   message: string;
 }
 
-interface DeletedJobsResponse {
+
+
+// Admin deleted jobs response (newer shape returned by backend admin endpoint)
+export interface DeletedJobsAdminResponse {
   status: string;
-  message: string;
-  count: number;
-  jobs: Array<any>;
+  message?: string;
+  deleted_jobs: Array<any>;
+  total_count: number;
+  limit?: number;
+  offset?: number;
 }
 
 export async function softDeleteJob(jobId: string): Promise<JobDeleteResponse> {
   try {
     const token = localStorage.getItem("token");
     
-    const response = await fetch(`${JOB_DELETE_API}/${jobId}`, {
+  const response = await fetch(`${JOBS_API}/${jobId}`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
@@ -723,7 +728,7 @@ export async function restoreJob(jobId: string): Promise<JobDeleteResponse> {
   try {
     const token = localStorage.getItem("token");
     
-    const response = await fetch(`${JOB_DELETE_API}/${jobId}/restore`, {
+  const response = await fetch(`${JOBS_API}/${jobId}/restore`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -747,7 +752,7 @@ export async function restoreJob(jobId: string): Promise<JobDeleteResponse> {
   }
 }
 
-export async function getDeletedJobs(): Promise<DeletedJobsResponse> {
+export async function getDeletedJobs(): Promise<DeletedJobsAdminResponse> {
   try {
     const token = localStorage.getItem("token");
     
@@ -829,7 +834,7 @@ export async function shareJob(jobId: string, shareRequest: JobShareRequest): Pr
   try {
     const token = localStorage.getItem("token");
     
-    const response = await fetch(`${JOB_SHARE_API}/${jobId}/share`, {
+  const response = await fetch(`${JOBS_API}/${jobId}/share`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -858,7 +863,7 @@ export async function unshareJob(jobId: string, targetUserEmail: string): Promis
   try {
     const token = localStorage.getItem("token");
     
-    const response = await fetch(`${JOB_SHARE_API}/${jobId}/share`, {
+  const response = await fetch(`${JOBS_API}/${jobId}/share`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
@@ -914,7 +919,7 @@ export async function getJobSharingInfo(jobId: string): Promise<JobSharingInfo> 
   const token = localStorage.getItem("token");
   if (!token) throw new Error("No authentication token found. Please log in again.");
 
-  const response = await fetch(`${JOB_SHARE_API}/${jobId}/sharing-info`, {
+  const response = await fetch(`${JOBS_API}/${jobId}/sharing`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -979,10 +984,14 @@ export interface SystemAnalytics {
   period_days: number;
   start_date: string;
   end_date: string;
+  active_users?: number; // added for direct backend field
+  peak_active_users?: number; // added for direct backend field
   analytics: {
     records: AnalyticsRecord[];
     total_minutes: number;
     total_jobs: number;
+    active_users?: number; // surfaced root metric
+    peak_active_users?: number; // surfaced root metric
     // Legacy compatibility - computed from records
     overview?: {
       total_users: number;
@@ -1116,34 +1125,57 @@ export function transformSystemAnalytics(data: SystemAnalytics): SystemAnalytics
   }
   
   // Process records by date
-  records.forEach(record => {
-    const date = record.timestamp.split('T')[0];
-    dailyActivity[date] = (dailyActivity[date] || 0) + 1;
-    dailyMinutes[date] = (dailyMinutes[date] || 0) + record.audio_duration_minutes;
-  });
+  if (records.length > 0) {
+    records.forEach(record => {
+      const date = record.timestamp.split('T')[0];
+      dailyActivity[date] = (dailyActivity[date] || 0) + 1;
+      dailyMinutes[date] = (dailyMinutes[date] || 0) + record.audio_duration_minutes;
+    });
+  } else {
+    // Fallback: if there are no individual records but totals exist, place the totals on the end_date
+    const endDateStr = new Date(data.end_date).toISOString().split('T')[0];
+    dailyActivity[endDateStr] = data.analytics.total_jobs || 0;
+    dailyMinutes[endDateStr] = data.analytics.total_minutes || 0;
+  }
   
   // Calculate active users per day
   const usersByDate: Record<string, Set<string>> = {};
-  records.forEach(record => {
-    const date = record.timestamp.split('T')[0];
-    if (!usersByDate[date]) usersByDate[date] = new Set();
-    usersByDate[date].add(record.user_id);
-  });
+  if (records.length > 0) {
+    records.forEach(record => {
+      const date = record.timestamp.split('T')[0];
+      if (!usersByDate[date]) usersByDate[date] = new Set();
+      usersByDate[date].add(record.user_id);
+    });
+
+    Object.entries(usersByDate).forEach(([date, users]) => {
+      dailyActiveUsers[date] = users.size;
+    });
+  } else {
+    // Fallback: set active users on the end date to the count of unique users from totals
+    const endDateStr = new Date(data.end_date).toISOString().split('T')[0];
+    dailyActiveUsers[endDateStr] = uniqueUsers.size || 0;
+  }
   
-  Object.entries(usersByDate).forEach(([date, users]) => {
-    dailyActiveUsers[date] = users.size;
-  });
-  
+  const backendActive = (data as any).active_users ?? (data.analytics as any).active_users;
+  const backendPeak = (data as any).peak_active_users ?? (data.analytics as any).peak_active_users;
+  const computedPeak = Math.max(...Object.values(dailyActiveUsers), 0);
+  const activeUsersFinal = typeof backendActive === 'number' ? backendActive : (data.analytics as any).overview?.active_users || uniqueUsers.size;
+  const peakActiveFinal = typeof backendPeak === 'number' ? backendPeak : computedPeak;
+
   return {
     ...data,
+    active_users: activeUsersFinal,
+    peak_active_users: peakActiveFinal,
     analytics: {
       ...data.analytics,
+      active_users: activeUsersFinal,
+      peak_active_users: peakActiveFinal,
       overview: {
         total_users: uniqueUsers.size,
-        active_users: uniqueUsers.size, // Users who have any activity in period
+        active_users: activeUsersFinal,
         total_jobs: data.analytics.total_jobs,
         total_transcription_minutes: data.analytics.total_minutes,
-        peak_active_users: Math.max(...Object.values(dailyActiveUsers), 0)
+        peak_active_users: peakActiveFinal
       },
       trends: {
         daily_activity: dailyActivity,
@@ -1542,9 +1574,27 @@ export async function getUserPermissions() {
       'Content-Type': 'application/json',
     },
   });
-  if (!response.ok) throw new Error('Failed to fetch user permissions');
+
+  if (!response.ok) {
+    // Try to surface backend error message if present
+    let text = '';
+    try { text = await response.text(); } catch (e) { /* ignore */ }
+    throw new Error(`Failed to fetch user permissions: ${response.status} ${text}`);
+  }
+
   const result = await response.json();
-  if (result.status === 200 && result.data) return result.data;
+  // Accept both wrapped { status: 200, data: {...} } and direct user object
+  if (result == null) throw new Error('Empty response from permissions endpoint');
+  if (typeof result === 'object' && (result.status === 200 || result.status === '200') && result.data) return result.data;
+  // If backend returned the user object directly, return it
+  if (typeof result === 'object' && (result.user_id || result.userId || result.email)) return result;
+  // Some backends return { status: 200, user_id, ... } without wrapping in data
+  if (typeof result === 'object' && result.status === 200) {
+    // Remove status and return rest
+    const { status, ...rest } = result as any;
+    if (rest && (rest.user_id || rest.email)) return rest;
+  }
+
   throw new Error(result.message || 'Failed to fetch user permissions');
 }
 
@@ -1557,9 +1607,17 @@ export async function getPermissionStats() {
       'Content-Type': 'application/json',
     },
   });
-  if (!response.ok) throw new Error('Failed to fetch permission statistics');
+
+  if (!response.ok) {
+    let text = '';
+    try { text = await response.text(); } catch (e) { /* ignore */ }
+    throw new Error(`Failed to fetch permission statistics: ${response.status} ${text}`);
+  }
+
   const result = await response.json();
-  if (result.status === 200 && result.data) return result.data;
+  if (result == null) throw new Error('Empty response from permission-stats endpoint');
+  if (typeof result === 'object' && (result.status === 200 || result.status === '200') && result.data) return result.data;
+  if (typeof result === 'object' && (result.total_users || result.by_permission)) return result;
   throw new Error(result.message || 'Failed to fetch permission statistics');
 }
 
@@ -1572,9 +1630,18 @@ export async function getUsersByPermission(permissionLevel: string, limit: numbe
       'Content-Type': 'application/json',
     },
   });
-  if (!response.ok) throw new Error('Failed to fetch users by permission');
+
+  if (!response.ok) {
+    let text = '';
+    try { text = await response.text(); } catch (e) { /* ignore */ }
+    throw new Error(`Failed to fetch users by permission: ${response.status} ${text}`);
+  }
+
   const result = await response.json();
-  if (result.status === 200 && result.data) return result.data;
+  if (result == null) throw new Error('Empty response from by-permission endpoint');
+  if (typeof result === 'object' && (result.status === 200 || result.status === '200') && result.data) return result.data;
+  if (Array.isArray(result)) return result;
+  if (typeof result === 'object' && result.users) return result.users;
   throw new Error(result.message || 'Failed to fetch users by permission');
 }
 
@@ -1676,7 +1743,7 @@ export async function fetchRecordingByIdApi(token: string, recordingId: string) 
 
 // New function to fetch all jobs (admin endpoint)
 export async function fetchAllJobsApi(token: string) {
-  const response = await fetch(`${import.meta.env.VITE_API_URL}/api/jobs`, {
+  const response = await fetch(`${ADMIN_JOBS_API}`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -1932,6 +1999,29 @@ export async function getUserAuditLogs(userId: string, days: number = 30): Promi
   if (!response.ok) {
     throw new Error(`Failed to fetch user audit logs (${response.status})`);
   }
+  return response.json();
+}
+
+// Update job displayname
+export async function updateJobDisplayName(jobId: string, displayname: string) {
+  const token = localStorage.getItem("token");
+  if (!token) {
+    throw new Error("No authentication token found");
+  }
+
+  const response = await fetch(`${JOBS_API}/${jobId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ displayname }),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to update job name");
+  }
+
   return response.json();
 }
 
