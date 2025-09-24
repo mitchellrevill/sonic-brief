@@ -127,9 +127,9 @@ export function AudioRecordingsCombined({
   const watchedFilters = form.watch();
 
   const cleanedFilters = useMemo(() => {
-    const { job_id, status, created_at } = watchedFilters;
+    const { search, status, created_at } = watchedFilters;
     return {
-      job_id: job_id || undefined,
+      search: search || undefined,
       status: status === "all" ? undefined : status,
       created_at: created_at || undefined,
     };
@@ -145,14 +145,14 @@ export function AudioRecordingsCombined({
           ...prev, 
           page: 1,
           per_page: RECORDS_PER_PAGE,
-          job_id: cleanedFilters.job_id,
+          search: cleanedFilters.search,
           status: cleanedFilters.status,
           created_at: cleanedFilters.created_at,
         }),
         replace: true,
       });
     }
-  }, [cleanedFilters.job_id, cleanedFilters.status, cleanedFilters.created_at]);
+  }, [cleanedFilters.search, cleanedFilters.status, cleanedFilters.created_at]);
 
   const {
     data: audioRecordingsResponse,
@@ -346,16 +346,16 @@ export function AudioRecordingsCombined({
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                         <FormField
                           control={form.control}
-                          name="job_id"
+                          name="search"
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="flex items-center gap-2 text-sm font-medium">
                                 <Search className="h-4 w-4 text-muted-foreground" />
-                                Job ID
+                                Search
                               </FormLabel>
                               <FormControl>
                                 <Input
-                                  placeholder="Search by Job ID..."
+                                  placeholder="Search by display name..."
                                   {...field}
                                   className="bg-background/50 border-border/50 focus:border-primary/50 transition-colors"
                                 />

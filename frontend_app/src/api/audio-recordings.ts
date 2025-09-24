@@ -1,6 +1,7 @@
 import type { AudioListValues } from "@/schema/audio-list.schema";
 import { httpClient } from "@/api/httpClient";
 import { JOBS_API, TRANSCRIPTION_API } from "@/lib/apiConstants";
+import { getDisplayName } from "@/lib/display-name-utils";
 
 export interface AudioRecording {
   id: string;
@@ -31,7 +32,7 @@ export interface PaginatedResponse<T> {
 export async function getAudioRecordings(filters?: AudioListValues & { page?: number; per_page?: number }) {
   // Call the jobs listing endpoint. The deployed backend exposes `/api/jobs`.
   // Convert page/per_page to limit/offset for backend compatibility
-  const { page, per_page, ...filterParams } = filters || {};
+  const { page, per_page, search, ...filterParams } = filters || {};
   
   const params: Record<string, any> = {};
   
@@ -48,14 +49,43 @@ export async function getAudioRecordings(filters?: AudioListValues & { page?: nu
   if (per_page) {
     params.limit = per_page;
   }
-  if (page && per_page) {
+  // If there's a search term, we need to fetch all data to filter by display name
+  // Otherwise, use backend pagination
+  if (search) {
+    // Fetch all data for client-side filtering
+    delete params.limit;
+    delete params.offset;
+  } else if (page && per_page) {
     params.offset = (page - 1) * per_page;
   }
 
   const response = await httpClient.get(JOBS_API, { params });
+  const data = response.data as PaginatedResponse<AudioRecording>;
+
+  // If there's a search term, apply client-side filtering
+  if (search && data.jobs) {
+    const searchLower = search.toLowerCase();
+    const filteredJobs = data.jobs.filter((job) => {
+      const displayName = getDisplayName(job);
+      return displayName.toLowerCase().includes(searchLower) || 
+             job.id.toLowerCase().includes(searchLower); // Also search by job ID for backward compatibility
+    });
+
+    // Apply pagination after filtering
+    const totalFiltered = filteredJobs.length;
+    const startIndex = page && per_page ? (page - 1) * per_page : 0;
+    const endIndex = page && per_page ? startIndex + per_page : filteredJobs.length;
+    const paginatedJobs = filteredJobs.slice(startIndex, endIndex);
+
+    return {
+      jobs: paginatedJobs,
+      count: totalFiltered,
+      status: data.status
+    };
+  }
 
   // Backend returns { status, count, jobs }
-  return response.data as PaginatedResponse<AudioRecording>;
+  return data;
 }
 
 export async function getAudioTranscription(id: string) {

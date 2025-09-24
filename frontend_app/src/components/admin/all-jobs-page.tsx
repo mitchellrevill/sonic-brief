@@ -28,6 +28,7 @@ import {
 import { fetchAllUsers, fetchAllJobsApi } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { EnhancedPagination } from "@/components/ui/pagination";
 import { useState, useMemo } from "react";
 
 // Define proper TypeScript types for better type safety
@@ -58,12 +59,15 @@ type Job = {
 type JobsResponse = {
   status: string;
   jobs: Job[];
+  total_count?: number;
 };
 
 export function AdminAllJobsPage() {
   const breadcrumbs = useBreadcrumbs();
   const [userFilter, setUserFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(20);
   
   // Fetch users for filter dropdown
   const { data: usersData } = useQuery<UserRecord[] | UsersResponse>({
@@ -75,7 +79,8 @@ export function AdminAllJobsPage() {
   const fetchAllJobs = async () => {
     const token = localStorage.getItem("token");
     if (!token) throw new Error("No authentication token found. Please log in again.");
-    return await fetchAllJobsApi(token);
+    const offset = (currentPage - 1) * itemsPerPage;
+    return await fetchAllJobsApi(token, itemsPerPage, offset);
   };
 
   const {
@@ -84,7 +89,7 @@ export function AdminAllJobsPage() {
     error,
     refetch,
   } = useQuery<JobsResponse>({
-    queryKey: ["adminAllJobs"],
+    queryKey: ["adminAllJobs", currentPage, itemsPerPage],
     queryFn: fetchAllJobs,
     staleTime: 30000, // Cache for 30 seconds
   });
@@ -172,7 +177,7 @@ export function AdminAllJobsPage() {
               </h1>
               <SmartBreadcrumb items={breadcrumbs} />
               <p className="text-muted-foreground">
-                Admin view of all recordings ({filteredJobs.length} of {allJobs.length} total)
+                Admin view of all recordings ({jobsData?.total_count || jobsData?.jobs.length || 0} total)
               </p>
             </div>
           </div>
@@ -188,7 +193,10 @@ export function AdminAllJobsPage() {
               <span className="text-sm font-medium">Filter by user:</span>
               <Select 
                 value={userFilter} 
-                onValueChange={(value) => setUserFilter(value)}
+                onValueChange={(value) => {
+                  setUserFilter(value);
+                  setCurrentPage(1);
+                }}
               >
                 <SelectTrigger className="w-[200px]">
                   <SelectValue placeholder="Select user" />
@@ -209,7 +217,10 @@ export function AdminAllJobsPage() {
               <span className="text-sm font-medium">Filter by status:</span>
               <Select 
                 value={statusFilter} 
-                onValueChange={(value) => setStatusFilter(value)}
+                onValueChange={(value) => {
+                  setStatusFilter(value);
+                  setCurrentPage(1);
+                }}
               >
                 <SelectTrigger className="w-[200px]">
                   <SelectValue placeholder="Select status" />
@@ -229,7 +240,10 @@ export function AdminAllJobsPage() {
           <Button 
             variant="outline" 
             size="sm" 
-            onClick={() => refetch()} 
+            onClick={() => {
+              setCurrentPage(1);
+              refetch();
+            }} 
             className="flex items-center gap-2 w-full md:w-auto"
           >
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -262,6 +276,22 @@ export function AdminAllJobsPage() {
             </div>
           )}
         </div>
+
+        {/* Pagination */}
+        {jobsData && (
+          <div className="mt-6">
+            <EnhancedPagination
+              currentPage={currentPage}
+              totalPages={Math.ceil((jobsData.total_count || jobsData.jobs.length) / itemsPerPage)}
+              totalItems={jobsData.total_count || jobsData.jobs.length}
+              itemsPerPage={itemsPerPage}
+              onPageChange={(page) => {
+                setCurrentPage(page);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

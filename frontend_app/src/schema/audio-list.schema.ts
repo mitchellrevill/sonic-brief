@@ -9,7 +9,7 @@ export const statusEnum = z.enum([
 ]);
 
 export const audioListSchema = z.object({
-  job_id: z.string().optional(),
+  search: z.string().optional(),
   status: statusEnum.default("all").optional(),
   created_at: z.string().optional(),
 });

@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select"
 
 const filterSchema = z.object({
-  jobId: z.string().optional(),
+  search: z.string().optional(),
   status: z.string(),
   uploadDate: z.string(),
 })
@@ -51,12 +51,12 @@ export function AudioRecordingsFilter({ onFilterChange, initialFilters }: AudioR
           <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-6 md:grid-cols-4">
             <FormField
               control={form.control}
-              name="jobId"
+              name="search"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Job ID</FormLabel>
+                  <FormLabel>Search</FormLabel>
                   <FormControl>
-                    <Input placeholder="Search by Job ID..." {...field} />
+                    <Input placeholder="Search by display name..." {...field} />
                   </FormControl>
                 </FormItem>
               )}

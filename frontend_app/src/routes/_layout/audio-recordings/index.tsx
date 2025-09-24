@@ -9,7 +9,7 @@ import { z } from "zod";
 const audioRecordingsSearchSchema = z.object({
   page: z.number().min(1).optional().default(1),
   per_page: z.number().min(1).max(100).optional().default(12),
-  job_id: z.string().optional(),
+  search: z.string().optional(),
   status: z.enum(["all", "uploaded", "processing", "completed", "failed"]).optional().default("all"),
   created_at: z.string().optional(),
 });
@@ -20,10 +20,10 @@ export const Route = createFileRoute("/_layout/audio-recordings/")({
 });
 
 function AudioRecordingsIndexComponent() {
-  const { page, per_page, job_id, status, created_at } = Route.useSearch();
+  const { page, per_page, search, status, created_at } = Route.useSearch();
   
   const initialFilters: AudioListValues & { page: number; per_page: number } = {
-    job_id: job_id || "",
+    search: search || "",
     status: status || "all",
     created_at: created_at || undefined,
     page,

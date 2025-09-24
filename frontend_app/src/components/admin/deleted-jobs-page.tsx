@@ -41,6 +41,7 @@ import {
 import { getDeletedJobs, restoreJob, permanentDeleteJob, fetchAllUsers } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { EnhancedPagination } from "@/components/ui/pagination";
 import { toast } from "sonner";
 import { useState, useMemo, useEffect } from "react";
 
@@ -76,12 +77,15 @@ type DeletedJobsResponse = {
   message: string;
   count: number;
   jobs: DeletedJob[];
+  total_count?: number;
 };
 
 export function AdminDeletedJobsPage() {
   const breadcrumbs = useBreadcrumbs();
   const queryClient = useQueryClient();
   const [userFilter, setUserFilter] = useState<string>("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(20);
   
   // Fetch users for filter dropdown
   const { data: usersData } = useQuery<UserRecord[] | UsersResponse>({
@@ -96,9 +100,10 @@ export function AdminDeletedJobsPage() {
     error,
     refetch,
   } = useQuery<DeletedJobsResponse>({
-    queryKey: ["deletedJobs"],
+    queryKey: ["deletedJobs", currentPage, itemsPerPage],
     queryFn: async () => {
-      const result = await getDeletedJobs();
+      const offset = (currentPage - 1) * itemsPerPage;
+      const result = await getDeletedJobs(itemsPerPage, offset);
       // Ensure result matches DeletedJobsResponse shape
         if (
           result &&
@@ -123,6 +128,7 @@ export function AdminDeletedJobsPage() {
               message: result.message ?? "",
               count: Array.isArray((result as any).deleted_jobs) ? (result as any).deleted_jobs.length : 0,
               jobs: Array.isArray((result as any).deleted_jobs) ? (result as any).deleted_jobs : [],
+              total_count: (result as any).total_count,
             };
           }
 
@@ -134,6 +140,7 @@ export function AdminDeletedJobsPage() {
         message: result.message ?? "",
         count: Array.isArray(result.jobs) ? result.jobs.length : 0,
         jobs: Array.isArray(result.jobs) ? result.jobs : [],
+        total_count: (result as any).total_count,
       };
     },
     staleTime: 30000, // Cache for 30 seconds
@@ -145,6 +152,7 @@ export function AdminDeletedJobsPage() {
       toast.success("Job restored successfully!");
       queryClient.invalidateQueries({ queryKey: ["deletedJobs"] });
       queryClient.invalidateQueries({ queryKey: ["audioRecordings"] });
+      queryClient.invalidateQueries({ queryKey: ["adminAllJobs"] });
     },
     onError: (error: Error) => {
       toast.error(`Failed to restore job: ${error.message}`);
@@ -251,7 +259,7 @@ export function AdminDeletedJobsPage() {
               </h1>
               <SmartBreadcrumb items={breadcrumbs} />
               <p className="text-muted-foreground">
-                Admin view of soft-deleted recordings ({filteredDeletedJobs.length} of {deletedJobs.length} total)
+                Admin view of soft-deleted recordings ({deletedJobsData?.total_count || deletedJobsData?.count || 0} total)
               </p>
             </div>
           </div>
@@ -266,7 +274,10 @@ export function AdminDeletedJobsPage() {
             <span className="text-sm font-medium">Filter by user:</span>
             <Select 
               value={userFilter} 
-              onValueChange={(value) => setUserFilter(value)}
+              onValueChange={(value) => {
+                setUserFilter(value);
+                setCurrentPage(1);
+              }}
             >
               <SelectTrigger className="w-[200px]">
                 <SelectValue placeholder="Select user" />
@@ -285,7 +296,10 @@ export function AdminDeletedJobsPage() {
           <Button 
             variant="outline" 
             size="sm" 
-            onClick={() => refetch()} 
+            onClick={() => {
+              setCurrentPage(1);
+              refetch();
+            }} 
             className="flex items-center gap-2 w-full md:w-auto"
           >
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -322,6 +336,22 @@ export function AdminDeletedJobsPage() {
             </div>
           )}
         </div>
+
+        {/* Pagination */}
+        {deletedJobsData && (
+          <div className="mt-6">
+            <EnhancedPagination
+              currentPage={currentPage}
+              totalPages={Math.ceil((deletedJobsData.total_count || deletedJobsData.count) / itemsPerPage)}
+              totalItems={deletedJobsData.total_count || deletedJobsData.count}
+              itemsPerPage={itemsPerPage}
+              onPageChange={(page) => {
+                setCurrentPage(page);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

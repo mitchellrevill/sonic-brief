@@ -753,11 +753,15 @@ export async function restoreJob(jobId: string): Promise<JobDeleteResponse> {
   }
 }
 
-export async function getDeletedJobs(): Promise<DeletedJobsAdminResponse> {
+export async function getDeletedJobs(limit: number = 50, offset: number = 0): Promise<DeletedJobsAdminResponse> {
   try {
     const token = localStorage.getItem("token");
     
-    const response = await fetch(ADMIN_DELETED_JOBS_API, {
+    const url = new URL(ADMIN_DELETED_JOBS_API);
+    url.searchParams.set('limit', limit.toString());
+    url.searchParams.set('offset', offset.toString());
+    
+    const response = await fetch(url.toString(), {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -822,7 +826,7 @@ export async function getDeletedJobs(): Promise<DeletedJobsAdminResponse> {
       count: jobs.length,
       jobs,
       deleted_jobs: jobs,
-      total_count: jobs.length,
+      total_count: data.total_count || jobs.length,
     };
 
     return result as DeletedJobsAdminResponse;
@@ -1799,8 +1803,12 @@ export async function fetchRecordingByIdApi(token: string, recordingId: string) 
 }
 
 // New function to fetch all jobs (admin endpoint)
-export async function fetchAllJobsApi(token: string) {
-  const response = await fetch(`${ADMIN_JOBS_API}`, {
+export async function fetchAllJobsApi(token: string, limit: number = 50, offset: number = 0) {
+  const url = new URL(ADMIN_JOBS_API);
+  url.searchParams.set('limit', limit.toString());
+  url.searchParams.set('offset', offset.toString());
+  
+  const response = await fetch(url.toString(), {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,
