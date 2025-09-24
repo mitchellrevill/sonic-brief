@@ -58,7 +58,7 @@ async def get_jobs(
         can_view_all = False
 
         # Build query string and parameters for Cosmos. Use async_query_jobs to avoid blocking.
-        query = "SELECT * FROM c WHERE c.type = 'job'"
+        query = "SELECT * FROM c WHERE c.type = 'job' AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
         params = []
         if job_id:
             query += " AND c.id = @job_id"

@@ -6,7 +6,7 @@ export const Route = createFileRoute("/login")({
   beforeLoad: () => {
     const token = getStorageItem("token", "");
     if (token) {
-      return redirect({ to: "/audio-upload" });
+      return redirect({ to: "/simple-upload" });
     }
   },
   component: LoginPage,

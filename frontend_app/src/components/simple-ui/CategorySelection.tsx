@@ -59,9 +59,9 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
   });
 
   // Filter subcategories for the selected category
-  const availableSubcategories = subcategories?.filter(
+  const availableSubcategories = (subcategories?.filter(
     (sub) => sub.category_id === selectedCategory?.id
-  ) || [];
+  ) || []).sort((a, b) => a.name.localeCompare(b.name));
 
   // Get current subcategory details for pre-session form
   const currentSubcategoryDetails = subcategoryDetails?.find(sub => sub.id === selectedSubcategory?.id);
@@ -404,7 +404,9 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
             </div>
             
             {(() => {
-              const rootCategories = (categories || []).filter(cat => !(cat as any).parent_category_id);
+              const rootCategories = (categories || [])
+                .filter(cat => !(cat as any).parent_category_id)
+                .sort((a, b) => a.name.localeCompare(b.name));
               const childrenByParent: Record<string, Array<any>> = {};
               (categories || []).forEach(cat => {
                 const parent = (cat as any).parent_category_id;
@@ -567,7 +569,7 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
               });
 
               const isRootCategory = rootCategories.find(cat => cat.id === selectedCategory.id);
-              const selectedCategoryChildren = isRootCategory ? childrenByParent[selectedCategory.id] : [];
+              const selectedCategoryChildren = (isRootCategory ? childrenByParent[selectedCategory.id] : [])?.sort((a, b) => a.name.localeCompare(b.name)) || [];
 
               return (
                 <div className="space-y-8">

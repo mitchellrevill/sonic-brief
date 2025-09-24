@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
@@ -17,21 +17,7 @@ export function SimpleFileUpload({ categoryId, subcategoryId, onUploadComplete }
   const [conversionStep, setConversionStep] = useState("");
   const [isUploading, setIsUploading] = useState(false);
 
-  // Lazy load FFmpeg only when needed
-  const ffmpegRef = useRef<any>(null);
 
-  const loadFFmpeg = async () => {
-    if (!ffmpegRef.current) {
-      const { FFmpeg } = await import("@ffmpeg/ffmpeg");
-      const ffmpeg = new FFmpeg();
-      ffmpeg.on("progress", ({ progress }: any) => {
-        setConversionProgress(Math.round(progress * 100));
-      });
-      await ffmpeg.load();
-      ffmpegRef.current = ffmpeg;
-    }
-    return ffmpegRef.current;
-  };
 
   const convertToWav = async (file: File): Promise<File> => {
     // Use shared utility for conversion
@@ -85,7 +71,7 @@ export function SimpleFileUpload({ categoryId, subcategoryId, onUploadComplete }
               <Progress value={conversionProgress} />
             </div>
           )}
-          <Button onClick={handleUpload} disabled={isUploading || isConverting} className="w-full">
+          <Button onClick={handleUpload} disabled={isUploading || isConverting} variant="outline" className="w-full">
             {isUploading ? "Uploading..." : "Upload"}
           </Button>
         </div>

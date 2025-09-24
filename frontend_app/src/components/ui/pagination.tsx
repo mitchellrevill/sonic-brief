@@ -107,6 +107,124 @@ const PaginationEllipsis = ({
 )
 PaginationEllipsis.displayName = "PaginationEllipsis"
 
+// Enhanced Pagination component with full pagination logic
+interface EnhancedPaginationProps {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  itemsPerPage: number;
+  onPageChange: (page: number) => void;
+  className?: string;
+}
+
+const EnhancedPagination = ({
+  currentPage,
+  totalPages,
+  totalItems,
+  itemsPerPage,
+  onPageChange,
+  className,
+}: EnhancedPaginationProps) => {
+  // Don't render pagination if there's only one page or no items
+  if (totalPages <= 1 || totalItems === 0) {
+    return null;
+  }
+
+  const startItem = (currentPage - 1) * itemsPerPage + 1;
+  const endItem = Math.min(currentPage * itemsPerPage, totalItems);
+
+  // Generate page numbers to show
+  const getPageNumbers = () => {
+    const pages: (number | string)[] = [];
+    const delta = 2; // Number of pages to show on each side of current page
+
+    // Always show first page
+    if (1 < currentPage - delta) {
+      pages.push(1);
+      if (2 < currentPage - delta) {
+        pages.push("...");
+      }
+    }
+
+    // Show pages around current page
+    for (
+      let i = Math.max(1, currentPage - delta);
+      i <= Math.min(totalPages, currentPage + delta);
+      i++
+    ) {
+      pages.push(i);
+    }
+
+    // Always show last page
+    if (totalPages > currentPage + delta) {
+      if (totalPages - 1 > currentPage + delta) {
+        pages.push("...");
+      }
+      pages.push(totalPages);
+    }
+
+    return pages;
+  };
+
+  const pageNumbers = getPageNumbers();
+
+  return (
+    <div className={cn("flex flex-col sm:flex-row items-center justify-between gap-4", className)}>
+      {/* Results info */}
+      <div className="text-sm text-muted-foreground">
+        Showing {startItem} to {endItem} of {totalItems} results
+      </div>
+
+      {/* Pagination controls */}
+      <Pagination>
+        <PaginationContent>
+          <PaginationItem>
+            <PaginationPrevious
+              onClick={(e) => {
+                e.preventDefault();
+                if (currentPage > 1) onPageChange(currentPage - 1);
+              }}
+              className={cn(
+                currentPage <= 1 && "pointer-events-none opacity-50"
+              )}
+            />
+          </PaginationItem>
+
+          {pageNumbers.map((page, index) => (
+            <PaginationItem key={index}>
+              {page === "..." ? (
+                <PaginationEllipsis />
+              ) : (
+                <PaginationLink
+                  isActive={page === currentPage}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onPageChange(page as number);
+                  }}
+                >
+                  {page}
+                </PaginationLink>
+              )}
+            </PaginationItem>
+          ))}
+
+          <PaginationItem>
+            <PaginationNext
+              onClick={(e) => {
+                e.preventDefault();
+                if (currentPage < totalPages) onPageChange(currentPage + 1);
+              }}
+              className={cn(
+                currentPage >= totalPages && "pointer-events-none opacity-50"
+              )}
+            />
+          </PaginationItem>
+        </PaginationContent>
+      </Pagination>
+    </div>
+  );
+};
+
 export {
   Pagination,
   PaginationContent,
@@ -115,4 +233,5 @@ export {
   PaginationLink,
   PaginationNext,
   PaginationPrevious,
+  EnhancedPagination,
 }

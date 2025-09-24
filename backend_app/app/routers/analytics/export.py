@@ -9,7 +9,7 @@ router = APIRouter(prefix="/export", tags=["analytics.export"])
 
 @router.get("/system/csv")
 async def export_system_csv(
-    days: int = Query(30, ge=1, le=365), 
+    days: int = Query(30, ge=1, le=365),
     current_user=Depends(require_analytics_access),
     export_service: ExportServiceInterface = Depends(get_export_service),
 ):

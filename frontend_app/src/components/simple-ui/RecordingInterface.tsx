@@ -417,7 +417,7 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
                 )}
                 <Button 
                   onClick={onUploadComplete} 
-                  className="w-full h-12 sm:h-14 text-sm sm:text-base font-semibold bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 shadow-lg hover:shadow-xl transition-all duration-200 touch-manipulation"
+                  className="w-full h-12 sm:h-14 text-sm sm:text-base font-semibold bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-lg hover:shadow-xl transition-all duration-200 touch-manipulation"
                   style={{ touchAction: 'manipulation' }}
                 >
                   Record Another
@@ -431,7 +431,7 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-gray-50 p-4 sm:p-6">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 p-4 sm:p-6">
       <div className="max-w-md mx-auto">
         {/* Header */}
         <div className="flex items-center space-x-3 sm:space-x-4 mb-6 sm:mb-8">
@@ -443,7 +443,7 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
             <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
           </Button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-green-600 to-gray-600 bg-clip-text text-transparent truncate">
+            <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-gray-600 to-gray-800 bg-clip-text text-transparent truncate">
               Record Meeting
             </h1>
             <p className="text-sm text-slate-600 font-medium truncate">{categoryName} • {subcategoryName}</p>
@@ -469,7 +469,7 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
                         : 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 border-red-300 shadow-red-200'
                       : audioURL
                         ? 'bg-gradient-to-r from-gray-400 to-gray-500 border-gray-300 cursor-not-allowed shadow-gray-200'
-                        : 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 border-green-300 shadow-green-200'
+                        : 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 border-blue-300 shadow-blue-200'
                   }`}
                   style={{ touchAction: 'manipulation' }}
                 >
@@ -542,9 +542,9 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
         {/* Playback and Upload */}
         {audioURL && !isRecording && (
           <div className="space-y-6">
-            <Card className="shadow-lg border-2 bg-gradient-to-r from-green-50 via-white to-gray-50">
+            <Card className="shadow-lg border-2 bg-gradient-to-r from-gray-50 via-white to-gray-50">
               <CardHeader>
-                <CardTitle className="text-xl font-semibold bg-gradient-to-r from-green-600 to-gray-600 bg-clip-text text-transparent">
+                <CardTitle className="text-xl font-semibold bg-gradient-to-r from-gray-600 to-gray-800 bg-clip-text text-transparent">
                   Recording Playback
                 </CardTitle>
               </CardHeader>
@@ -588,7 +588,7 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
                   <Button 
                     onClick={uploadRecording}
                     disabled={isUploading || isConverting}
-                    className="h-12 sm:h-14 text-sm sm:text-base font-semibold bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 shadow-lg hover:shadow-xl transition-all duration-200 touch-manipulation"
+                    className="h-12 sm:h-14 text-sm sm:text-base font-semibold bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-lg hover:shadow-xl transition-all duration-200 touch-manipulation"
                     style={{ touchAction: 'manipulation' }}
                   >
                     {isUploading || isConverting ? (

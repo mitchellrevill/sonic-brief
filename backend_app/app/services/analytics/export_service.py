@@ -322,7 +322,7 @@ class ExportService:
 
             rows: List[List[str]] = []
             headers = [
-                'job_id', 'user_id', 'timestamp', 'minutes', 'file_name'
+                'job_id', 'user_id', 'timestamp', 'minutes', 'file_name', 'user_email'
             ]
 
             # Query analytics container for records in range
@@ -354,7 +354,18 @@ class ExportService:
                     except Exception:
                         minutes_str = ""
                     file_name = it.get('file_name') or ''
-                    rows.append([str(job_id), str(user_id), str(ts), minutes_str, str(file_name)])
+                    
+                    # Get user email
+                    user_email = ''
+                    if user_id:
+                        try:
+                            user = await self.cosmos_db.get_user_by_id(user_id)
+                            user_email = user.get('email', '') if user else ''
+                        except Exception:
+                            user_email = ''
+                    
+                    row = [str(job_id), str(user_id), str(ts), minutes_str, str(file_name), user_email]
+                    rows.append(row)
             except Exception as qe:
                 self.logger.error(f"Error querying analytics for export: {qe}")
 

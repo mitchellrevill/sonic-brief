@@ -52,7 +52,7 @@ import { audioListSchema, statusEnum } from "@/schema/audio-list.schema";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
-import { Pagination } from "@/components/ui/pagination";
+import { EnhancedPagination } from "@/components/ui/pagination";
 import {
   Eye,
   RefreshCcw,
@@ -686,7 +686,7 @@ export function AudioRecordingsCombined({
             </Card>
           </div>
           {/* Pagination Controls */}
-          <Pagination
+          <EnhancedPagination
             currentPage={currentPage}
             totalPages={totalPages}
             totalItems={totalCount}

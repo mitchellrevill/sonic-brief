@@ -38,18 +38,18 @@ import {
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { Form, FormField, FormItem, FormMessage } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 // Removed legacy Select imports after UX modernization
 import { Badge } from "@/components/ui/badge";
 import { mediaUploadSchema } from "@/schema/audio-upload.schema";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Loader2, RefreshCcw, Upload, FileText, Film, Music, Image, File, ChevronDown, ChevronUp, Copy, Check, Search } from "lucide-react";
+import { Loader2, RefreshCcw, Upload, FileText, Film, Music, Image, File, ChevronDown, ChevronUp, Copy, Check, Search, Folder, FolderOpen, ChevronRight } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { useEffect, useRef } from "react";
-// Removed select dropdown approach; implementing dual-pane list browser instead
-import { Input } from "@/components/ui/input";
+// Removed select dropdown approach; implementing sidebar instead
 import { RetentionDisclaimer } from "@/components/ui/retention-disclaimer";
 
 interface MediaUploadFormProps {
@@ -117,6 +117,7 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>("");
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>("");
   // Parent category currently expanded to show its child categories (hierarchical folders)
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   // Track search input for categories and meeting types
   const [categorySearch, setCategorySearch] = useState("");
   const [subcategorySearch, setSubcategorySearch] = useState("");
@@ -489,16 +490,38 @@ const convertToWav = async (file: File): Promise<File> => {
     });
   };
 
+  const toggleCategory = (categoryId: string) => {
+    setExpandedCategories(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(categoryId)) {
+        newSet.delete(categoryId);
+      } else {
+        newSet.add(categoryId);
+      }
+      return newSet;
+    });
+  };
+
   const handleCategorySelect = (id: string) => {
     if (!form.getValues("mediaFile")) return;
     setSelectedCategory(id);
     setSelectedSubcategory("");
-    form.setValue("promptCategory", id, { shouldValidate: true });
-    form.setValue("promptSubcategory", "", { shouldValidate: true });
+    form.setValue("promptCategory", id);
+    form.setValue("promptSubcategory", "");
+    // Auto-expand when selecting a category
+    if (!expandedCategories.has(id)) {
+      toggleCategory(id);
+    }
   };
+  
   const handleSubcategorySelect = (id: string) => {
+    console.log("Selecting subcategory:", id);
     setSelectedSubcategory(id);
-    form.setValue("promptSubcategory", id, { shouldValidate: true });
+    form.setValue("promptSubcategory", id);
+  };
+
+  const getSubcategoriesForCategory = (categoryId: string) => {
+    return (subcategories || []).filter(sub => sub.category_id === categoryId);
   };
 
   return (
@@ -604,176 +627,329 @@ const convertToWav = async (file: File): Promise<File> => {
             )}
           />
 
-          {/* Categories & Subcategories (Dual-Pane Browser) */}
+          {/* Categories & Subcategories (Sidebar Layout) */}
           <div className="space-y-5">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">1 & 2. Service Area & Meeting Type</h3>
+              <h3 className="text-lg font-semibold">Service Area & Meeting Type</h3>
               <Button type="button" size="sm" variant="outline" onClick={() => refetchCategories()} disabled={isLoadingCategories}>
                 <RefreshCcw className="h-4 w-4 mr-2" /> {isLoadingCategories ? 'Refreshing' : 'Refresh'}
               </Button>
             </div>
-            {(() => {
-              const allCats = categories || [];
-              const roots = allCats.filter(c => !c.parent_category_id);
-              const childrenByParent: Record<string, any[]> = {};
-              allCats.forEach(c => {
-                if (c.parent_category_id) {
-                  childrenByParent[c.parent_category_id] = childrenByParent[c.parent_category_id] || [];
-                  childrenByParent[c.parent_category_id].push(c);
-                }
-              });
 
-              const normalizedSearch = categorySearch.trim().toLowerCase();
-              const filteredRoots = normalizedSearch
-                ? roots.filter(r => r.name.toLowerCase().includes(normalizedSearch) || (childrenByParent[r.id]||[]).some(ch => ch.name.toLowerCase().includes(normalizedSearch)))
-                : roots;
-
-              const meetingTypesAll = (subcategories || []).filter(s => s.category_id === selectedCategory);
-              const filteredMeetingTypes = subcategorySearch.trim()
-                ? meetingTypesAll.filter(mt => mt.name.toLowerCase().includes(subcategorySearch.trim().toLowerCase()))
-                : meetingTypesAll;
-
-              return (
-                <div className="grid md:grid-cols-5 gap-4">
-                  {/* Category Pane */}
-                  <div className="md:col-span-2 border rounded-xl bg-card/60 backdrop-blur-sm flex flex-col overflow-hidden min-h-[300px]">
-                    <div className="p-3 border-b flex items-center gap-2 bg-muted/40">
-                      <Search className="h-4 w-4 text-muted-foreground" />
-                      <Input
-                        value={categorySearch}
-                        onChange={e => setCategorySearch(e.target.value)}
-                        placeholder={isLoadingCategories ? 'Loading categories...' : 'Search service areas'}
-                        className="h-8 text-xs flex-1"
-                        disabled={isLoadingCategories || !form.getValues('mediaFile')}
-                      />
-                    </div>
-                    <div className="flex-1 overflow-y-auto thin-scrollbar divide-y">
-                      {!form.getValues('mediaFile') && (
-                        <div className="p-4 text-xs text-muted-foreground">Attach a file to pick a service area.</div>) }
-                      {form.getValues('mediaFile') && filteredRoots.map(root => {
-                        const rootActive = root.id === selectedCategory;
-                        const childList = childrenByParent[root.id] || [];
-                        const visibleChildren = childList.filter(ch => !normalizedSearch || ch.name.toLowerCase().includes(normalizedSearch));
-    
-
-                        // showChildren when there are children to display (or when search finds matches)
-                        const showChildren = visibleChildren.length > 0;
-
-                        // compute a lightweight spacing class for visual separation between roots
-                        const rootIndex = filteredRoots.findIndex(r => r.id === root.id);
-                        const rootSpacingClass = rootIndex > 0 ? "pt-2 border-t border-border/10" : "";
-
-                        // expose spacing on the root object so markup can pick it up if you want to apply it to the wrapper/button
-                        // (keeps logic here so you can easily wire classes into JSX later)
-                        (root as any).__spacingClass = rootSpacingClass;
-                        return (
-                          <div key={root.id} className="group">
-                            <button
-                              type="button"
-                              onClick={() => handleCategorySelect(root.id)}
-                              className={`w-full text-left px-4 py-3 flex items-center justify-between transition hover:bg-muted/60 ${rootActive ? 'bg-primary/10 border-l-2 border-primary font-medium' : ''}`}
-                            >
-                              <span className="truncate">{root.name}</span>
-                              <span className="text-xs text-muted-foreground ml-2">{(subcategories||[]).filter(s=>s.category_id===root.id).length}</span>
-                            </button>
-                            {showChildren && visibleChildren.length > 0 && (
-                              <div className="bg-muted/20">
-                                {visibleChildren.map(child => {
-                                  const childActive = child.id === selectedCategory;
-                                  return (
-                                    <button
-                                      key={child.id}
-                                      type="button"
-                                      onClick={() => handleCategorySelect(child.id)}
-                                      className={`w-full text-left px-8 py-2 text-xs flex items-center justify-between hover:bg-muted/50 transition ${childActive ? 'bg-primary/10 border-l-2 border-primary font-medium' : ''}`}
-                                    >
-                                      <span className="truncate">{child.name}</span>
-                                      <span className="text-[10px] text-muted-foreground ml-2">{(subcategories||[]).filter(s=>s.category_id===child.id).length}</span>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                      {form.getValues('mediaFile') && !isLoadingCategories && filteredRoots.length === 0 && (
-                        <div className="p-4 text-xs text-muted-foreground">No categories match "{categorySearch}"</div>
-                      )}
-                    </div>
-                    <div className="p-2 border-t text-[10px] text-muted-foreground flex justify-between">
-                      <span>{(categories||[]).length} total categories</span>
-                      <span>{roots.length} top-level</span>
-                    </div>
+            <div className="flex gap-6 h-[60vh]">
+              {/* Sidebar */}
+              <div className="w-80 border rounded-xl bg-card/60 backdrop-blur-sm flex flex-col overflow-hidden">
+                {/* Header */}
+                <div className="p-4 border-b border-border">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-semibold text-foreground">Categories & Meeting Types</h4>
                   </div>
-
-                  {/* Meeting Type Pane */}
-                  <div className="md:col-span-3 border rounded-xl bg-card/60 backdrop-blur-sm flex flex-col overflow-hidden min-h-[300px]">
-                    <div className="p-3 border-b flex items-center gap-2 bg-muted/40">
-                      <Search className="h-4 w-4 text-muted-foreground" />
-                      <Input
-                        value={subcategorySearch}
-                        onChange={e => setSubcategorySearch(e.target.value)}
-                        placeholder={selectedCategory ? 'Search meeting types' : 'Select a category first'}
-                        className="h-8 text-xs flex-1"
-                        disabled={!selectedCategory || !form.getValues('mediaFile')}
-                      />
-                    </div>
-                    <div className="flex-1 overflow-y-auto thin-scrollbar">
-                      {!selectedCategory && (
-                        <div className="p-4 text-xs text-muted-foreground">Choose a service area to see meeting types.</div>
-                      )}
-                      {selectedCategory && filteredMeetingTypes.map(mt => {
-                        const active = mt.id === selectedSubcategory;
-                        return (
-                          <button
-                            key={mt.id}
-                            type="button"
-                            onClick={() => handleSubcategorySelect(mt.id)}
-                            className={`w-full text-left px-4 py-2 flex items-center justify-between hover:bg-muted/60 transition text-sm ${active ? 'bg-primary/10 border-l-2 border-primary font-medium' : ''}`}
-                          >
-                            <span className="truncate">{mt.name}</span>
-                          </button>
-                        );
-                      })}
-                      {selectedCategory && !filteredMeetingTypes.length && (
-                        <div className="p-4 text-xs text-muted-foreground">No meeting types match "{subcategorySearch}"</div>
-                      )}
-                    </div>
-                    <div className="p-2 border-t text-[10px] text-muted-foreground flex justify-between">
-                      <span>{meetingTypesAll.length} meeting types</span>
-                      <span>{filteredMeetingTypes.length} shown</span>
-                    </div>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={categorySearch}
+                      onChange={(e) => setCategorySearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                        }
+                      }}
+                      placeholder={isLoadingCategories ? 'Loading...' : 'Search categories...'}
+                      className="w-full pl-10 pr-4 py-2 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                      disabled={isLoadingCategories || !form.getValues('mediaFile')}
+                    />
                   </div>
                 </div>
-              );
-            })()}
+
+                {/* Tree View */}
+                <div className="flex-1 overflow-y-auto p-2">
+                  {!form.getValues('mediaFile') && (
+                    <div className="p-4 text-sm text-muted-foreground text-center">
+                      Attach a file to select service areas and meeting types.
+                    </div>
+                  )}
+
+                  {(() => {
+                    const allCats = categories || [];
+                    const rootCategories = allCats.filter(cat => !cat.parent_category_id).sort((a, b) => a.name.localeCompare(b.name));
+                    const childrenByParent: Record<string, any[]> = {};
+                    
+                    allCats.forEach(cat => {
+                      if (cat.parent_category_id) {
+                        childrenByParent[cat.parent_category_id] = childrenByParent[cat.parent_category_id] || [];
+                        childrenByParent[cat.parent_category_id].push(cat);
+                      }
+                    });
+
+                    // Sort children alphabetically too
+                    Object.keys(childrenByParent).forEach(parentId => {
+                      childrenByParent[parentId].sort((a, b) => a.name.localeCompare(b.name));
+                    });
+
+                    const normalizedSearch = categorySearch.trim().toLowerCase();
+                    const filteredRoots = normalizedSearch
+                      ? rootCategories.filter(r => 
+                          r.name.toLowerCase().includes(normalizedSearch) || 
+                          (childrenByParent[r.id] || []).some(ch => ch.name.toLowerCase().includes(normalizedSearch))
+                        )
+                      : rootCategories;
+
+                    return (
+                      <div className="space-y-0.5">
+                        {filteredRoots.map((category) => {
+                          const categoryId = category.id;
+                          const isExpanded = expandedCategories.has(categoryId);
+                          const isSelected = selectedCategory === categoryId;
+                          const subcats = getSubcategoriesForCategory(categoryId).sort((a, b) => a.name.localeCompare(b.name));
+                          const childCats = (childrenByParent[categoryId] || []).filter(child => 
+                            !normalizedSearch || child.name.toLowerCase().includes(normalizedSearch)
+                          );
+
+                          return (
+                            <div key={categoryId} className="select-none">
+                              <div
+                                className={`flex items-center px-3 py-2 rounded-lg cursor-pointer transition-all duration-200 group ${
+                                  isSelected
+                                    ? "bg-gray-100 dark:bg-gray-900/50 text-gray-700 dark:text-gray-300 shadow-sm"
+                                    : "hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+                                }`}
+                              >
+                                <button
+                                  type="button"
+                                  className="mr-2 p-1 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleCategory(categoryId);
+                                  }}
+                                >
+                                  {subcats.length + childCats.length > 0 ? (
+                                    isExpanded ? (
+                                      <ChevronDown className="h-3.5 w-3.5 text-gray-500 dark:text-gray-400" />
+                                    ) : (
+                                      <ChevronRight className="h-3.5 w-3.5 text-gray-500 dark:text-gray-400" />
+                                    )
+                                  ) : (
+                                    <div className="h-3.5 w-3.5" />
+                                  )}
+                                </button>
+
+                                <div 
+                                  className="flex items-center flex-1 min-w-0"
+                                  onClick={() => handleCategorySelect(categoryId)}
+                                >
+                                  {isExpanded ? (
+                                    <FolderOpen className="h-4 w-4 mr-3 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                                  ) : (
+                                    <Folder className="h-4 w-4 mr-3 text-gray-600 dark:text-gray-400 flex-shrink-0" />
+                                  )}
+
+                                  <span className="flex-1 font-medium text-sm truncate">{category.name}</span>
+
+                                  <span className="text-xs bg-gray-100 dark:bg-gray-900/50 text-gray-600 dark:text-gray-400 px-2 py-1 rounded-full ml-3 flex-shrink-0">
+                                    {subcats.length + childCats.length}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {isExpanded && (
+                                <div className="ml-6 mt-2 space-y-1 border-l-2 border-gray-200 dark:border-gray-700 pl-4">
+                                  {/* Child categories (folders) */}
+                                  {childCats.map((child) => {
+                                    const childId = child.id;
+                                    const isChildSelected = selectedCategory === childId;
+                                    const isChildExpanded = expandedCategories.has(childId);
+                                    const childSubcats = getSubcategoriesForCategory(childId).sort((a, b) => a.name.localeCompare(b.name));
+
+                                    return (
+                                      <div key={childId} className="select-none">
+                                        <div
+                                          className={`flex items-center px-3 py-1.5 rounded-md cursor-pointer transition-all duration-200 group ${
+                                            isChildSelected ? "bg-gray-50 dark:bg-gray-900/30 text-gray-600 dark:text-gray-400 shadow-sm" : "hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400"
+                                          }`}
+                                        >
+                                          <button
+                                            type="button"
+                                            className="mr-2 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              toggleCategory(childId);
+                                            }}
+                                          >
+                                            {childSubcats.length > 0 ? (
+                                              isChildExpanded ? (
+                                                <ChevronDown className="h-3.5 w-3.5 text-gray-500 dark:text-gray-400" />
+                                              ) : (
+                                                <ChevronRight className="h-3.5 w-3.5 text-gray-500 dark:text-gray-400" />
+                                              )
+                                            ) : (
+                                              <div className="h-3.5 w-3.5" />
+                                            )}
+                                          </button>
+
+                                          <div 
+                                            className="flex items-center flex-1 min-w-0"
+                                            onClick={() => handleCategorySelect(childId)}
+                                          >
+                                            <Folder className="h-4 w-4 mr-3 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                                            <span className="flex-1 text-sm truncate">{child.name}</span>
+                                            <span className="text-xs bg-gray-100 dark:bg-gray-900/50 text-gray-600 dark:text-gray-400 px-2 py-1 rounded-full ml-3 flex-shrink-0">
+                                              {childSubcats.length}
+                                            </span>
+                                          </div>
+                                        </div>
+
+                                        {/* Meeting types under child category */}
+                                        {isChildExpanded && childSubcats.length > 0 && (
+                                          <div className="ml-4 mt-2 space-y-1">
+                                            {childSubcats.map((subcategory) => {
+                                              const subId = subcategory.id;
+                                              const isSubSelected = selectedSubcategory === subId;
+
+                                              return (
+                                                <div
+                                                  key={subId}
+                                                  className={`flex items-center px-3 py-1.5 rounded-md cursor-pointer transition-all duration-200 ${
+                                                    isSubSelected ? 
+                                                      "bg-primary/10 dark:bg-primary/20 text-primary dark:text-primary shadow-sm" : 
+                                                      "hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400"
+                                                  }`}
+                                                  onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    handleSubcategorySelect(subId);
+                                                  }}
+                                                >
+                                                  <FileText className="h-4 w-4 mr-3 text-primary dark:text-primary flex-shrink-0" />
+                                                  <span className="flex-1 text-sm truncate">{subcategory.name}</span>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+
+                                  {/* Meeting types directly under root category */}
+                                  {subcats.length > 0 && (
+                                    <div className="space-y-1">
+                                      {subcats.map((subcategory) => {
+                                        const subId = subcategory.id;
+                                        const isSubSelected = selectedSubcategory === subId;
+
+                                        return (
+                                          <div
+                                            key={subId}
+                                            className={`flex items-center px-3 py-1.5 rounded-md cursor-pointer transition-all duration-200 ${
+                                              isSubSelected ? 
+                                                "bg-primary/10 dark:bg-primary/20 text-primary dark:text-primary shadow-sm" : 
+                                                "hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400"
+                                            }`}
+                                            onClick={(e) => {
+                                              e.preventDefault();
+                                              e.stopPropagation();
+                                              handleSubcategorySelect(subId);
+                                            }}
+                                          >
+                                            <FileText className="h-4 w-4 mr-3 text-primary dark:text-primary flex-shrink-0" />
+                                            <span className="flex-1 text-sm truncate">{subcategory.name}</span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        
+                        {filteredRoots.length === 0 && (
+                          <div className="p-4 text-sm text-muted-foreground text-center">
+                            No categories match "{categorySearch}"
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Footer */}
+                <div className="p-4 border-t border-border">
+                  <div className="text-xs text-gray-600 dark:text-gray-400">
+                    {(categories || []).length} folders • {(subcategories || []).length} meeting types
+                  </div>
+                </div>
+              </div>
+
+              {/* Main Content Area */}
+              <div className="flex-1 h-[60vh] overflow-hidden">
+                {!selectedCategory && !selectedSubcategory && (
+                  <div className="h-full flex items-center justify-center border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
+                    <div className="text-center space-y-2">
+                      <Folder className="h-12 w-12 mx-auto text-gray-400" />
+                      <p className="text-gray-500 dark:text-gray-400">Select a service area and meeting type from the sidebar</p>
+                    </div>
+                  </div>
+                )}
+
+                {selectedCategory && !selectedSubcategory && (
+                  <div className="h-full flex items-center justify-center border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
+                    <div className="text-center space-y-2">
+                      <FileText className="h-12 w-12 mx-auto text-gray-400" />
+                      <p className="text-gray-500 dark:text-gray-400">Choose a meeting type to continue</p>
+                    </div>
+                  </div>
+                )}
+
+                {selectedCategory && selectedSubcategory && (
+                  <div className="h-full border rounded-xl bg-card/60 backdrop-blur-sm p-6 flex flex-col">
+                    <div className="flex-1 space-y-4 overflow-hidden">
+                      <div>
+                        <h4 className="font-semibold text-lg mb-2">Selection Summary</h4>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Folder className="h-4 w-4 text-gray-500" />
+                            <span className="text-sm"><strong>Service Area:</strong> {categories?.find(c => c.id === selectedCategory)?.name}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <FileText className="h-4 w-4 text-primary" />
+                            <span className="text-sm"><strong>Meeting Type:</strong> {subcategories?.find(s => s.id === selectedSubcategory)?.name}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Prompt Preview inline underneath selection */}
+                      <div className="flex-1 border-t pt-4 min-h-0">
+                        <div className="flex items-center justify-between mb-2">
+                          <div>
+                            <p className="font-medium">Prompt Preview</p>
+                            <p className="text-xs text-muted-foreground">These prompts will shape the AI analysis.</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button type="button" variant="outline" size="sm" disabled={!promptPreviewText} onClick={(e) => { e.stopPropagation(); handleCopyPrompt(); }}>
+                              {copiedPrompt ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                            </Button>
+                            <button type="button" onClick={() => setPromptPreviewOpen(o => !o)} className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800">
+                              {promptPreviewOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            </button>
+                          </div>
+                        </div>
+                        {promptPreviewOpen && (
+                          <div className="h-full rounded-xl border border-border/40 bg-card p-3 overflow-y-auto text-xs whitespace-pre-wrap font-mono leading-relaxed selection:bg-primary/20 shadow-sm">
+                            {promptPreviewText || 'No prompts.'}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* Prompt Preview only after both selections */}
 
-          {/* Prompt Preview */}
-          {selectedSubcategory && (
-            <div className="space-y-3">
-              <button type="button" onClick={() => setPromptPreviewOpen(o => !o)} className="w-full flex items-center justify-between rounded-lg border border-border/40 bg-background/60 backdrop-blur px-4 py-3 text-left hover:border-primary/40 transition">
-                <div>
-                  <p className="font-medium">3. Prompt Preview</p>
-                  <p className="text-xs text-muted-foreground">These prompts will shape the AI analysis.</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button type="button" variant="outline" size="sm" disabled={!promptPreviewText} onClick={(e) => { e.stopPropagation(); handleCopyPrompt(); }}>
-                    {copiedPrompt ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-                  </Button>
-                  {promptPreviewOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
-                </div>
-              </button>
-              {promptPreviewOpen && (
-                <div className="rounded-xl border border-border/40 bg-card p-4 max-h-[260px] overflow-y-auto text-xs whitespace-pre-wrap font-mono leading-relaxed selection:bg-primary/20 shadow-sm">
-                  {promptPreviewText || 'No prompts.'}
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Processing Info */}
           {/* You can add a processing info component here if needed, or remove this block */}

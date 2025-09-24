@@ -8,6 +8,7 @@ import { WakeLockProvider } from "./lib/WakeLockProvider.tsx";
 import { routeTree } from "./routeTree.gen";
 
 import "./styles.css";
+import "./lib/auth-fetch"; // Import auth fetch interceptor
 
 import reportWebVitals from "./reportWebVitals.ts";
 

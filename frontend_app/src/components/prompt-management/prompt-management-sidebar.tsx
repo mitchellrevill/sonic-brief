@@ -265,7 +265,7 @@ export function PromptManagementSidebar({
                         onChange={(e) => setParentForNewCategory(e.target.value || null)}
                       >
                         <option value="">No parent (top-level)</option>
-                        {categories.map(cat => (
+                        {rootCategories.map(cat => (
                           <option key={getId(cat)} value={getId(cat)}>{cat.name}</option>
                         ))}
                       </select>
@@ -499,7 +499,7 @@ export function PromptManagementSidebar({
                             )}
                           </div>
 
-                          {/* Prompts under child category */}
+                          {/* Prompts under child category - no further nesting allowed */}
                           {isChildExpanded && childSubcats.length > 0 && (
                             <div className="ml-4 mt-2 space-y-1">
                               {childSubcats.map((subcategory) => {
@@ -537,7 +537,7 @@ export function PromptManagementSidebar({
                                             setShowDeleteSubcategoryDialog(true);
                                           }}>
                                             <Trash2 className="h-4 w-4 mr-2" />
-                                            Delete Subcategory
+                                            Delete Prompt
                                           </DropdownMenuItem>
                                         </DropdownMenuContent>
                                       </DropdownMenu>
@@ -641,7 +641,7 @@ export function PromptManagementSidebar({
                         setShowDeleteSubcategoryDialog(true);
                       }}>
                         <Trash2 className="h-4 w-4 mr-2" />
-                        Delete Template
+                        Delete Prompt
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -654,8 +654,8 @@ export function PromptManagementSidebar({
 
       {/* Footer */}
       <div className="p-4 border-t border-border">
-        <div className="text-xs text-blue-600 dark:text-blue-400">
-          {categories.length} categories • {subcategories.length} subcategories
+        <div className="text-xs text-gray-600 dark:text-gray-400">
+          {categories.length} folders • {subcategories.length} prompts
         </div>
       </div>
 
@@ -681,9 +681,9 @@ export function PromptManagementSidebar({
       <AlertDialog open={showDeleteSubcategoryDialog} onOpenChange={setShowDeleteSubcategoryDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Subcategory</AlertDialogTitle>
+            <AlertDialogTitle>Delete Prompt</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete the subcategory "{subcategoryToDelete?.name}"? This action cannot be undone and will delete all prompts within this subcategory.
+              Are you sure you want to delete the prompt "{subcategoryToDelete?.name}"? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
