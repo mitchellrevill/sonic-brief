@@ -3,9 +3,10 @@ from typing import Dict, Any, List
 from pydantic import BaseModel
 import logging
 
-from ...core.dependencies import get_current_user, get_job_sharing_service
+from ...core.dependencies import get_current_user, get_job_sharing_service, get_job_service
 from ...services.jobs.job_sharing_service import JobSharingService
 from ...services.jobs.job_permissions import JobPermissions
+from ...services.jobs import JobService
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ async def share_job(
     share_request: ShareRequest = Body(..., description="Share request payload"),
     current_user: Any = Depends(get_current_user),
     sharing_service: JobSharingService = Depends(get_job_sharing_service),
+    job_service: JobService = Depends(get_job_service),
     permissions: JobPermissions = Depends(get_job_permissions)
 ):
     """
@@ -66,9 +68,17 @@ async def share_job(
                 detail=[{"loc": ["body", "shared_user_email"], "msg": "Field required", "type": "value_error.missing"}]
             )
 
+        # Fetch the job to check permissions
+        job = await job_service.async_get_job(job_id)
+        if not job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Job not found"
+            )
+
         # Check if user can share this job
         # Pass the full user object to the permissions helper so it can check ownership and shared entries
-        has_access = await permissions.check_job_access(job_id, user_obj, "admin")
+        has_access = await permissions.check_job_access(job, user_obj, "admin")
         if not has_access:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -130,6 +140,7 @@ async def unshare_job(
     shared_user_email: str,
     current_user: Any = Depends(get_current_user),
     sharing_service: JobSharingService = Depends(get_job_sharing_service),
+    job_service: JobService = Depends(get_job_service),
     permissions: JobPermissions = Depends(get_job_permissions)
 ):
     """
@@ -147,8 +158,16 @@ async def unshare_job(
         user_obj = current_user
         user_id = user_obj if isinstance(user_obj, str) else user_obj.get("id")
 
+        # Fetch the job to check permissions
+        job = await job_service.async_get_job(job_id)
+        if not job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Job not found"
+            )
+
         # Check if user can manage sharing for this job
-        has_access = await permissions.check_job_access(job_id, user_obj, "admin")
+        has_access = await permissions.check_job_access(job, user_obj, "admin")
         if not has_access:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -193,6 +212,7 @@ async def get_job_sharing_info(
     job_id: str,
     current_user: Any = Depends(get_current_user),
     sharing_service: JobSharingService = Depends(get_job_sharing_service),
+    job_service: JobService = Depends(get_job_service),
     permissions: JobPermissions = Depends(get_job_permissions)
 ):
     """
@@ -202,6 +222,7 @@ async def get_job_sharing_info(
         job_id: ID of the job
         current_user: Current user ID from auth
         sharing_service: Job sharing service
+        job_service: Job service
         permissions: Job permissions service
     """
 
@@ -210,8 +231,16 @@ async def get_job_sharing_info(
         user_obj = current_user
         user_id = user_obj if isinstance(user_obj, str) else user_obj.get("id")
 
+        # Fetch the job to check permissions
+        job = await job_service.async_get_job(job_id)
+        if not job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Job not found"
+            )
+
         # Check if user can view sharing info for this job
-        has_access = await permissions.check_job_access(job_id, user_obj, "view")
+        has_access = await permissions.check_job_access(job, user_obj, "view")
         if not has_access:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

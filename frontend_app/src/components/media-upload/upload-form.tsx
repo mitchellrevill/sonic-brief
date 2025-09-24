@@ -38,7 +38,6 @@ import {
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { Form, FormField, FormItem, FormMessage } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 // Removed legacy Select imports after UX modernization
 import { Badge } from "@/components/ui/badge";
@@ -120,7 +119,6 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   // Track search input for categories and meeting types
   const [categorySearch, setCategorySearch] = useState("");
-  const [subcategorySearch, setSubcategorySearch] = useState("");
   const [fileType, setFileType] = useState<keyof typeof FILE_TYPES | "other" | null>(null);
   // legacy inner zone drag state removed (full-page drag implemented)
   const [isWindowDrag, setIsWindowDrag] = useState(false); // full-page drag highlight
