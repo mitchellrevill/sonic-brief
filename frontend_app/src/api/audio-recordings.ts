@@ -22,27 +22,50 @@ export interface AudioRecording {
   _ts: number;
 }
 
-export async function getAudioRecordings(filters?: AudioListValues) {
-  // Use the new /jobs/my endpoint for user jobs
-  const cleanFilters = filters ? Object.fromEntries(
-    Object.entries(filters).filter(([_, value]) => value !== null && value !== undefined && value !== '')
-  ) : undefined;
-  
-  const response = await httpClient.get(`${JOBS_API}/my`, {
-    params: cleanFilters,
-  });
+export interface PaginatedResponse<T> {
+  jobs: T[];
+  count: number;
+  status: number;
+}
 
-  return response.data.jobs as Array<AudioRecording>;
+export async function getAudioRecordings(filters?: AudioListValues & { page?: number; per_page?: number }) {
+  // Call the jobs listing endpoint. The deployed backend exposes `/api/jobs`.
+  // Convert page/per_page to limit/offset for backend compatibility
+  const { page, per_page, ...filterParams } = filters || {};
+  
+  const params: Record<string, any> = {};
+  
+  // Add filter parameters
+  if (filterParams) {
+    Object.entries(filterParams).forEach(([key, value]) => {
+      if (value !== null && value !== undefined && value !== '') {
+        params[key] = value;
+      }
+    });
+  }
+  
+  // Add pagination parameters (backend expects limit/offset)
+  if (per_page) {
+    params.limit = per_page;
+  }
+  if (page && per_page) {
+    params.offset = (page - 1) * per_page;
+  }
+
+  const response = await httpClient.get(JOBS_API, { params });
+
+  // Backend returns { status, count, jobs }
+  return response.data as PaginatedResponse<AudioRecording>;
 }
 
 export async function getAudioTranscription(id: string) {
-  const response = await httpClient.get(`${TRANSCRIPTION_API}/${id}`);
+  const response = await httpClient.get(TRANSCRIPTION_API(id));
   return response.data;
 }
 
 // Analysis refinement API functions
 export interface AnalysisRefinementRequest {
-  message: string;
+  user_request: string;
 }
 
 export interface AnalysisRefinementResponse {
@@ -73,7 +96,7 @@ export async function refineAnalysis(
   request: AnalysisRefinementRequest
 ): Promise<AnalysisRefinementResponse> {
   const response = await httpClient.post(
-    `${JOBS_API}/${jobId}/refine-analysis`,
+    `${JOBS_API}/${jobId}/refinements`,
     request
   );
   return response.data;
@@ -83,7 +106,7 @@ export async function getRefinementHistory(
   jobId: string
 ): Promise<RefinementHistoryResponse> {
   const response = await httpClient.get(
-    `${JOBS_API}/${jobId}/refinement-history`
+    `${JOBS_API}/${jobId}/refinements`
   );
   return response.data;
 }
@@ -94,7 +117,7 @@ export async function getRefinementSuggestions(jobId: string): Promise<{
   suggestions: string[];
 }> {
   const response = await httpClient.get(
-    `${JOBS_API}/${jobId}/refinement-suggestions`
+    `${JOBS_API}/${jobId}/refinements/suggestions`
   );
   return response.data;
 }

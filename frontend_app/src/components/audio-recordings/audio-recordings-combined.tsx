@@ -1,5 +1,5 @@
 import type { AudioListValues } from "@/schema/audio-list.schema";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -52,6 +52,7 @@ import { audioListSchema, statusEnum } from "@/schema/audio-list.schema";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
+import { Pagination } from "@/components/ui/pagination";
 import {
   Eye,
   RefreshCcw,
@@ -99,14 +100,13 @@ function formatDate(input: string | number | undefined | null) {
   return d.toLocaleDateString();
 }
 
-const RECORDS_PER_PAGE = 12;
-
 export function AudioRecordingsCombined({
   initialFilters,
 }: {
-  initialFilters: AudioListValues;
+  initialFilters: AudioListValues & { page?: number; per_page?: number };
 }) {
-  const [currentPage, setCurrentPage] = useState(1);
+  const RECORDS_PER_PAGE = initialFilters.per_page || 12;
+  const [currentPage, setCurrentPage] = useState(initialFilters.page || 1);
   const [selectedRecording, setSelectedRecording] = useState<any>(null);
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
   const [filtersExpanded, setFiltersExpanded] = useState(true);
@@ -135,26 +135,69 @@ export function AudioRecordingsCombined({
     };
   }, [watchedFilters]);
 
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    if (currentPage !== 1) {
+      setCurrentPage(1);
+      router.navigate({
+        to: "/audio-recordings",
+        search: (prev) => ({ 
+          ...prev, 
+          page: 1,
+          per_page: RECORDS_PER_PAGE,
+          job_id: cleanedFilters.job_id,
+          status: cleanedFilters.status,
+          created_at: cleanedFilters.created_at,
+        }),
+        replace: true,
+      });
+    }
+  }, [cleanedFilters.job_id, cleanedFilters.status, cleanedFilters.created_at]);
+
   const {
-    data: audioRecordings,
+    data: audioRecordingsResponse,
     isLoading,
     refetch: refetchJobs,
   } = useQuery(getAudioRecordingsQuery({ ...cleanedFilters, page: currentPage, per_page: RECORDS_PER_PAGE }));
+
+  // Extract pagination data from response
+  const audioRecordings = audioRecordingsResponse?.jobs || [];
+  const totalCount = audioRecordingsResponse?.count || 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / RECORDS_PER_PAGE));
+
+  // Handle page changes with URL update
+  const handlePageChange = (newPage: number) => {
+    setCurrentPage(newPage);
+    // Update URL parameters with new page
+    router.navigate({
+      to: "/audio-recordings",
+      search: (prev) => ({ 
+        ...prev, 
+        page: newPage,
+        per_page: RECORDS_PER_PAGE,
+        job_id: watchedFilters.job_id || undefined,
+        status: watchedFilters.status === "all" ? undefined : watchedFilters.status,
+        created_at: watchedFilters.created_at || undefined,
+      }),
+      replace: true,
+    });
+  };
 
   // Refresh Handler (Keep Filters)
   const handleRefresh = async () => {
     await refetchJobs();
   };
 
-  // Reset button handler - clears filters
+  // Reset button handler - clears filters and resets to page 1
   const handleReset = () => {
     form.reset({ job_id: "", status: "all", created_at: "" });
+    setCurrentPage(1);
+    router.navigate({
+      to: "/audio-recordings",
+      search: { page: 1, per_page: RECORDS_PER_PAGE },
+      replace: true,
+    });
   };
-
-  // Pagination Logic - server-side. The query attaches total via `_total_count`.
-  const totalCount = (audioRecordings && (audioRecordings as any)._total_count) || (audioRecordings ? (audioRecordings as any).length : 0);
-  const totalPages = Math.max(1, Math.ceil(totalCount / RECORDS_PER_PAGE));
-  const paginatedData = audioRecordings || [];
   const handleViewDetails = (recording: any) => {
     localStorage.setItem("current_recording_id", recording.id);
     // Use the named param route so the router can resolve child route correctly
@@ -414,7 +457,7 @@ export function AudioRecordingsCombined({
                         <div className="text-sm text-muted-foreground">
                           {audioRecordings && (
                             <span>
-                                  Showing {paginatedData?.length || 0} of{" "}
+                                  Showing {audioRecordings?.length || 0} of{" "}
                                   {totalCount} recordings
                                 </span>
                           )}
@@ -476,8 +519,8 @@ export function AudioRecordingsCombined({
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-fr animate-in fade-in duration-300">
-                {paginatedData && paginatedData.length > 0 ? (
-                  paginatedData.map((recording: any, index: number) => (
+                {audioRecordings && audioRecordings.length > 0 ? (
+                  audioRecordings.map((recording: any, index: number) => (
                     <div
                       key={recording.id}
                         className="animate-in slide-in-from-bottom-4 duration-300 h-full"
@@ -556,8 +599,8 @@ export function AudioRecordingsCombined({
                   </TableBody>
                 ) : (
                   <TableBody>
-                    {paginatedData && paginatedData.length > 0 ? (
-                      paginatedData.map((row: any) => (
+                    {audioRecordings && audioRecordings.length > 0 ? (
+                      audioRecordings.map((row: any) => (
                         <TableRow key={row.id} className="hover:bg-muted/50 border-border/50">
                           <TableCell className="font-mono text-sm">{row.id}</TableCell>                          <TableCell className="max-w-[250px]">
                             <div className="truncate font-medium">
@@ -642,72 +685,14 @@ export function AudioRecordingsCombined({
               </Table>
             </Card>
           </div>
-          {/* Enhanced Pagination Controls */}
-          {totalPages > 1 && (
-            <Card className="border-border/50 bg-gradient-to-r from-card/50 to-muted/10">
-              <CardContent className="p-4">
-                <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCurrentPage(currentPage - 1)}
-                      disabled={currentPage === 1 || isLoading}
-                      className="hover:bg-muted transition-colors"
-                    >
-                      Previous
-                    </Button>
-                    <div className="flex items-center gap-1">
-                      {[...Array(Math.min(totalPages, 5))].map((_, i) => {
-                        const pageNum = i + 1;
-                        const isActive = pageNum === currentPage;
-                        return (
-                          <Button
-                            key={pageNum}
-                            variant={isActive ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => setCurrentPage(pageNum)}
-                            disabled={isLoading}
-                            className={cn(
-                              "w-8 h-8 p-0 transition-all duration-200",
-                              isActive && "bg-primary text-primary-foreground shadow-md",
-                            )}
-                          >
-                            {pageNum}
-                          </Button>
-                        );
-                      })}
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCurrentPage(currentPage + 1)}
-                      disabled={currentPage >= totalPages || isLoading}
-                      className="hover:bg-muted transition-colors"
-                    >
-                      Next
-                    </Button>
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">
-                        Page {currentPage} of {totalPages}
-                      </span>
-                      {audioRecordings && (
-                        <>
-                          <span className="w-1 h-1 bg-muted-foreground rounded-full" />
-                          <span>
-                            {audioRecordings.length} total record
-                            {audioRecordings.length !== 1 ? "s" : ""}
-                          </span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          {/* Pagination Controls */}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={totalCount}
+            itemsPerPage={RECORDS_PER_PAGE}
+            onPageChange={handlePageChange}
+          />
         </CardContent>
       </Card>      {shareRecording && (
         <JobShareDialog

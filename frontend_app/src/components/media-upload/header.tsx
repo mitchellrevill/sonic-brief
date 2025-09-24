@@ -36,7 +36,7 @@ export function MediaUploadHeader({ onStartRecording, isRecording = false }: Med
               size="sm"
               className="rounded-md"
             >
-              <Mic className={`h-4 w-4 mr-2 ${isRecording ? 'animate-pulse text-red-500' : ''}`} />
+              <Mic className={`h-4 w-4 mr-2 ${isRecording ? 'text-red-500' : ''}`} />
               {isRecording ? 'Recording...' : 'Start Recording'}
             </Button>
           </div>

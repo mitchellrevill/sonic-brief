@@ -1,7 +1,4 @@
-import { Button } from "@/components/ui/button";
-import { UserPlus, Download } from "lucide-react";
-import { PermissionGuard } from "@/lib/permission";
-import { Capability } from "@/types/permissions";
+// UI controls were removed; keep props for compatibility
 
 interface UserManagementHeaderProps {
   onAddUser?: () => void;
@@ -9,6 +6,10 @@ interface UserManagementHeaderProps {
 }
 
 export function UserManagementHeader({ onAddUser, onExportCSV }: UserManagementHeaderProps) {
+  // Keep props referenced for compatibility (they may be used elsewhere).
+  void onAddUser;
+  void onExportCSV;
+
   return (
     <div className="flex justify-between items-center">
       <div>
@@ -18,18 +19,7 @@ export function UserManagementHeader({ onAddUser, onExportCSV }: UserManagementH
         </p>
       </div>
       <div className="flex gap-2">
-        <PermissionGuard requiredCapability={Capability.CAN_CREATE_USERS}>
-          <Button className="flex items-center gap-2" onClick={onAddUser}>
-            <UserPlus className="h-4 w-4" />
-            Add User
-          </Button>
-        </PermissionGuard>
-        {onExportCSV && (
-          <Button variant="outline" className="flex items-center gap-2" onClick={onExportCSV}>
-            <Download className="h-4 w-4" />
-            Export Minutes CSV
-          </Button>
-        )}
+        {/* 'Add User' and 'Export Minutes CSV' removed per UI update request. */}
       </div>
     </div>
   );

@@ -50,18 +50,23 @@ class CacheSettings(BaseSettings):
 
 class AzureSettings(BaseSettings):
     """Azure services configuration"""
-    storage_account_name: str = Field(..., env="AZURE_STORAGE_ACCOUNT_NAME")
-    storage_account_key: str = Field(..., env="AZURE_STORAGE_ACCOUNT_KEY")
-    storage_container_name: str = Field("uploads", env="AZURE_STORAGE_CONTAINER")
+    storage_account_url: str = Field(..., env="AZURE_STORAGE_ACCOUNT_URL")
+    storage_recordings_container: str = Field("uploads", env="AZURE_STORAGE_RECORDINGS_CONTAINER")
+    
+    # Legacy storage settings (for backwards compatibility)
+    storage_account_name: Optional[str] = Field(None, env="AZURE_STORAGE_ACCOUNT_NAME")
+    storage_account_key: Optional[str] = Field(None, env="AZURE_STORAGE_ACCOUNT_KEY")
+    storage_container_name: Optional[str] = Field(None, env="AZURE_STORAGE_CONTAINER")
     
     # OpenAI/Cognitive Services
     openai_endpoint: str = Field(..., env="AZURE_OPENAI_ENDPOINT")
-    openai_key: str = Field(..., env="AZURE_OPENAI_KEY")
+    openai_key: Optional[str] = Field(None, env="AZURE_OPENAI_KEY")
     openai_deployment_name: str = Field("gpt-4", env="AZURE_OPENAI_DEPLOYMENT")
     
     # Speech Service
-    speech_service_key: str = Field(..., env="AZURE_SPEECH_KEY")
-    speech_service_region: str = Field(..., env="AZURE_SPEECH_REGION")
+    speech_service_key: Optional[str] = Field(None, env="AZURE_SPEECH_KEY")
+    speech_service_region: Optional[str] = Field(None, env="AZURE_SPEECH_REGION")
+    speech_deployment: Optional[str] = Field(None, env="AZURE_SPEECH_DEPLOYMENT")
 
 class AppSettings(BaseSettings):
     """Application configuration"""

@@ -171,8 +171,8 @@ class StartupLogger:
                 self.logger.info(f"  Database: {config.cosmos.get('database', 'unknown')}")
                 
         if hasattr(config, 'storage'):
-            self.logger.info(f"  Storage Account: {config.storage.account_url}")
-            self.logger.info(f"  Recordings Container: {config.storage.recordings_container}")
+            self.logger.info(f"  Storage Account: {config.azure_storage_account_url}")
+            self.logger.info(f"  Recordings Container: {config.azure_storage_recordings_container}")
     
     def finish_startup(self):
         """Complete startup logging with summary"""

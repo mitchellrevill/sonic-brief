@@ -7,7 +7,8 @@ import uuid
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type, RetryError
 import traceback
 
-from ...core.config import get_app_config, get_cosmos_db_cached, DatabaseError
+from ...core.config import get_config, DatabaseError
+from ...core.dependencies import CosmosService
 
 logger = logging.getLogger(__name__)
 
@@ -15,11 +16,9 @@ logger = logging.getLogger(__name__)
 class AnalysisRefinementService:
     """Service for handling AI-powered analysis refinement via Azure Functions."""
     
-    def __init__(self, cosmos_db=None):
-        cfg = get_app_config()
-        if cosmos_db is None:
-            cosmos_db = get_cosmos_db_cached(cfg)
-        self.cosmos = cosmos_db
+    def __init__(self, cosmos_service: CosmosService):
+        cfg = get_config()
+        self.cosmos = cosmos_service
         self.config = cfg
         
         # Azure Functions configuration
@@ -199,8 +198,8 @@ class AnalysisRefinementService:
         This method is used when the web app is responsible for contacting the model provider
         directly (preferred for streaming and fewer network hops).
         """
-        # Load settings
-        cfg = get_app_config()
+        # Load settings from instance config
+        cfg = self.config
         openai_endpoint = getattr(cfg.azure, 'openai_endpoint', None) if getattr(cfg, 'azure', None) else None
         openai_key = getattr(cfg.azure, 'openai_key', None) if getattr(cfg, 'azure', None) else None
         deployment = getattr(cfg.azure, 'openai_deployment_name', None) if getattr(cfg, 'azure', None) else None
@@ -261,7 +260,7 @@ class AnalysisRefinementService:
         Returns an async generator that yields SSE-compatible chunks from Azure OpenAI streaming API.
         The generator yields raw strings which the router will wrap as Server-Sent Events.
         """
-        cfg = get_app_config()
+        cfg = self.config
         openai_endpoint = getattr(cfg.azure, 'openai_endpoint', None) if getattr(cfg, 'azure', None) else None
         openai_key = getattr(cfg.azure, 'openai_key', None) if getattr(cfg, 'azure', None) else None
         deployment = getattr(cfg.azure, 'openai_deployment_name', None) if getattr(cfg, 'azure', None) else None

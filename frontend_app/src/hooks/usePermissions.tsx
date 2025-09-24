@@ -42,20 +42,26 @@ export const useUserPermissions = () => {
   return useQuery<FrontendUser>({
     queryKey: ['user-permissions'],
     queryFn: async () => {
-      const backendUser: BackendUser = await getUserPermissions();
-      
-      // Get base capabilities from permission level
-      const baseCapabilities = getCapabilitiesForPermission(backendUser.permission);
+  const backendUser: BackendUser = await getUserPermissions();
+
+  // Normalize backend response: some backends return `permission_level` instead of `permission`
+  const normalizedPermission = (backendUser as any).permission || (backendUser as any).permission_level || 'User';
+
+  // Get base capabilities from permission level
+  const baseCapabilities = getCapabilitiesForPermission(normalizedPermission as PermissionLevel);
       
       // Merge with custom capabilities if available
-      const customCapabilities = backendUser.custom_capabilities || {};
+      const customCapabilities = (backendUser as any).custom_capabilities || (backendUser as any).customCapabilities || {};
       const effectiveCapabilities = { ...baseCapabilities, ...customCapabilities };
-      
+
       return {
+        // Ensure the frontend sees `permission` consistently
         ...backendUser,
+        permission: normalizedPermission as PermissionLevel,
         capabilities: effectiveCapabilities,
-        effective_capabilities: effectiveCapabilities
-      };
+        effective_capabilities: effectiveCapabilities,
+        custom_capabilities: customCapabilities,
+      } as any;
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
     retry: 1,

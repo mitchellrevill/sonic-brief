@@ -3,7 +3,7 @@ import re
 from typing import Dict, Any
 from fastapi import UploadFile, HTTPException
 
-from app.core.settings import get_settings
+from app.core.config import get_config
 
 try:
     import magic
@@ -24,9 +24,9 @@ class FileSecurityService:
     ]
 
     def __init__(self):
-        settings = get_settings()
-        self.max_size_bytes = settings.app.max_file_size_mb * 1024 * 1024
-        self.allowed_exts = set(settings.app.allowed_file_types_list)
+        config = get_config()
+        self.max_size_bytes = config.max_file_size_mb * 1024 * 1024
+        self.allowed_exts = set(config.allowed_file_types_list)
 
     async def validate(self, file: UploadFile) -> Dict[str, Any]:
         # Basic checks

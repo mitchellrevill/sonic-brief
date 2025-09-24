@@ -9,7 +9,8 @@ import json
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from azure.cosmos import exceptions as cosmos_exceptions
-from ...core.config import get_app_config, get_cosmos_db_cached
+from ...core.config import get_config
+from ...core.dependencies import CosmosService
 from ...core.async_utils import run_sync
 from ...models.analytics_models import SystemHealthMetrics, SystemHealthResponse
 
@@ -26,15 +27,15 @@ logger = logging.getLogger(__name__)
 class SystemHealthService:
     """System health service that only reports 3 real metrics: API response time, Database response time, Memory usage"""
     
-    def __init__(self):
+    def __init__(self, cosmos_service: Optional[CosmosService] = None):
         self.service_start_time = time.time()
         try:
-            self.config = get_app_config()
-            self.cosmos_db = get_cosmos_db_cached(self.config)
+            self.config = get_config()
+            self.cosmos_service = cosmos_service or CosmosService(self.config)
         except Exception as e:
             logger.warning(f"Failed to initialize connections: {str(e)}")
             self.config = None
-            self.cosmos_db = None
+            self.cosmos_service = None
 
     async def get_system_health(self) -> SystemHealthResponse:
         """
@@ -101,16 +102,16 @@ class SystemHealthService:
 
     async def _test_database_health(self) -> float:
         """Test actual database connectivity and response time"""
-        if not self.cosmos_db:
+        if not self.cosmos_service:
             return -1.0  # Indicates unavailable, not fake high number
             
         try:
             start_time = time.time()
             
             # Real query to test database
-            if hasattr(self.cosmos_db, 'auth_container') and self.cosmos_db.auth_container:
+            if hasattr(self.cosmos_service, 'auth_container') and self.cosmos_service.auth_container:
                 query = "SELECT TOP 1 c.id FROM c"
-                results = await run_sync(lambda: list(self.cosmos_db.auth_container.query_items(
+                results = await run_sync(lambda: list(self.cosmos_service.auth_container.query_items(
                     query=query, 
                     enable_cross_partition_query=True
                 )))

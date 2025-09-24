@@ -82,7 +82,7 @@ export const DEFAULT_CAPABILITIES: Record<PermissionLevel, Capability[]> = {
     Capability.CAN_EDIT_OWN_JOBS,
     Capability.CAN_DELETE_OWN_JOBS,
     Capability.CAN_VIEW_SHARED_JOBS,
-    Capability.CAN_VIEW_PROMPTS,
+    // Prompt management removed for basic USER role
     Capability.CAN_VIEW_SETTINGS,
     Capability.CAN_UPLOAD_FILES,
     Capability.CAN_DOWNLOAD_FILES,

@@ -15,18 +15,18 @@ Structure:
 from . import prompts as prompts
 from . import auth as auth
 
-from .user_service import *
-from .password_service import *
-
-# New job-related helpers
+# Only export stable, present modules. Avoid re-exporting files that may not exist
+# (user_service/password_service were removed or are optional). Import job helpers
+# explicitly where needed instead of re-exporting fragile globals.
+# New job-related helpers (imported by callers via app.services.jobs)
 from .jobs import JobService
-from .jobs import check_job_access, check_job_access_permission, get_user_job_permission
+from .jobs import check_job_access, check_job_permission_level, get_user_job_permission
 
 __all__ = [
     'prompts',
     'auth',
     'JobService',
     'check_job_access',
-    'check_job_access_permission',
+    'check_job_permission_level',
     'get_user_job_permission',
 ]

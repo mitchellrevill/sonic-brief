@@ -319,7 +319,7 @@ export function AudioRecordingModal({ isOpen, onClose, onRecordingComplete }: Au
               
               {/* Recording indicator */}
               {state === RecordingState.RECORDING && (
-                <div className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full animate-pulse flex items-center justify-center">
+                <div className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center">
                   <div className="w-2 h-2 bg-white rounded-full" />
                 </div>
               )}

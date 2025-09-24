@@ -15,11 +15,17 @@ from fastapi import (
 from pydantic import BaseModel
 import logging
 
-from ...core.config import get_app_config, get_cosmos_db_cached, CosmosDB, DatabaseError
-from ...services.monitoring import SystemHealthService
 from ...models.analytics_models import SystemHealthResponse
-from ...core.dependencies import get_current_user, require_analytics_access
-from ...models.permissions import PermissionLevel, PermissionCapability, get_user_capabilities
+from ...core.dependencies import (
+    get_current_user, 
+    require_analytics_access,
+    get_cosmos_service,
+    get_system_health_service,
+    CosmosService
+)
+from ...services.monitoring import SystemHealthService
+from ...services.interfaces import SystemHealthServiceInterface
+from ...models.permissions import PermissionLevel, has_permission_level
 from ...core.async_utils import run_sync
 
 # Setup logging
@@ -31,12 +37,12 @@ router = APIRouter(prefix="", tags=["system-health"])
 
 @router.get("/health", response_model=SystemHealthResponse)
 async def get_system_health(
-    current_user: Dict[str, Any] = Depends(require_analytics_access)
+    current_user: Dict[str, Any] = Depends(require_analytics_access),
+    system_service: SystemHealthServiceInterface = Depends(get_system_health_service)
 ):
     """Get comprehensive system health metrics (Admin only)"""
     try:
-        health_service = SystemHealthService()
-        health_data = await health_service.get_system_health()
+        health_data = await system_service.get_system_health()
         
         return health_data
         
@@ -52,12 +58,11 @@ async def get_system_health(
 async def get_detailed_health_check(
     include_performance: bool = Query(default=True, description="Include performance metrics"),
     include_dependencies: bool = Query(default=True, description="Include dependency status"),
-    current_user: Dict[str, Any] = Depends(require_analytics_access)
+    current_user: Dict[str, Any] = Depends(require_analytics_access),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
 ):
     """Get detailed system health with performance metrics and dependency status"""
     try:
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
         
         health_check = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -81,7 +86,7 @@ async def get_detailed_health_check(
         # Database connectivity check
         try:
             test_query = "SELECT TOP 1 c.id FROM c"
-            await run_sync(lambda: list(cosmos_db.analytics_container.query_items(
+            await run_sync(lambda: list(cosmos_service.analytics_container.query_items(
                 query=test_query,
                 enable_cross_partition_query=True
             )))
@@ -102,9 +107,9 @@ async def get_detailed_health_check(
         
         # Sessions container check
         try:
-            if hasattr(cosmos_db, 'sessions_container') and cosmos_db.sessions_container:
+            if hasattr(cosmos_service, 'sessions_container') and cosmos_service.sessions_container:
                 test_session_query = "SELECT TOP 1 c.id FROM c WHERE c.type = 'session'"
-                await run_sync(lambda: list(cosmos_db.sessions_container.query_items(
+                await run_sync(lambda: list(cosmos_service.sessions_container.query_items(
                     query=test_session_query,
                     enable_cross_partition_query=True
                 )))
@@ -152,7 +157,7 @@ async def get_detailed_health_check(
                 recent_analytics_query = "SELECT VALUE COUNT(1) FROM c WHERE c.created_at >= @cutoff_time"
                 recent_analytics_params = [{"name": "@cutoff_time", "value": cutoff_time.isoformat()}]
                 
-                recent_analytics_count = await run_sync(lambda: list(cosmos_db.analytics_container.query_items(
+                recent_analytics_count = await run_sync(lambda: list(cosmos_service.analytics_container.query_items(
                     query=recent_analytics_query,
                     parameters=recent_analytics_params,
                     enable_cross_partition_query=True
@@ -161,7 +166,7 @@ async def get_detailed_health_check(
                 health_check["performance"]["recent_analytics_events"] = recent_analytics_count[0] if recent_analytics_count else 0
                 
                 # Check session activity if available
-                if hasattr(cosmos_db, 'sessions_container') and cosmos_db.sessions_container:
+                if hasattr(cosmos_service, 'sessions_container') and cosmos_service.sessions_container:
                     recent_sessions_query = """
                     SELECT VALUE COUNT(1) 
                     FROM c 
@@ -169,7 +174,7 @@ async def get_detailed_health_check(
                     AND c.last_heartbeat >= @cutoff_time
                     """
                     
-                    recent_sessions_count = await run_sync(lambda: list(cosmos_db.sessions_container.query_items(
+                    recent_sessions_count = await run_sync(lambda: list(cosmos_service.sessions_container.query_items(
                         query=recent_sessions_query,
                         parameters=recent_analytics_params,
                         enable_cross_partition_query=True
@@ -183,7 +188,7 @@ async def get_detailed_health_check(
         # Dependency status
         if include_dependencies:
             health_check["dependencies"] = {
-                "cosmos_db": "healthy" if service_checks["database"] else "unhealthy",
+                "cosmos_service": "healthy" if service_checks["database"] else "unhealthy",
                 "analytics_container": "healthy" if service_checks["analytics_container"] else "unhealthy", 
                 "sessions_container": "healthy" if service_checks["sessions_container"] else "not_available",
                 "storage_account": "unknown",  # Would need storage service check
@@ -230,17 +235,16 @@ async def get_quick_health_check():
 
 @router.get("/status")
 async def get_system_status(
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
 ):
     """Get basic system status information"""
     try:
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
         
         status_info = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "system_time": datetime.now(timezone.utc).isoformat(),
-            "environment": getattr(config, 'ENVIRONMENT', 'unknown'),
+            "environment": getattr(cosmos_service.config, 'ENVIRONMENT', 'unknown'),
             "api_version": "1.0.0",
             "database_status": "unknown",
             "containers_status": {},
@@ -254,7 +258,7 @@ async def get_system_status(
         # Check database status
         try:
             test_query = "SELECT TOP 1 c.id FROM c"
-            list(cosmos_db.analytics_container.query_items(
+            list(cosmos_service.analytics_container.query_items(
                 query=test_query,
                 enable_cross_partition_query=True
             ))
@@ -267,9 +271,9 @@ async def get_system_status(
         
         # Check sessions container
         try:
-            if hasattr(cosmos_db, 'sessions_container') and cosmos_db.sessions_container:
+            if hasattr(cosmos_service, 'sessions_container') and cosmos_service.sessions_container:
                 session_query = "SELECT TOP 1 c.id FROM c WHERE c.type = 'session'"
-                list(cosmos_db.sessions_container.query_items(
+                list(cosmos_service.sessions_container.query_items(
                     query=session_query,
                     enable_cross_partition_query=True
                 ))
@@ -281,9 +285,9 @@ async def get_system_status(
         
         # Check audit container if available
         try:
-            if hasattr(cosmos_db, 'audit_container') and cosmos_db.audit_container:
+            if hasattr(cosmos_service, 'audit_container') and cosmos_service.audit_container:
                 audit_query = "SELECT TOP 1 c.id FROM c WHERE c.type = 'audit'"
-                list(cosmos_db.audit_container.query_items(
+                list(cosmos_service.audit_container.query_items(
                     query=audit_query,
                     enable_cross_partition_query=True
                 ))
@@ -308,12 +312,11 @@ async def get_system_status(
 @router.get("/monitoring/metrics")
 async def get_monitoring_metrics(
     hours: int = Query(default=24, ge=1, le=168, description="Hours of metrics to retrieve"),
-    current_user: Dict[str, Any] = Depends(require_analytics_access)
+    current_user: Dict[str, Any] = Depends(require_analytics_access),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
 ):
     """Get system monitoring metrics for the specified time period"""
     try:
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
         
         cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
         
@@ -332,7 +335,7 @@ async def get_monitoring_metrics(
             analytics_query = "SELECT * FROM c WHERE c.created_at >= @cutoff_time"
             analytics_params = [{"name": "@cutoff_time", "value": cutoff_time.isoformat()}]
             
-            analytics_items = await run_sync(lambda: list(cosmos_db.analytics_container.query_items(
+            analytics_items = await run_sync(lambda: list(cosmos_service.analytics_container.query_items(
                 query=analytics_query,
                 parameters=analytics_params,
                 enable_cross_partition_query=True
@@ -352,7 +355,7 @@ async def get_monitoring_metrics(
         
         # Session activity metrics
         try:
-            if hasattr(cosmos_db, 'sessions_container') and cosmos_db.sessions_container:
+            if hasattr(cosmos_service, 'sessions_container') and cosmos_service.sessions_container:
                 session_query = """
                 SELECT c.id, c.user_id, c.created_at, c.last_heartbeat, 
                        c.status, c.activity_count
@@ -361,7 +364,7 @@ async def get_monitoring_metrics(
                 AND c.created_at >= @cutoff_time
                 """
                 
-                sessions = await run_sync(lambda: list(cosmos_db.sessions_container.query_items(
+                sessions = await run_sync(lambda: list(cosmos_service.sessions_container.query_items(
                     query=session_query,
                     parameters=analytics_params,
                     enable_cross_partition_query=True
@@ -386,8 +389,8 @@ async def get_monitoring_metrics(
             "containers_accessible": len([
                 k for k, v in {
                     "analytics": True,  # We queried it successfully
-                    "sessions": hasattr(cosmos_db, 'sessions_container'),
-                    "audit": hasattr(cosmos_db, 'audit_container')
+                    "sessions": hasattr(cosmos_service, 'sessions_container'),
+                    "audit": hasattr(cosmos_service, 'audit_container')
                 }.items() if v
             ])
         }

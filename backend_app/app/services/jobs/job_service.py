@@ -3,7 +3,8 @@ from urllib.parse import urlparse
 from datetime import datetime, timezone
 import logging
 
-from ...core.config import get_app_config, get_cosmos_db_cached
+from ...core.config import get_config
+from ...core.dependencies import CosmosService
 from ..storage.blob_service import StorageService
 import uuid
 from ...core.async_utils import run_sync
@@ -17,12 +18,9 @@ class JobService:
     Designed to be used as a lightweight per-request instance created via DI.
     """
 
-    def __init__(self, cosmos_db=None):
-        cfg = get_app_config()
-        if cosmos_db is None:
-            cosmos_db = get_cosmos_db_cached(cfg)
-        self.cosmos = cosmos_db
-        self.storage = StorageService(cfg)
+    def __init__(self, cosmos_service: CosmosService, storage_service: StorageService):
+        self.cosmos = cosmos_service
+        self.storage = storage_service
 
     def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         try:

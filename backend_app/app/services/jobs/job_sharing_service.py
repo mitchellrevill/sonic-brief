@@ -2,7 +2,8 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 import logging
 
-from ...core.config import get_app_config, get_cosmos_db_cached, DatabaseError
+from ...core.config import get_config, DatabaseError
+from ...core.dependencies import CosmosService
 from ...core.async_utils import run_sync
 
 logger = logging.getLogger(__name__)
@@ -11,11 +12,8 @@ logger = logging.getLogger(__name__)
 class JobSharingService:
     """Service for handling job sharing operations with Cosmos DB."""
     
-    def __init__(self, cosmos_db=None):
-        cfg = get_app_config()
-        if cosmos_db is None:
-            cosmos_db = get_cosmos_db_cached(cfg)
-        self.cosmos = cosmos_db
+    def __init__(self, cosmos_service: CosmosService):
+        self.cosmos = cosmos_service
 
     async def share_job(self, job_id: str, owner_user_id: str, target_user_email: str, permission_level: str = "view") -> Dict[str, Any]:
         """

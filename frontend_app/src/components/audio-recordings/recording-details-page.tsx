@@ -12,10 +12,7 @@ import { getAudioTranscriptionQuery } from "@/queries/audio-recordings.query";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { AnalysisRefinementChat } from "@/components/analysis-refinement/analysis-refinement-chat";
-import { FloatingAnalysisChat } from "@/components/analysis-refinement/floating-analysis-chat";
 import { AnalysisDocumentViewer } from "@/components/analysis/analysis-document-viewer";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { fetchCategories, fetchSubcategories } from "@/api/prompt-management";
 import { updateAnalysisDocument } from "@/lib/api";
 import { isAudioFile, getAudioDurationFromUrl } from "@/lib/file-utils";
@@ -40,7 +37,6 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle,
-  MessageSquare,
   Trash2,
 } from "lucide-react";
 import { JobShareDialog } from "./job-share-dialog";
@@ -790,43 +786,6 @@ export function RecordingDetailsPage({ recording: initialRecording }: RecordingD
                   </Button>
                 )}
 
-                {/* Analysis Refinement Chat Button - Prominent in Actions */}
-                {recording.analysis_text && (
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button 
-                        variant="default" 
-                        className="w-full justify-start transition-all duration-200 hover:scale-105 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-md"
-                      >
-                        <MessageSquare className="mr-2 h-4 w-4" />
-                        Chat with Analysis
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="fixed inset-0 max-w-full max-h-full w-screen h-screen flex flex-col p-0 gap-0 z-50 bg-background rounded-none shadow-none border-0">
-                      <DialogHeader className="px-6 py-4 border-b bg-muted/30">
-                        <DialogTitle className="flex items-center gap-3">
-                          <span className="bg-primary/10 rounded-full p-2.5">
-                            <MessageSquare className="text-primary h-5 w-5" />
-                          </span>
-                          <div>
-                            <div className="text-lg font-semibold">Refine Your Analysis</div>
-                            <p className="text-sm text-muted-foreground font-normal mt-1">
-                              Chat with AI to refine and explore your analysis results
-                            </p>
-                          </div>
-                        </DialogTitle>
-                      </DialogHeader>
-                      
-                      <div className="flex-1 min-h-0">
-                        <AnalysisRefinementChat 
-                          jobId={recording.id}
-                          className="border-0 bg-transparent h-full rounded-none"
-                        />
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                )}
-                
                 <div className="pt-2 border-t border-border/50">
                   {/* Secondary Actions */}
                 </div>
@@ -848,13 +807,7 @@ export function RecordingDetailsPage({ recording: initialRecording }: RecordingD
             </Card>
           </div>
         </div>
-      </div>      {/* Floating Analysis Chat - Mobile/Global Access */}
-      <FloatingAnalysisChat 
-        jobId={recording.id} 
-        hasAnalysis={Boolean(recording.analysis_text)}
-      />
-
-      {/* Sharing Info Display - New Component */}
+      </div>      {/* Sharing Info Display - New Component */}
       <JobSharingInfo jobId={recording.id} jobTitle={displayName} />
 
       {/* Share Dialog - New Component */}

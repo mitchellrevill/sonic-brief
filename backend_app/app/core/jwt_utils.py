@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
 from jose import jwt, JWTError
-from .config import get_app_config
+from .config import get_config
 
 LEGACY_SUB_EMAIL = "legacy_email"
 
@@ -17,8 +17,8 @@ def create_access_token(user: Dict[str, Any], *, expires_minutes: Optional[int] 
       legacy_email: duplicate email for older decoders expecting email in sub
       exp: expiry timestamp
     """
-    config = get_app_config()
-    mins = expires_minutes or config.auth.get("jwt_access_token_expire_minutes", 60)
+    config = get_config()
+    mins = expires_minutes or config.jwt_access_token_expire_minutes
     expire = datetime.now(timezone.utc) + timedelta(minutes=mins)
     payload = {
         "sub": user.get("id") or user.get("email"),
@@ -26,13 +26,13 @@ def create_access_token(user: Dict[str, Any], *, expires_minutes: Optional[int] 
         LEGACY_SUB_EMAIL: user.get("email"),
         "exp": expire,
     }
-    return jwt.encode(payload, config.auth["jwt_secret_key"], algorithm=config.auth["jwt_algorithm"])
+    return jwt.encode(payload, config.jwt_secret_key, algorithm=config.jwt_algorithm)
 
 def decode_token(token: str) -> Dict[str, Any]:
     """Decode token and return payload. Raises TokenDecodeError on failure."""
-    config = get_app_config()
+    config = get_config()
     try:
-        return jwt.decode(token, config.auth["jwt_secret_key"], algorithms=[config.auth["jwt_algorithm"]])
+        return jwt.decode(token, config.jwt_secret_key, algorithms=[config.jwt_algorithm])
     except JWTError as e:
         raise TokenDecodeError(str(e)) from e
 

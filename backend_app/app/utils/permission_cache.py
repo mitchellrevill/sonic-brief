@@ -142,8 +142,8 @@ def get_permission_cache(settings=None) -> BasePermissionCache:
     try:
         if settings is None:
             # Import here to avoid circular imports
-            from app.core.settings import get_settings
-            settings = get_settings()
+            from app.core.config import get_config
+            settings = get_config()
         
         cache_settings = settings.cache
         

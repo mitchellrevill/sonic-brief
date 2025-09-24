@@ -16,9 +16,13 @@ from fastapi import (
 from pydantic import BaseModel
 import logging
 
-from ...core.config import get_app_config, get_cosmos_db_cached, CosmosDB, DatabaseError
-from ...core.dependencies import get_current_user, require_analytics_access
-from ...models.permissions import PermissionLevel, PermissionCapability
+from ...core.dependencies import (
+    get_current_user, 
+    require_analytics_access,
+    get_cosmos_service,
+    CosmosService
+)
+from ...models.permissions import PermissionLevel, has_permission_level
 from ...core.async_utils import run_sync
 
 # Setup logging
@@ -50,7 +54,8 @@ class CleanupRequest(BaseModel):
 @router.post("/admin/maintenance")
 async def schedule_maintenance(
     maintenance_request: MaintenanceRequest,
-    current_user: Dict[str, Any] = Depends(require_analytics_access)
+    current_user: Dict[str, Any] = Depends(require_analytics_access),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
 ):
     """Schedule system maintenance (Admin only)"""
     try:
@@ -61,9 +66,6 @@ async def schedule_maintenance(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Admin permission required for maintenance operations"
             )
-        
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
         
         # Create maintenance record
         maintenance_record = {
@@ -82,7 +84,7 @@ async def schedule_maintenance(
         # Store maintenance record (would typically go to a maintenance container)
         # For now, we'll store in analytics container with a special type
         try:
-            await run_sync(lambda: cosmos_db.analytics_container.create_item(maintenance_record))
+            await run_sync(lambda: cosmos_service.analytics_container.create_item(maintenance_record))
         except Exception as store_error:
             logger.error(f"Error storing maintenance record: {str(store_error)}")
             raise HTTPException(
@@ -113,7 +115,8 @@ async def schedule_maintenance(
 @router.post("/admin/cleanup")
 async def perform_system_cleanup(
     cleanup_request: CleanupRequest,
-    current_user: Dict[str, Any] = Depends(require_analytics_access)
+    current_user: Dict[str, Any] = Depends(require_analytics_access),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
 ):
     """Perform system cleanup operations (Admin only)"""
     try:
@@ -124,9 +127,6 @@ async def perform_system_cleanup(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Admin permission required for cleanup operations"
             )
-        
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
         
         cleanup_results = {
             "cleanup_type": cleanup_request.cleanup_type,
@@ -141,10 +141,10 @@ async def perform_system_cleanup(
         
         if cleanup_request.cleanup_type == "sessions":
             try:
-                if hasattr(cosmos_db, 'sessions_container') and cosmos_db.sessions_container:
+                if hasattr(cosmos_service, 'sessions_container') and cosmos_service.sessions_container:
                     # Find old sessions
                     old_sessions_query = """
-                    SELECT c.id, c.created_at 
+                    SELECT c.id, c.created_at, c.partition_key 
                     FROM c 
                     WHERE c.type = 'session' 
                     AND c.created_at < @cutoff_date
@@ -152,7 +152,7 @@ async def perform_system_cleanup(
                     
                     parameters = [{"name": "@cutoff_date", "value": cutoff_date.isoformat()}]
                     
-                    old_sessions = await run_sync(lambda: list(cosmos_db.sessions_container.query_items(
+                    old_sessions = await run_sync(lambda: list(cosmos_service.sessions_container.query_items(
                         query=old_sessions_query,
                         parameters=parameters,
                         enable_cross_partition_query=True
@@ -165,9 +165,9 @@ async def perform_system_cleanup(
                         deleted_count = 0
                         for session in old_sessions:
                             try:
-                                await run_sync(lambda s=session: cosmos_db.sessions_container.delete_item(
+                                await run_sync(lambda s=session: cosmos_service.sessions_container.delete_item(
                                     s["id"],
-                                    partition_key=s["id"]  # Assuming id is partition key
+                                    partition_key=s.get("partition_key", s["id"])  # Use proper partition key
                                 ))
                                 deleted_count += 1
                             except Exception as delete_error:
@@ -192,7 +192,7 @@ async def perform_system_cleanup(
                 
                 parameters = [{"name": "@cutoff_date", "value": cutoff_date.isoformat()}]
                 
-                old_analytics = await run_sync(lambda: list(cosmos_db.analytics_container.query_items(
+                old_analytics = await run_sync(lambda: list(cosmos_service.analytics_container.query_items(
                     query=old_analytics_query,
                     parameters=parameters,
                     enable_cross_partition_query=True
@@ -205,7 +205,7 @@ async def perform_system_cleanup(
                     deleted_count = 0
                     for item in old_analytics:
                         try:
-                            await run_sync(lambda it=item: cosmos_db.analytics_container.delete_item(
+                            await run_sync(lambda it=item: cosmos_service.analytics_container.delete_item(
                                 it["id"],
                                 partition_key=it["id"]
                             ))
@@ -243,7 +243,8 @@ async def perform_system_cleanup(
 
 @router.get("/admin/system-info")
 async def get_system_info(
-    current_user: Dict[str, Any] = Depends(require_analytics_access)
+    current_user: Dict[str, Any] = Depends(require_analytics_access),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
 ):
     """Get detailed system information (Admin only)"""
     try:
@@ -255,15 +256,12 @@ async def get_system_info(
                 detail="Admin permission required for system information"
             )
         
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
-        
         system_info = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "environment": getattr(config, 'ENVIRONMENT', 'unknown'),
+            "environment": getattr(cosmos_service.config, 'ENVIRONMENT', 'unknown'),
             "database": {
-                "cosmos_endpoint": bool(getattr(config, 'COSMOS_ENDPOINT', None)),
-                "database_name": getattr(config, 'COSMOS_DATABASE_NAME', 'unknown')
+                "cosmos_endpoint": bool(getattr(cosmos_service.config, 'COSMOS_ENDPOINT', None)),
+                "database_name": getattr(cosmos_service.config, 'COSMOS_DATABASE_NAME', 'unknown')
             },
             "containers": {},
             "statistics": {},
@@ -274,7 +272,7 @@ async def get_system_info(
         try:
             # Analytics container stats
             analytics_count_query = "SELECT VALUE COUNT(1) FROM c"
-            analytics_count = await run_sync(lambda: list(cosmos_db.analytics_container.query_items(
+            analytics_count = await run_sync(lambda: list(cosmos_service.analytics_container.query_items(
                 query=analytics_count_query,
                 enable_cross_partition_query=True
             )))
@@ -290,9 +288,9 @@ async def get_system_info(
         
         # Sessions container stats
         try:
-            if hasattr(cosmos_db, 'sessions_container') and cosmos_db.sessions_container:
+            if hasattr(cosmos_service, 'sessions_container') and cosmos_service.sessions_container:
                 sessions_count_query = "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'session'"
-                sessions_count = await run_sync(lambda: list(cosmos_db.sessions_container.query_items(
+                sessions_count = await run_sync(lambda: list(cosmos_service.sessions_container.query_items(
                     query=sessions_count_query,
                     enable_cross_partition_query=True
                 )))
@@ -318,7 +316,7 @@ async def get_system_info(
             recent_analytics_query = "SELECT VALUE COUNT(1) FROM c WHERE c.created_at >= @week_ago"
             recent_analytics_params = [{"name": "@week_ago", "value": week_ago.isoformat()}]
             
-            recent_analytics_count = await run_sync(lambda: list(cosmos_db.analytics_container.query_items(
+            recent_analytics_count = await run_sync(lambda: list(cosmos_service.analytics_container.query_items(
                 query=recent_analytics_query,
                 parameters=recent_analytics_params,
                 enable_cross_partition_query=True
@@ -330,7 +328,7 @@ async def get_system_info(
             
             # Get unique users count
             unique_users_query = "SELECT DISTINCT c.user_id FROM c WHERE c.user_id != null"
-            unique_users = await run_sync(lambda: list(cosmos_db.analytics_container.query_items(
+            unique_users = await run_sync(lambda: list(cosmos_service.analytics_container.query_items(
                 query=unique_users_query,
                 enable_cross_partition_query=True
             )))
@@ -349,7 +347,7 @@ async def get_system_info(
             OFFSET 0 LIMIT 5
             """
             
-            maintenance_records = await run_sync(lambda: list(cosmos_db.analytics_container.query_items(
+            maintenance_records = await run_sync(lambda: list(cosmos_service.analytics_container.query_items(
                 query=maintenance_query,
                 enable_cross_partition_query=True
             )))
@@ -457,4 +455,119 @@ async def get_system_logs(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error getting system logs: {str(e)}"
+        )
+
+
+@router.post("/sessions/{user_id}/cleanup")
+async def cleanup_user_sessions(
+    user_id: str,
+    current_user: dict = Depends(require_analytics_access),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
+) -> Dict[str, Any]:
+    """
+    Clean up duplicate sessions for a specific user (Admin only).
+    
+    This endpoint removes duplicate active sessions, keeping only the most recent one.
+    Useful for fixing session tracking issues where multiple sessions exist for the same user.
+    
+    Args:
+        user_id: User ID to clean up sessions for
+        current_user: Current admin user
+        cosmos_service: Cosmos DB service
+        
+    Returns:
+        Cleanup results including number of sessions cleaned
+    """
+    try:
+        # Import here to avoid circular imports
+        from ...services.monitoring.session_tracking_service import SessionTrackingService
+        
+        # Create session tracking service
+        session_service = SessionTrackingService(cosmos_service)
+        
+        # Perform cleanup
+        result = await session_service.cleanup_user_sessions(user_id)
+        
+        logger.info(f"Session cleanup for user {user_id} performed by admin {current_user.get('id')}: {result}")
+        
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "cleanup_result": result,
+            "performed_by": current_user.get("id"),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cleaning up sessions for user {user_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error cleaning up sessions: {str(e)}"
+        )
+
+
+@router.get("/sessions/duplicates")
+async def check_duplicate_sessions(
+    current_user: dict = Depends(require_analytics_access),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
+) -> Dict[str, Any]:
+    """
+    Check for users with duplicate active sessions (Admin only).
+    
+    Returns a report of users who have multiple active sessions,
+    which indicates session deduplication issues.
+    
+    Args:
+        current_user: Current admin user
+        cosmos_service: Cosmos DB service
+        
+    Returns:
+        Report of users with duplicate sessions
+    """
+    try:
+        # Query for users with multiple active sessions
+        query = """
+            SELECT c.user_id, COUNT(1) as session_count
+            FROM c 
+            WHERE c.type = 'session' 
+            AND c.status = 'active'
+            GROUP BY c.user_id
+            HAVING COUNT(1) > 1
+        """
+        
+        results = await run_sync(lambda: list(cosmos_service.sessions_container.query_items(
+            query=query, enable_cross_partition_query=True
+        )))
+        
+        duplicate_users = []
+        total_duplicates = 0
+        
+        for result in results:
+            user_id = result["user_id"]
+            session_count = result["session_count"]
+            duplicate_users.append({
+                "user_id": user_id,
+                "active_sessions": session_count,
+                "extra_sessions": session_count - 1
+            })
+            total_duplicates += session_count - 1
+        
+        return {
+            "status": "success",
+            "duplicate_users_count": len(duplicate_users),
+            "total_extra_sessions": total_duplicates,
+            "users_with_duplicates": duplicate_users,
+            "checked_by": current_user.get("id"),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking duplicate sessions: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error checking duplicate sessions: {str(e)}"
         )

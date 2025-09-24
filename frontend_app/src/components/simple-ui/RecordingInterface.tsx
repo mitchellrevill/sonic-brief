@@ -73,7 +73,12 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
     section.fields || []
   );
 
-  console.log('Pre-session data received:', preSessionData);
+  // Only log pre-session data in development and only when it changes
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      console.debug('Pre-session data received:', preSessionData);
+    }
+  }, [preSessionData]);
 
   const nextTalkingPoint = () => {
     if (currentTalkingPointIndex < allTalkingPoints.length - 1) {
@@ -94,45 +99,47 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
     const currentPoint = allTalkingPoints[currentTalkingPointIndex];
 
     return (
-      <Card className="mb-6 border-blue-200 bg-blue-50/50">
+      <Card className="mb-6 border-gray-200 bg-gray-50 backdrop-blur-sm border-2 shadow-lg">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <MessageSquare className="h-4 w-4 text-blue-600" />
-              Talking Points ({currentTalkingPointIndex + 1} of {allTalkingPoints.length})
+            <CardTitle className="flex items-center gap-2 text-sm sm:text-base font-semibold">
+              <MessageSquare className="h-4 w-4 sm:h-5 sm:w-5 text-gray-600" />
+              <span className="truncate">
+                Talking Points ({currentTalkingPointIndex + 1} of {allTalkingPoints.length})
+              </span>
             </CardTitle>
-            <div className="flex gap-2 md:gap-1">
+            <div className="flex gap-1 sm:gap-2 flex-shrink-0">
               <Button
                 variant="outline"
                 size="icon"
-                className="h-12 w-12 md:h-8 md:w-8 rounded-full flex items-center justify-center active:scale-95 transition-transform duration-100"
-                style={{ touchAction: 'manipulation' }}
+                className="h-8 w-8 sm:h-9 sm:w-9 rounded-full border-gray-200 hover:bg-gray-100 hover:border-gray-300 transition-all duration-200 touch-manipulation"
                 onClick={prevTalkingPoint}
                 disabled={currentTalkingPointIndex === 0}
                 aria-label="Previous talking point"
+                style={{ touchAction: 'manipulation' }}
               >
-                <ChevronLeft className="h-6 w-6 md:h-4 md:w-4" />
+                <ChevronLeft className="h-3 w-3 sm:h-4 sm:w-4" />
               </Button>
               <Button
                 variant="outline"
                 size="icon"
-                className="h-12 w-12 md:h-8 md:w-8 rounded-full flex items-center justify-center active:scale-95 transition-transform duration-100"
-                style={{ touchAction: 'manipulation' }}
+                className="h-8 w-8 sm:h-9 sm:w-9 rounded-full border-gray-200 hover:bg-gray-100 hover:border-gray-300 transition-all duration-200 touch-manipulation"
                 onClick={nextTalkingPoint}
                 disabled={currentTalkingPointIndex === allTalkingPoints.length - 1}
                 aria-label="Next talking point"
+                style={{ touchAction: 'manipulation' }}
               >
-                <ChevronRight className="h-6 w-6 md:h-4 md:w-4" />
+                <ChevronRight className="h-3 w-3 sm:h-4 sm:w-4" />
               </Button>
             </div>
           </div>
         </CardHeader>
         <CardContent className="pt-0">
-          <div className="space-y-2">
-            <div className="font-medium text-sm text-blue-900">
+          <div className="space-y-3">
+            <div className="font-semibold text-gray-900">
               {currentPoint?.name || `Point ${currentTalkingPointIndex + 1}`}
             </div>
-            <div className="text-sm text-blue-700">
+            <div className="text-gray-800 leading-relaxed">
               {currentPoint?.type === 'markdown' && currentPoint?.value ? (
                 <MarkdownRenderer content={currentPoint.value} />
               ) : (
@@ -140,7 +147,7 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
               )}
             </div>
             {currentPoint?.type && currentPoint.type !== 'text' && (
-              <Badge variant="secondary" className="text-xs">
+              <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-700">
                 {currentPoint.type}
               </Badge>
             )}
@@ -186,30 +193,69 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      
-      mediaRecorderRef.current = new MediaRecorder(stream);
-      
-      mediaRecorderRef.current.ondataavailable = (event) => {
-        audioChunks.current.push(event.data);
+
+      // clear any previous chunks
+      audioChunks.current = [];
+      setAudioURL(null);
+
+      const mr = new MediaRecorder(stream);
+      mediaRecorderRef.current = mr;
+  console.debug('MediaRecorder created', { mr });
+
+      mr.onstart = () => {
+        setIsRecording(true);
+        setIsPaused(false);
+        setRecordingTime(0);
+        toast.success("Recording started");
       };
 
-      mediaRecorderRef.current.onstop = () => {
-        const audioBlob = new Blob(audioChunks.current, { type: "audio/webm" });
-        const url = URL.createObjectURL(audioBlob);
-        setAudioURL(url);
-        
-        // Stop all tracks to release microphone
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach(track => track.stop());
+      mr.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunks.current.push(event.data);
         }
       };
 
-      mediaRecorderRef.current.start();
-      setIsRecording(true);
-      setIsPaused(false);
-      setRecordingTime(0);
-      
-      toast.success("Recording started");
+      mr.onpause = () => {
+        setIsPaused(true);
+      };
+
+      mr.onresume = () => {
+        setIsPaused(false);
+      };
+
+      mr.onstop = () => {
+        try {
+          const audioBlob = new Blob(audioChunks.current, { type: "audio/webm" });
+          const url = URL.createObjectURL(audioBlob);
+          setAudioURL(url);
+        } catch (err) {
+          console.error('Error creating audio blob:', err);
+          toast.error('Could not create recording');
+        }
+
+        // release microphone tracks (guarded)
+        if (streamRef.current) {
+          try {
+            streamRef.current.getTracks().forEach(track => track.stop());
+          } catch (e) {
+            console.warn('Error stopping tracks after onstop', e);
+          }
+        }
+      };
+
+      try {
+        mr.start();
+        console.debug('MediaRecorder started', { state: mr.state });
+      } catch (startErr) {
+        console.error('MediaRecorder.start() failed', startErr);
+        toast.error('Unable to start recording on this device/browser.');
+        // stop tracks if start failed
+        if (streamRef.current) {
+          try { streamRef.current.getTracks().forEach(t => t.stop()); } catch (e) { /* ignore */ }
+        }
+        mediaRecorderRef.current = null;
+        return;
+      }
     } catch (error) {
       console.error("Error starting recording:", error);
       toast.error("Failed to start recording. Please check microphone permissions.");
@@ -217,26 +263,79 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
   };
 
   const pauseRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.pause();
-      setIsPaused(true);
-      toast.info("Recording paused");
+    const mr = mediaRecorderRef.current;
+    if (mr && mr.state === 'recording') {
+      try {
+        mr.pause();
+        // onpause handler will update state
+        toast.info("Recording paused");
+      } catch (e) {
+        console.warn('Pause failed', e);
+      }
     }
   };
 
   const resumeRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.resume();
-      setIsPaused(false);
-      toast.info("Recording resumed");
+    const mr = mediaRecorderRef.current;
+    if (mr && mr.state === 'paused') {
+      try {
+        mr.resume();
+        // onresume handler will update state
+        toast.info("Recording resumed");
+      } catch (e) {
+        console.warn('Resume failed', e);
+      }
     }
   };
   const stopRecording = () => {
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
+    const mr = mediaRecorderRef.current;
+    console.debug('stopRecording invoked', { mrState: mr?.state, hasStream: !!streamRef.current });
+    if (mr) {
+      try {
+        // If paused, resume first (some engines need this)
+        if (mr.state === 'paused') {
+          try { mr.resume(); console.debug('Resumed before stop'); } catch (e) { console.warn('resume before stop failed', e); }
+        }
+
+        if (mr.state === 'recording' || mr.state === 'paused') {
+          try { mr.requestData(); } catch (e) { console.debug('requestData unsupported', e); }
+          mr.stop();
+          console.debug('mr.stop() called');
+        } else if (mr.state === 'inactive') {
+          console.debug('MediaRecorder already inactive');
+        }
+      } catch (e) {
+        console.warn('MediaRecorder stop failed, falling back to track stop', e);
+      }
+
       setIsRecording(false);
       setIsPaused(false);
       toast.success("Recording completed");
+
+      // Ensure microphone tracks are stopped after a short delay to allow onstop to run
+      setTimeout(() => {
+        if (streamRef.current) {
+          try {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            console.debug('Tracks stopped in fallback');
+          } catch (err) {
+            console.warn('Error stopping tracks in fallback', err);
+          }
+        }
+      }, 250);
+      // Clear mediaRecorderRef to avoid reuse
+      mediaRecorderRef.current = null;
+    } else if (streamRef.current) {
+      // Fallback: stop tracks if recorder not present
+      try {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        console.debug('Tracks stopped: recorder missing');
+      } catch (err) {
+        console.warn('Fallback stop tracks error', err);
+      }
+      setIsRecording(false);
+      setIsPaused(false);
+      toast.success("Recording stopped");
     }
   };
   const uploadRecording = async () => {
@@ -291,28 +390,36 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
 
   if (uploadSuccess) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <Card className="w-full max-w-md border-2 border-green-200">
-          <CardContent className="pt-6">
-            <div className="text-center space-y-4">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
-                <Check className="w-8 h-8 text-green-600" />
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md border-2 border-green-200 shadow-2xl bg-white">
+          <CardContent className="pt-8 pb-8">
+            <div className="text-center space-y-6">
+              <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto shadow-lg">
+                <Check className="w-10 h-10 text-green-600" />
               </div>
-              <div>
-                <h3 className="text-lg font-semibold text-foreground">Upload Successful!</h3>
-                <p className="text-muted-foreground">Your recording has been submitted for processing.</p>
+              <div className="space-y-2">
+                <h3 className="text-2xl font-bold text-green-600">
+                  Upload Successful!
+                </h3>
+                <p className="text-slate-600 font-medium">Your recording has been submitted for processing.</p>
               </div>
-              <div className="space-y-3">                {jobId && (
+              <div className="space-y-4">
+                {jobId && (
                   <Button 
                     onClick={() => router.navigate({ to: `/audio-recordings/${jobId}` })}
                     variant="outline"
-                    className="w-full"
+                    className="w-full h-12 sm:h-14 text-sm sm:text-base font-semibold border-2 border-gray-200 hover:bg-gray-50 hover:border-gray-300 touch-manipulation"
+                    style={{ touchAction: 'manipulation' }}
                   >
-                    <Eye className="w-4 h-4 mr-2" />
+                    <Eye className="w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3" />
                     View Details
                   </Button>
                 )}
-                <Button onClick={onUploadComplete} className="w-full">
+                <Button 
+                  onClick={onUploadComplete} 
+                  className="w-full h-12 sm:h-14 text-sm sm:text-base font-semibold bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 shadow-lg hover:shadow-xl transition-all duration-200 touch-manipulation"
+                  style={{ touchAction: 'manipulation' }}
+                >
                   Record Another
                 </Button>
               </div>
@@ -324,20 +431,22 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
   }
 
   return (
-    <div className="min-h-screen bg-background p-4">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-gray-50 p-4 sm:p-6">
       <div className="max-w-md mx-auto">
         {/* Header */}
-        <div className="flex items-center space-x-4 mb-6">
+        <div className="flex items-center space-x-3 sm:space-x-4 mb-6 sm:mb-8">
           <Button 
             variant="ghost" 
             onClick={onBack}
-            className="text-muted-foreground hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground hover:bg-white/50 rounded-full h-10 w-10 sm:h-12 sm:w-12 p-0 touch-manipulation"
           >
-            <ArrowLeft className="w-4 h-4" />
+            <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
           </Button>
-          <div>
-            <h1 className="text-xl font-semibold">Record Meeting</h1>
-            <p className="text-sm text-muted-foreground">{categoryName} • {subcategoryName}</p>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-green-600 to-gray-600 bg-clip-text text-transparent truncate">
+              Record Meeting
+            </h1>
+            <p className="text-sm text-slate-600 font-medium truncate">{categoryName} • {subcategoryName}</p>
           </div>
         </div>
 
@@ -345,50 +454,61 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
         <TalkingPointsDisplay />
 
         {/* Recording Status */}
-        <Card className="mb-6">
-          <CardContent className="pt-6">
-            <div className="text-center space-y-4">              {/* Recording Button/Indicator */}
-              <Button
-                onClick={isRecording ? stopRecording : !audioURL ? startRecording : undefined}
-                disabled={audioURL !== null && !isRecording}
-                className={`w-24 h-24 rounded-full p-0 border-4 transition-all duration-200 ${
-                  isRecording 
-                    ? isPaused 
-                      ? 'bg-orange-500 hover:bg-orange-600 border-orange-300 animate-none' 
-                      : 'bg-red-500 hover:bg-red-600 border-red-300 animate-pulse'
-                    : audioURL
-                      ? 'bg-gray-400 border-gray-300 cursor-not-allowed'
-                      : 'bg-green-500 hover:bg-green-600 border-green-300'
-                }`}
-              >
-                {isRecording ? (
-                  <Square className="w-12 h-12 text-white" />
-                ) : (
-                  <Mic className="w-12 h-12 text-white" />
+        <Card className="mb-6 shadow-xl border-2 bg-gradient-to-r from-white via-slate-50 to-white backdrop-blur-sm">
+          <CardContent className="pt-8 pb-8">
+            <div className="text-center space-y-6">
+              {/* Recording Button/Indicator */}
+              <div className="relative">
+                <Button
+                  onClick={isRecording ? stopRecording : !audioURL ? startRecording : undefined}
+                  disabled={audioURL !== null && !isRecording}
+                  className={`w-32 h-32 sm:w-36 sm:h-36 rounded-full p-0 border-4 transition-all duration-300 shadow-2xl transform hover:scale-105 active:scale-95 touch-manipulation relative z-10 ${
+                    isRecording 
+                      ? isPaused 
+                        ? 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 border-orange-300 shadow-orange-200' 
+                        : 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 border-red-300 shadow-red-200'
+                      : audioURL
+                        ? 'bg-gradient-to-r from-gray-400 to-gray-500 border-gray-300 cursor-not-allowed shadow-gray-200'
+                        : 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 border-green-300 shadow-green-200'
+                  }`}
+                  style={{ touchAction: 'manipulation' }}
+                >
+                  {isRecording ? (
+                    <Square className="w-14 h-14 sm:w-16 sm:h-16 text-white drop-shadow-lg" />
+                  ) : (
+                    <Mic className="w-14 h-14 sm:w-16 sm:h-16 text-white drop-shadow-lg" />
+                  )}
+                </Button>
+                {/* Recording indicator ring */}
+                {isRecording && !isPaused && (
+                  <div className="absolute inset-0 rounded-full border-4 border-red-200 pointer-events-none -z-0" aria-hidden="true"></div>
                 )}
-              </Button>
+              </div>
 
               {/* Timer */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-center space-x-2">
-                  <Clock className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-2xl font-mono font-medium">
+              <div className="space-y-3">
+                <div className="flex items-center justify-center space-x-3 bg-slate-100 rounded-full px-4 sm:px-6 py-2 sm:py-3 border-2 border-slate-200">
+                  <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" />
+                  <span className="text-2xl sm:text-3xl font-mono font-bold text-slate-800 tracking-wider">
                     {formatTime(recordingTime)}
                   </span>
                 </div>
-                  {/* Status text */}
-                <div className="text-sm">
+                {/* Status text */}
+                <div className="text-sm sm:text-base font-medium px-2">
                   {!isRecording && !audioURL && (
-                    <span className="text-muted-foreground">Tap to start recording</span>
+                    <span className="text-slate-600">Tap the microphone to start recording</span>
                   )}
                   {isRecording && !isPaused && (
-                    <span className="text-red-600 font-medium">Recording... Tap to stop</span>
+                    <span className="text-red-600 font-semibold">Recording in progress...</span>
                   )}
                   {isRecording && isPaused && (
-                    <span className="text-orange-600 font-medium">Paused - Tap to stop</span>
+                    <span className="text-orange-600 font-semibold">Recording paused</span>
                   )}
                   {!isRecording && audioURL && (
-                    <span className="text-green-600 font-medium">Recording complete</span>
+                    <span className="text-green-600 font-semibold flex items-center justify-center gap-2">
+                      <Check className="w-4 h-4 sm:w-5 sm:h-5" />
+                      Recording complete
+                    </span>
                   )}
                 </div>
               </div>
@@ -400,17 +520,18 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
             <Button 
               onClick={isPaused ? resumeRecording : pauseRecording}
               variant="outline"
-              className="w-full h-16 text-lg"
+              className="w-full h-14 sm:h-16 text-base sm:text-lg font-semibold bg-white hover:bg-slate-50 border-2 border-slate-200 hover:border-slate-300 shadow-lg hover:shadow-xl transition-all duration-200 touch-manipulation"
               size="lg"
+              style={{ touchAction: 'manipulation' }}
             >
               {isPaused ? (
                 <>
-                  <Play className="w-6 h-6 mr-2" />
+                  <Play className="w-5 h-5 sm:w-6 sm:h-6 mr-3 text-green-600" />
                   Resume Recording
                 </>
               ) : (
                 <>
-                  <Pause className="w-6 h-6 mr-2" />
+                  <Pause className="w-5 h-5 sm:w-6 sm:h-6 mr-3 text-orange-600" />
                   Pause Recording
                 </>
               )}
@@ -420,56 +541,64 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
 
         {/* Playback and Upload */}
         {audioURL && !isRecording && (
-          <div className="space-y-4">
-            <Card>
+          <div className="space-y-6">
+            <Card className="shadow-lg border-2 bg-gradient-to-r from-green-50 via-white to-gray-50">
               <CardHeader>
-                <CardTitle className="text-lg">Recording Playback</CardTitle>
+                <CardTitle className="text-xl font-semibold bg-gradient-to-r from-green-600 to-gray-600 bg-clip-text text-transparent">
+                  Recording Playback
+                </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Duration:</span>
-                  <Badge variant="outline">{formatTime(recordingTime)}</Badge>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border">
+                  <span className="text-sm font-medium text-slate-700">Duration:</span>
+                  <Badge variant="outline" className="text-sm font-semibold px-3 py-1">
+                    {formatTime(recordingTime)}
+                  </Badge>
                 </div>
                 {isIOS() ? (
-                  <div className="p-2 bg-orange-50 border border-orange-200 rounded text-orange-700 text-xs text-center">
+                  <div className="p-4 bg-gradient-to-r from-orange-50 to-yellow-50 border-2 border-orange-200 rounded-lg text-orange-700 text-sm text-center font-medium">
                     Playback not supported on iOS
                   </div>
                 ) : (
-                  <audio 
-                    ref={audioRef}
-                    src={audioURL} 
-                    className="w-full"
-                    controls
-                  />
+                  <div className="p-4 bg-slate-50 rounded-lg border-2">
+                    <audio 
+                      ref={audioRef}
+                      src={audioURL} 
+                      className="w-full"
+                      controls
+                    />
+                  </div>
                 )}
                 {/* FFmpeg conversion progress */}
                 {(isConverting || conversionProgress > 0) && (
-                  <div>
-                    <div className="mb-1 text-sm">{conversionStep}</div>
-                    <Progress value={conversionProgress} />
+                  <div className="p-4 bg-gray-50 rounded-lg border-2 border-gray-200">
+                    <div className="mb-2 text-sm font-medium text-gray-800">{conversionStep}</div>
+                    <Progress value={conversionProgress} className="h-2" />
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Button 
                     onClick={resetRecording}
                     variant="outline"
-                    className="h-12"
+                    className="h-12 sm:h-14 text-sm sm:text-base font-semibold border-2 hover:bg-slate-50 hover:border-slate-300 touch-manipulation"
+                    style={{ touchAction: 'manipulation' }}
                   >
                     Record Again
                   </Button>
                   <Button 
                     onClick={uploadRecording}
                     disabled={isUploading || isConverting}
-                    className="h-12 bg-green-600 hover:bg-green-700"
+                    className="h-12 sm:h-14 text-sm sm:text-base font-semibold bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 shadow-lg hover:shadow-xl transition-all duration-200 touch-manipulation"
+                    style={{ touchAction: 'manipulation' }}
                   >
                     {isUploading || isConverting ? (
                       <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        <div className="animate-spin rounded-full h-4 w-4 sm:h-5 sm:w-5 border-b-2 border-white mr-2 sm:mr-3"></div>
                         {isConverting ? "Converting..." : "Uploading..."}
                       </>
                     ) : (
                       <>
-                        <Upload className="w-4 h-4 mr-2" />
+                        <Upload className="w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3" />
                         Submit Recording
                       </>
                     )}
@@ -479,20 +608,20 @@ export function RecordingInterface(props: RecordingInterfaceProps) {
             </Card>
           </div>
         )}
-        <Alert className="mt-6">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription className="text-sm">
-            <strong>Tips:</strong> Find a quiet space, speak clearly, and keep your device close to the speaker for best results.
+        <Alert className="mt-8 border-2 border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100 shadow-sm">
+          <AlertCircle className="h-5 w-5 text-blue-600" />
+          <AlertDescription className="text-sm text-blue-800 font-medium">
+            <strong className="text-blue-900">Tips:</strong> Find a quiet space, speak clearly, and keep your device close to the speaker for best results.
           </AlertDescription>
         </Alert>
 
         {/* Upload existing recording footnote */}
-        <div className="mt-4 text-center">
-          <p className="text-xs text-muted-foreground">
+        <div className="mt-6 text-center">
+          <p className="text-sm text-slate-600">
             Have an existing recording?{" "}
             <button
               onClick={() => router.navigate({ to: "/audio-upload" })}
-              className="text-primary underline hover:text-primary/80 transition-colors"
+              className="text-blue-600 underline hover:text-blue-700 font-medium transition-colors"
             >
               Upload it here
             </button>

@@ -234,12 +234,28 @@ async def get_job_sharing_info(
                 )
 
         # Expecting a dict-like sharing info on success
-        shared_with = result.get("shared_with") if isinstance(result, dict) else []
-        total_shares = result.get("total_shares") if isinstance(result, dict) else 0
+        sharing_info = result.get("sharing_info") if isinstance(result, dict) else {}
+        shared_with = sharing_info.get("shared_with") if isinstance(sharing_info, dict) else []
+        total_shares = sharing_info.get("shared_with_count") if isinstance(sharing_info, dict) else 0
+        is_owner = sharing_info.get("is_owner") if isinstance(sharing_info, dict) else False
+
+        # Determine user permission based on ownership and sharing
+        user_permission = "admin" if is_owner else "view"  # Default to view for shared users
+
+        # If not owner, check the actual permission level from shared_with
+        if not is_owner and isinstance(shared_with, list):
+            user_share = next(
+                (share for share in shared_with if share.get("user_id") == user_id),
+                None
+            )
+            if user_share:
+                user_permission = user_share.get("permission_level", "view")
 
         return {
             "status": "success",
             "job_id": job_id,
+            "is_owner": is_owner,
+            "user_permission": user_permission,
             "shared_with": shared_with or [],
             "total_shares": total_shares or 0
         }

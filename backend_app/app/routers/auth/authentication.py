@@ -12,8 +12,14 @@ from pydantic import BaseModel
 import logging
 import uuid
 
-from ...core.config import get_app_config, get_cosmos_db_cached, CosmosDB, DatabaseError
-from ...services.content import AnalyticsService
+from ...core.dependencies import (
+    CosmosService,
+    AuditService,
+    get_cosmos_service,
+    get_audit_service,
+    get_analytics_service,
+)
+from ...core.config import get_config
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -53,22 +59,24 @@ def create_access_token(data: dict, config: Any) -> str:
     return encoded_jwt
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
+) -> Dict[str, Any]:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    config = get_app_config()
-    cosmos_db = get_cosmos_db_cached(config)
+    config = get_config()
 
     try:
         logger.debug("Attempting to decode JWT token")
         payload = jwt.decode(
             token,
-            config.auth["jwt_secret_key"],
-            algorithms=[config.auth["jwt_algorithm"]],
+            config.jwt_secret_key,
+            algorithms=[config.jwt_algorithm],
         )
         email: str = payload.get("sub")
         if email is None:
@@ -82,7 +90,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any
 
     try:
         logger.debug(f"Looking up user by email: {token_data.email}")
-        user = await cosmos_db.get_user_by_email(email=token_data.email)
+        user = await cosmos_service.get_user_by_email(email=token_data.email)
         if user is None:
             logger.error(f"User not found in database: {token_data.email}")
             raise credentials_exception
@@ -94,10 +102,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any
 
 
 async def authenticate_user(
-    cosmos_db: CosmosDB, email: str, password: str
+    cosmos_service: CosmosService, email: str, password: str
 ) -> Dict[str, Any] | bool:
     """Authenticate user credentials."""
-    user = await cosmos_db.get_user_by_email(email)
+    user = await cosmos_service.get_user_by_email(email)
     if not user:
         return False
     if not verify_password(password, user["hashed_password"]):
@@ -106,7 +114,10 @@ async def authenticate_user(
 
 
 @router.post("/login")
-async def login_for_access_token(request: Request):
+async def login_for_access_token(
+    request: Request,
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
+):
     """Handle user login and token generation."""
     try:
         # Parse request data
@@ -119,18 +130,13 @@ async def login_for_access_token(request: Request):
             logger.warning("Login attempt with missing email or password")
             return {"status": 400, "message": "Email and password are required"}
 
-        # Initialize configuration and database connection
-        config = get_app_config()
-        try:
-            cosmos_db = get_cosmos_db_cached(config)
-            logger.debug("CosmosDB client initialized for login")
-        except DatabaseError as e:
-            logger.error(f"Database initialization failed: {str(e)}")
-            return {"status": 503, "message": "Database service unavailable"}
+        # Initialize configuration
+        config = get_config()
+        logger.debug("Configuration loaded for login")
 
         # Authenticate user
         try:
-            user = await authenticate_user(cosmos_db, email, password)
+            user = await authenticate_user(cosmos_service, email, password)
             if not user:
                 logger.warning(f"Failed login attempt for email: {email}")
                 return {"status": 401, "message": "Incorrect email or password"}
@@ -140,29 +146,30 @@ async def login_for_access_token(request: Request):
                 data={"sub": user["email"]}, config=config
             )
             
+            # TODO: Re-enable analytics tracking after analytics service migration
             # Track login analytics
-            try:
-                analytics_service = AnalyticsService(cosmos_db)
-                await analytics_service.track_user_session(
-                    user_id=user["id"],
-                    action="login",
-                    metadata={
-                        "email": user["email"],
-                        "login_method": "password",
-                        "permission": user.get("permission", "Unknown")
-                    }
-                )
-                await analytics_service.track_event(
-                    event_type="user_login",
-                    user_id=user["id"],
-                    metadata={
-                        "email": user["email"],
-                        "login_method": "password",
-                        "permission": user.get("permission", "Unknown")
-                    }
-                )
-            except Exception as e:
-                logger.warning(f"Failed to track login analytics: {str(e)}")
+            # try:
+            #     analytics_service = AnalyticsService(cosmos_service)
+            #     await analytics_service.track_user_session(
+            #         user_id=user["id"],
+            #         action="login",
+            #         metadata={
+            #             "email": user["email"],
+            #             "login_method": "password",
+            #             "permission": user.get("permission", "Unknown")
+            #         }
+            #     )
+            #     await analytics_service.track_event(
+            #         event_type="user_login",
+            #         user_id=user["id"],
+            #         metadata={
+            #             "email": user["email"],
+            #             "login_method": "password",
+            #             "permission": user.get("permission", "Unknown")
+            #         }
+            #     )
+            # except Exception as e:
+            #     logger.warning(f"Failed to track login analytics: {str(e)}")
             
             logger.info(f"Successful login for user: {email}")
             return {
@@ -181,7 +188,11 @@ async def login_for_access_token(request: Request):
 
 
 @router.post("/microsoft-sso")
-async def microsoft_sso_auth(request: Request):
+async def microsoft_sso_auth(
+    request: Request,
+    cosmos_service: CosmosService = Depends(get_cosmos_service),
+    analytics_service = Depends(get_analytics_service)
+):
     """Authenticate or register a user using Microsoft SSO login response."""
     try:
         data = await request.json()
@@ -226,11 +237,10 @@ async def microsoft_sso_auth(request: Request):
         if not email:
             return {"message": "No email found in token", "status": 400}
 
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
+        config = get_config()
 
         # Try to find user by email or create new one
-        user = await cosmos_db.get_user_by_email(email)
+        user = await cosmos_service.get_user_by_email(email)
         if not user:
             # Register new user
             from ...models.permissions import PermissionLevel
@@ -250,7 +260,7 @@ async def microsoft_sso_auth(request: Request):
                 "is_active": True,
                 "refresh_token": refresh_token,
             }
-            user = await cosmos_db.create_user(user_data)
+            user = await cosmos_service.create_user(user_data)
         else:
             # Update existing user
             update_data = {
@@ -263,25 +273,13 @@ async def microsoft_sso_auth(request: Request):
                 "is_active": True,
                 "refresh_token": refresh_token,
             }
-            user = await cosmos_db.update_user(user["id"], update_data)
+            user = await cosmos_service.update_user(user["id"], update_data)
 
         # Generate app access token
         app_access_token = create_access_token(data={"sub": email}, config=config)
         
-        # Track Microsoft SSO login analytics
+        # Track Microsoft SSO login analytics via DI-provided analytics_service
         try:
-            analytics_service = AnalyticsService(cosmos_db)
-            await analytics_service.track_user_session(
-                user_id=user["id"],
-                action="login",
-                metadata={
-                    "email": user["email"],
-                    "login_method": "microsoft_sso",
-                    "permission": user.get("permission", "User"),
-                    "tenant_id": tenant_id,
-                    "full_name": full_name
-                }
-            )
             await analytics_service.track_event(
                 event_type="user_login",
                 user_id=user["id"],
@@ -290,8 +288,8 @@ async def microsoft_sso_auth(request: Request):
                     "login_method": "microsoft_sso",
                     "permission": user.get("permission", "User"),
                     "tenant_id": tenant_id,
-                    "full_name": full_name
-                }
+                    "full_name": full_name,
+                },
             )
         except Exception as e:
             logger.warning(f"Failed to track Microsoft SSO login analytics: {str(e)}")

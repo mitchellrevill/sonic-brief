@@ -42,7 +42,7 @@ import { getDeletedJobs, restoreJob, permanentDeleteJob, fetchAllUsers } from "@
 import { formatDistanceToNow } from "date-fns";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toast } from "sonner";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 // Define proper TypeScript types for better type safety
 type UserRecord = {
@@ -97,7 +97,45 @@ export function AdminDeletedJobsPage() {
     refetch,
   } = useQuery<DeletedJobsResponse>({
     queryKey: ["deletedJobs"],
-    queryFn: getDeletedJobs,
+    queryFn: async () => {
+      const result = await getDeletedJobs();
+      // Ensure result matches DeletedJobsResponse shape
+        if (
+          result &&
+          typeof result === "object" &&
+          "count" in result &&
+          ("jobs" in result || "records" in result || "deleted_jobs" in result)
+        ) {
+          // If the API returns 'records' instead of 'jobs', map it accordingly
+          if ("records" in result && !("jobs" in result)) {
+            return {
+              status: result.status ?? "success",
+              message: result.message ?? "",
+              count: Array.isArray(result.records) ? result.records.length : 0,
+              jobs: Array.isArray(result.records) ? result.records : [],
+            };
+          }
+
+          // If the API returns 'deleted_jobs' (admin endpoint), map it to 'jobs'
+          if ("deleted_jobs" in result && !("jobs" in result)) {
+            return {
+              status: result.status ?? "success",
+              message: result.message ?? "",
+              count: Array.isArray((result as any).deleted_jobs) ? (result as any).deleted_jobs.length : 0,
+              jobs: Array.isArray((result as any).deleted_jobs) ? (result as any).deleted_jobs : [],
+            };
+          }
+
+          return result as DeletedJobsResponse;
+        }
+      // Fallback: transform result to DeletedJobsResponse if needed
+      return {
+        status: result.status ?? "success",
+        message: result.message ?? "",
+        count: Array.isArray(result.jobs) ? result.jobs.length : 0,
+        jobs: Array.isArray(result.jobs) ? result.jobs : [],
+      };
+    },
     staleTime: 30000, // Cache for 30 seconds
   });
 
@@ -141,18 +179,27 @@ export function AdminDeletedJobsPage() {
     }, {});
   }, [usersData]);
 
+  // Unified deleted jobs array (support both `jobs` and `deleted_jobs` keys)
+  const deletedJobs: DeletedJob[] = (deletedJobsData as any)?.jobs || (deletedJobsData as any)?.deleted_jobs || [];
+
   // Filter deleted jobs by user
   const filteredDeletedJobs = useMemo(() => {
-    if (!deletedJobsData?.jobs) return [];
-    
-    const jobs = deletedJobsData.jobs;
-    
+    if (!deletedJobs || deletedJobs.length === 0) return [];
+
     if (userFilter === "all") {
-      return jobs;
+      return deletedJobs;
     }
-    
-    return jobs.filter(job => job.deleted_by === userFilter || job.user_id === userFilter);
-  }, [deletedJobsData?.jobs, userFilter]);
+
+    return deletedJobs.filter(job => job.deleted_by === userFilter || job.user_id === userFilter);
+  }, [deletedJobs, userFilter]);
+
+  // Debug logging to help diagnose why items might not render
+  useEffect(() => {
+    // eslint-disable-next-line no-console
+    console.debug('AdminDeletedJobsPage: deletedJobsData keys', deletedJobsData ? Object.keys(deletedJobsData as any) : 'no-data');
+    // eslint-disable-next-line no-console
+    console.debug('AdminDeletedJobsPage: deletedJobs length', deletedJobs.length, 'filtered length', filteredDeletedJobs.length, 'userFilter', userFilter);
+  }, [deletedJobsData, deletedJobs, filteredDeletedJobs, userFilter]);
 
   if (isLoading) {
     return (
@@ -186,7 +233,6 @@ export function AdminDeletedJobsPage() {
     );
   }
 
-  const deletedJobs = deletedJobsData?.jobs || [];
   
   const userRecords: UserRecord[] = usersData ? (Array.isArray(usersData) ? usersData : usersData.users || []) : [];
 

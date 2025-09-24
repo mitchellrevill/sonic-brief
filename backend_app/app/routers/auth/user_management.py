@@ -9,13 +9,12 @@ from pydantic import BaseModel
 import logging
 import uuid
 
-from app.core.config import get_app_config, get_cosmos_db_cached, CosmosDB, DatabaseError
-from .authentication import get_current_user, get_password_hash
+from app.core.config import get_config
+from app.core.dependencies import get_current_user, get_cosmos_service
+from app.routers.auth.authentication import get_password_hash
 from app.models.permissions import (
     PermissionLevel,
-    PermissionCapability,
-    get_user_capabilities,
-    merge_custom_capabilities,
+    has_permission_level,
     PERMISSION_HIERARCHY,
 )
 
@@ -50,10 +49,10 @@ async def require_admin_user(current_user: Dict[str, Any] = Depends(get_current_
     """
     user_permission = current_user.get("permission")
     try:
-        user_level = PERMISSION_HIERARCHY.get(PermissionLevel(user_permission), 0)
+        user_level = PERMISSION_HIERARCHY.get(user_permission, 0)
     except Exception:
-        user_level = PERMISSION_HIERARCHY.get(PermissionLevel.USER, 0)
-    if user_level < PERMISSION_HIERARCHY.get(PermissionLevel.ADMIN, 0):
+        user_level = PERMISSION_HIERARCHY.get(PermissionLevel.USER.value, 0)
+    if user_level < PERMISSION_HIERARCHY.get(PermissionLevel.ADMIN.value, 0):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
@@ -65,49 +64,44 @@ async def require_user_view_access(current_user: Dict[str, Any] = Depends(get_cu
     """
     Require user viewing capability and return the full user object
     """
-    # Get effective capabilities (base + custom)
+    # Check if user has editor permission or higher (needed to view users)
     user_permission = current_user.get("permission")
-    custom_capabilities = current_user.get("custom_capabilities", {})
-    base_caps = get_user_capabilities(user_permission)
-    effective_capabilities = merge_custom_capabilities(base_caps, custom_capabilities)
-
-    # Check if user has user viewing access
-    if not effective_capabilities.get(PermissionCapability.CAN_VIEW_USERS, False):
+    
+    # Check permission level - only editors and admins can view users
+    if not has_permission_level(user_permission, PermissionLevel.EDITOR):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
-            detail="User viewing access required. You need the 'can_view_users' capability."
+            detail="Editor permission or higher required to view users."
         )
     return current_user
 
 
 async def require_user_edit_access(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     """
-    Require user editing capability and return the full user object
+    Require admin permission and return the full user object
     """
-    # Get effective capabilities (base + custom)
+    # Check if user has admin permission (needed to edit users)
     user_permission = current_user.get("permission")
-    custom_capabilities = current_user.get("custom_capabilities", {})
-    base_caps = get_user_capabilities(user_permission)
-    effective_capabilities = merge_custom_capabilities(base_caps, custom_capabilities)
-
-    # Check if user has user editing access
-    if not effective_capabilities.get(PermissionCapability.CAN_EDIT_USERS, False):
+    
+    # Check permission level - only admins can edit users
+    if not has_permission_level(user_permission, PermissionLevel.ADMIN):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
-            detail="User editing access required. You need the 'can_edit_users' capability."
+            detail="Admin permission required to edit users."
         )
     return current_user
 
 
 @router.get("/users")
-async def get_all_users(current_user: Dict[str, Any] = Depends(require_user_view_access)):
+async def get_all_users(
+    current_user: Dict[str, Any] = Depends(require_user_view_access),
+    cosmos_service = Depends(get_cosmos_service)
+):
     """
     Get all users (requires user viewing capability)
     """
     try:
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
-        users = await cosmos_db.get_all_users()
+        users = await cosmos_service.get_all_users()
         for user in users:
             user.pop("hashed_password", None)
         return {"status": 200, "users": users}
@@ -119,15 +113,14 @@ async def get_all_users(current_user: Dict[str, Any] = Depends(require_user_view
 @router.get("/users/{user_id}")
 async def get_user_by_id(
     user_id: str,
-    current_user: Dict[str, Any] = Depends(require_user_view_access)
+    current_user: Dict[str, Any] = Depends(require_user_view_access),
+    cosmos_service = Depends(get_cosmos_service)
 ):
     """
     Get a specific user by ID (requires user viewing capability)
     """
     try:
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
-        user = await cosmos_db.get_user_by_id(user_id)
+        user = await cosmos_service.get_user_by_id(user_id)
         if not user:
             return {"status": 404, "message": f"User with ID {user_id} not found"}
         user.pop("hashed_password", None)
@@ -140,12 +133,11 @@ async def get_user_by_id(
 @router.get("/users/by-email")
 async def get_user_by_email(
     email: str = Query(..., description="User's email address"), 
-    current_user: Dict[str, Any] = Depends(require_user_view_access)
+    current_user: Dict[str, Any] = Depends(require_user_view_access),
+    cosmos_service = Depends(get_cosmos_service)
 ):
     try:
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
-        user = await cosmos_db.get_user_by_email(email)
+        user = await cosmos_service.get_user_by_email(email)
         if not user:
             return {"status": 404, "message": f"User with email {email} not found"}
         user.pop("hashed_password", None)
@@ -156,7 +148,11 @@ async def get_user_by_email(
 
 
 @router.post("/register")
-async def register_user(request: Request, current_user: Dict[str, Any] = Depends(require_admin_user)):
+async def register_user(
+    request: Request, 
+    current_user: Dict[str, Any] = Depends(require_admin_user),
+    cosmos_service = Depends(get_cosmos_service)
+):
     try:
         # Parse incoming JSON
         data = await request.json()
@@ -167,17 +163,9 @@ async def register_user(request: Request, current_user: Dict[str, Any] = Depends
             logger.warning("Registration attempt with missing email or password")
             return {"status": 400, "message": "Email and password are required"}
 
-        # Initialize configuration & DB
-        config = get_app_config()
-        try:
-            cosmos_db = get_cosmos_db_cached(config)
-        except DatabaseError as e:
-            logger.error(f"Database initialization failed: {e}")
-            return {"status": 503, "message": "Database service unavailable"}
-
         # Check existing user
         try:
-            existing_user = await cosmos_db.get_user_by_email(email)
+            existing_user = await cosmos_service.get_user_by_email(email)
             if existing_user:
                 logger.warning(f"Registration attempt for existing email: {email}")
                 return {"status": 400, "message": "Email already registered"}
@@ -198,7 +186,7 @@ async def register_user(request: Request, current_user: Dict[str, Any] = Depends
         }
 
         try:
-            created_user = await cosmos_db.create_user(user_data)
+            created_user = await cosmos_service.create_user(user_data)
             logger.info(f"User created with ID: {created_user['id']}")
             return {"status": 200, "message": f"User {email} created successfully"}
         except Exception as e:
@@ -214,12 +202,11 @@ async def register_user(request: Request, current_user: Dict[str, Any] = Depends
 async def update_user(
     user_id: str, 
     update_data: dict = Body(...), 
-    current_user: Dict[str, Any] = Depends(require_admin_user)
+    current_user: Dict[str, Any] = Depends(require_admin_user),
+    cosmos_service = Depends(get_cosmos_service)
 ):
     try:
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
-        updated_user = await cosmos_db.update_user(user_id, update_data)
+        updated_user = await cosmos_service.update_user(user_id, update_data)
         updated_user.pop("hashed_password", None)
         return {"status": 200, "user": updated_user}
     except ValueError as e:
@@ -234,15 +221,13 @@ async def update_user(
 async def change_user_password(
     user_id: str,
     password_data: ChangePasswordRequest = Body(...),
-    current_user: Dict[str, Any] = Depends(require_admin_user)
+    current_user: Dict[str, Any] = Depends(require_admin_user),
+    cosmos_service = Depends(get_cosmos_service)
 ):
     """
     Change user password. Admin only.
     """
     try:
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
-        
         # Hash the new password
         hashed_password = get_password_hash(password_data.new_password)
         
@@ -251,7 +236,7 @@ async def change_user_password(
             "hashed_password": hashed_password,
             "updated_at": datetime.now(timezone.utc).isoformat()
         }
-        updated_user = await cosmos_db.update_user(user_id, update_data)
+        updated_user = await cosmos_service.update_user(user_id, update_data)
         
         logger.info(f"Password changed for user {user_id} by admin {current_user['id']}")
         return {
@@ -276,7 +261,8 @@ async def change_user_password(
 @router.delete("/users/{user_id}")
 async def delete_user(
     user_id: str,
-    current_user: Dict[str, Any] = Depends(require_admin_user)
+    current_user: Dict[str, Any] = Depends(require_admin_user),
+    cosmos_service = Depends(get_cosmos_service)
 ):
     """
     Delete a user account. Admin only.
@@ -289,11 +275,8 @@ async def delete_user(
                 detail="Cannot delete your own account"
             )
         
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
-        
         # Check if user exists
-        user = await cosmos_db.get_user_by_id(user_id)
+        user = await cosmos_service.get_user_by_id(user_id)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -301,7 +284,7 @@ async def delete_user(
             )
         
         # Delete user
-        await cosmos_db.delete_user(user_id)
+        await cosmos_service.delete_user(user_id)
         
         logger.info(f"User {user_id} deleted by admin {current_user['id']}")
         return {

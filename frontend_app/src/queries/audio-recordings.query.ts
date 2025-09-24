@@ -1,4 +1,4 @@
-import type { AudioRecording } from "@/api/audio-recordings";
+import type { AudioRecording, PaginatedResponse } from "@/api/audio-recordings";
 import type { AudioListValues } from "@/schema/audio-list.schema";
 import {
   getAudioRecordings,
@@ -18,14 +18,33 @@ function sortAudioRecordings(data: Array<AudioRecording>) {
   );
 }
 
-export function getAudioRecordingsQuery(filters?: AudioListValues) {
+export function getAudioRecordingsQuery(filters?: AudioListValues & { page?: number; per_page?: number }) {
+  const page = filters?.page ?? 1;
+  const perPage = filters?.per_page ?? 12;
+
+  // Build a stable key including pagination to allow separate caching per page
   return queryOptions({
-    queryKey: ["sonic-brief", "audio-recordings", filters || {}],
+    queryKey: ["sonic-brief", "audio-recordings", page, perPage, filters || {}],
     queryFn: async () => {
-      const data = await getAudioRecordings(filters);
-      return data || []; // Ensure we always return an array
+      const response = await getAudioRecordings({ ...filters, page, per_page: perPage });
+      
+      // Handle the paginated response structure
+      if (response && typeof response === 'object' && 'jobs' in response) {
+        const paginatedResponse = response as PaginatedResponse<AudioRecording>;
+        return {
+          jobs: sortAudioRecordings(paginatedResponse.jobs || []),
+          count: paginatedResponse.count || 0,
+          status: paginatedResponse.status || 200
+        };
+      }
+      
+      // Fallback for backward compatibility
+      return {
+        jobs: sortAudioRecordings(Array.isArray(response) ? (response as AudioRecording[]) : []),
+        count: Array.isArray(response) ? (response as AudioRecording[]).length : 0,
+        status: 200
+      };
     },
-    select: (data) => sortAudioRecordings(data || []),
   });
 }
 

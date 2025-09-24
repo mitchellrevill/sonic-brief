@@ -1,14 +1,14 @@
 import logging
 from typing import Optional
-from .config import get_app_config
+from .config import get_config
 
 logger = logging.getLogger(__name__)
 
 
 def get_functions_key() -> str:
     """Return the Azure Functions key from AppConfig, raising if missing."""
-    config = get_app_config()
-    key = getattr(config, 'azure_functions', {}).get('key')
+    config = get_config()
+    key = config.azure_functions_key
     if not key:
         logger.error("Azure Functions key is not configured")
         raise ValueError("Azure Functions key not configured")

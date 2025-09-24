@@ -1,13 +1,10 @@
 import { useEffect, useState, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { 
   User as UserIcon,
   Shield,
-  ShieldCheck,
-  Settings,
-  UserPlus
+  ShieldCheck
 } from "lucide-react";
 import { 
   fetchUserById, 
@@ -17,19 +14,16 @@ import {
   updateUserPermission, 
   changeUserPassword, 
   deleteUser,
-  updateUserCapabilities,
   getUserAuditLogs,
   type UserAnalytics,
   type UserAuditLogsResponse
 } from "@/lib/api";
 import type { User } from "@/lib/api";
-import { PermissionLevel, type UserCapabilities } from "@/types/permissions";
-import { UserCapabilityManager } from "../UserManagement/UserCapabilityManager";
+import { PermissionLevel } from "@/types/permissions";
 import { toast } from "sonner";
 import { UserDetailsHeader } from "./UserDetailsHeader";
 import { UserInfoCard } from "./UserInfoCard";
 import { UserAnalyticsOverview } from "./UserAnalyticsOverview";
-import { UserAnalyticsCharts } from "./UserAnalyticsCharts";
 import { UserAnalyticsSummary } from "./UserAnalyticsSummary";
 import { UserNotFound } from "./UserNotFound";
 import { UserDetailsSkeleton } from "./UserDetailsSkeleton";
@@ -64,7 +58,7 @@ export function UserDetailsPage() {
   const [auditLogs, setAuditLogs] = useState<UserAuditLogsResponse | null>(null);
   const [auditLoading, setAuditLoading] = useState<boolean>(false);
 
-  const analyticsApiUrl = `${import.meta.env.VITE_API_URL}/api/analytics/users/${userId}?days=${scopeDays}`;
+  const analyticsApiUrl = `${import.meta.env.VITE_API_URL}/api/analytics/users/${userId}/analytics?days=${scopeDays}`;
 
   useEffect(() => {
     if (userId) {
@@ -289,6 +283,12 @@ export function UserDetailsPage() {
   };
 
   const formatDuration = (minutes: number) => {
+    if (!minutes || isNaN(minutes) || minutes === 0) return `0m`;
+    // Show seconds for durations under 1 minute
+    if (minutes < 1) {
+      const secs = Math.round(minutes * 60);
+      return `${secs}s`;
+    }
     const roundedMinutes = Math.floor(minutes);
     if (roundedMinutes < 60) {
       return `${roundedMinutes}m`;
@@ -297,6 +297,12 @@ export function UserDetailsPage() {
     const remainingMinutes = roundedMinutes % 60;
     return `${hours}h ${remainingMinutes}m`;
   };
+
+  // Derived analytics values: prefer explicit analytics fields, fall back to userMinutes records
+  const derivedTotalMinutes = userMinutes?.total_minutes ?? analytics?.analytics?.transcription_stats?.total_minutes ?? 0;
+  const derivedTotalJobs = analytics?.analytics?.transcription_stats?.total_jobs ?? userMinutes?.total_records ?? analytics?.analytics?.activity_stats?.jobs_created ?? 0;
+  const derivedAvgJobDuration = analytics?.analytics?.transcription_stats?.average_job_duration ?? (userMinutes && userMinutes.total_records > 0 ? (userMinutes.total_minutes / userMinutes.total_records) : 0);
+  const derivedJobsCreated = analytics?.analytics?.activity_stats?.jobs_created ?? derivedTotalJobs;
 
   if (loading) {
     return <UserDetailsSkeleton />;
@@ -382,14 +388,14 @@ export function UserDetailsPage() {
             </CardHeader>
             <CardContent>
               <UserAnalyticsOverview
-                totalJobs={analytics.analytics.transcription_stats?.total_jobs ?? 0}
-                totalMinutes={formatDuration(userMinutes?.total_minutes ?? analytics.analytics.transcription_stats?.total_minutes ?? 0)}
-                avgJobDuration={formatDuration(analytics.analytics.transcription_stats?.average_job_duration ?? 0)}
+                totalJobs={derivedTotalJobs}
+                totalMinutes={formatDuration(derivedTotalMinutes)}
+                avgJobDuration={formatDuration(derivedAvgJobDuration)}
               />
-              
+
               <UserAnalyticsSummary
                 lastActivity={analytics.analytics.activity_stats?.last_activity ?? null}
-                jobsCreated={analytics.analytics.activity_stats?.jobs_created ?? 0}
+                jobsCreated={derivedJobsCreated}
               />
             </CardContent>
           </Card>
@@ -401,7 +407,7 @@ export function UserDetailsPage() {
       {/* Audit Logs Section */}
       {auditLoading ? (
         <div className="text-sm text-muted-foreground">Loading audit logs…</div>
-      ) : auditLogs && auditLogs.records.length > 0 ? (
+      ) : auditLogs && auditLogs.records && auditLogs.records.length > 0 ? (
         <div className="mt-6">
           <h3 className="text-base font-semibold mb-2">Audit Log</h3>
           <div className="space-y-2">
@@ -425,101 +431,6 @@ export function UserDetailsPage() {
       {/* User Capability Management */}
       {user && (
         <div className="space-y-6">
-          {/* Permission Overview */}
-          <Card className="bg-card/80 border border-muted-foreground/10 rounded-xl shadow-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg font-semibold">
-                <Shield className="h-5 w-5" />
-                Permission Overview
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <div className="text-center p-4 border rounded-lg">
-                  <div className="text-lg font-semibold">{user.permission}</div>
-                  <div className="text-sm text-muted-foreground">Current Level</div>
-                </div>
-                <div className="text-center p-4 border rounded-lg">
-                  <div className="text-lg font-semibold">
-                    {user.custom_capabilities ? Object.values(user.custom_capabilities).filter(Boolean).length : 0}
-                  </div>
-                  <div className="text-sm text-muted-foreground">Custom Capabilities</div>
-                </div>
-                <div className="text-center p-4 border rounded-lg">
-                  <div className="text-lg font-semibold">
-                    {user.date ? new Date(user.date).toLocaleDateString() : 'N/A'}
-                  </div>
-                  <div className="text-sm text-muted-foreground">Permission Set Date</div>
-                </div>
-              </div>
-              
-              {/* Quick Actions */}
-              <div className="flex flex-wrap gap-2">
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => setShowPermissionDialog(true)}
-                  className="flex items-center gap-2"
-                >
-                  <Settings className="h-4 w-4" />
-                  Change Permission Level
-                </Button>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => setShowPasswordDialog(true)}
-                  className="flex items-center gap-2"
-                >
-                  <Shield className="h-4 w-4" />
-                  Reset Password
-                </Button>
-                <Button 
-                  variant="destructive" 
-                  size="sm" 
-                  onClick={() => setShowDeleteDialog(true)}
-                  className="flex items-center gap-2"
-                >
-                  <UserPlus className="h-4 w-4" />
-                  Delete User
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Detailed Capability Management */}
-          <Card className="bg-card/80 border border-muted-foreground/10 rounded-xl shadow-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg font-semibold">
-                <Shield className="h-5 w-5" />
-                Detailed Permission Capabilities
-              </CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Manage granular permissions and capabilities for this user
-              </p>
-            </CardHeader>
-            <CardContent>
-              <UserCapabilityManager
-                user={{
-                  id: user.id,
-                  email: user.email,
-                  permission: user.permission,
-                  custom_capabilities: user.custom_capabilities,
-                  created_at: user.date || new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                }}
-                onUpdateCapabilities={async (userId: string, capabilities: UserCapabilities) => {
-                  try {
-                    await updateUserCapabilities(userId, { custom_capabilities: capabilities });
-                    // Refresh user data
-                    const updatedUser = await fetchUserById(userId);
-                    setUser(updatedUser);
-                  } catch (error: any) {
-                    throw new Error(error.message || "Failed to update capabilities");
-                  }
-                }}
-              />
-            </CardContent>
-          </Card>
         </div>
       )}
     </div>

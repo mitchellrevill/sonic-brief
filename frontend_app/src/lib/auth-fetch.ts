@@ -18,8 +18,19 @@
       // leave url as-is if it can't be parsed
     }
 
-    // Allow auth endpoints to proceed without forced redirect so UI can show inline errors
-    if (/\/api\/auth\//.test(url)) return true;
+    // Allow most auth endpoints to proceed without forced redirect so UI can show inline errors
+    // BUT: the permissions endpoint should be allowed to trigger a full redirect on 401
+    // so we explicitly *do not* bypass it here. This helps when a user's permission
+    // expires and we need to show the login flow immediately.
+    if (/\/api\/auth\//.test(url)) {
+      // Treat any permissions-checking endpoint as non-bypassed so that a 401/403
+      // from a permissions route will cause the global redirect to `/login`.
+      // Examples matched: `/api/auth/users/me/permissions`, `/api/auth/permissions`, `/api/permissions`.
+      if (/\/permissions(?:$|[/?])/.test(url) || /\/api\/permissions/.test(url)) {
+        return false;
+      }
+      return true;
+    }
     // Allow backend job/refinement endpoints to handle auth errors inline (streaming etc.)
     if (/\/api\/jobs\//.test(url)) return true;
     return false;

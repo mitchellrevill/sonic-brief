@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 class AuditEventType(str, Enum):
     """Types of audit events"""
+    ACCESS_DENIED = "access_denied"
     PERMISSION_GRANTED = "permission_granted"
     PERMISSION_DENIED = "permission_denied"
     PERMISSION_CHANGED = "permission_changed"

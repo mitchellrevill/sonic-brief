@@ -14,19 +14,14 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
 logger = logging.getLogger(__name__)
 from ...core.async_utils import run_sync
+from ...core.dependencies import CosmosService
 
 
 class ExportService:
     """Service for exporting user data and analytics to various formats"""
     
-    def __init__(self, cosmos_db=None):
-        if cosmos_db is None:
-            # Use explicit package import to satisfy static analyzers and runtime imports
-            from app.core.config import get_cosmos_db_cached, get_app_config
-            cfg = get_app_config()
-            cosmos_db = get_cosmos_db_cached(cfg)
-
-        self.cosmos_db = cosmos_db
+    def __init__(self, cosmos_service: CosmosService):
+        self.cosmos_db = cosmos_service
         self.logger = logging.getLogger(__name__)
 
     async def export_users_csv(self, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

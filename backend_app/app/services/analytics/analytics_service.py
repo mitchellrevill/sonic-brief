@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional, List
 
 from ...utils.logging_config import get_logger
 from ...core.async_utils import run_sync
+from ...core.dependencies import CosmosService
 
 
 logger = logging.getLogger(__name__)
@@ -17,14 +18,8 @@ class AnalyticsService:
     to be used as a singleton via DI.
     """
 
-    def __init__(self, cosmos_db=None):
-        # Prefer injected cosmos_db for testing; otherwise use the cached singleton
-        if cosmos_db is None:
-            from ...core.config import get_cosmos_db_cached, get_app_config
-            cfg = get_app_config()
-            cosmos_db = get_cosmos_db_cached(cfg)
-
-        self.cosmos_db = cosmos_db
+    def __init__(self, cosmos_service: CosmosService):
+        self.cosmos_db = cosmos_service
         self.logger = get_logger(__name__)
 
         # quick availability flags to avoid repeated hasattr checks
@@ -291,7 +286,7 @@ class AnalyticsService:
         active_user_set = set()
         try:
             if hasattr(self.cosmos_db, 'sessions_container') and self.cosmos_db.sessions_container is not None:
-                sess_query = "SELECT c.user_id, c.last_heartbeat, c.status FROM c WHERE c.last_heartbeat >= @start"
+                sess_query = "SELECT c.user_id, c.last_activity, c.last_heartbeat, c.status FROM c WHERE (IS_DEFINED(c.last_activity) AND c.last_activity >= @start) OR (IS_DEFINED(c.last_heartbeat) AND c.last_heartbeat >= @start)"
                 sess_params = [{"name": "@start", "value": start_dt.isoformat()}]
                 for s in self.cosmos_db.sessions_container.query_items(query=sess_query, parameters=sess_params, enable_cross_partition_query=True):
                     try:
@@ -313,11 +308,11 @@ class AnalyticsService:
             # Re-query sessions for finer buckets only if container present
             if hasattr(self.cosmos_db, 'sessions_container') and self.cosmos_db.sessions_container is not None:
                 bucket_counts = {}
-                sess_query2 = "SELECT c.user_id, c.last_heartbeat FROM c WHERE c.last_heartbeat >= @start AND c.last_heartbeat <= @end"
+                sess_query2 = "SELECT c.user_id, c.last_activity, c.last_heartbeat FROM c WHERE ((IS_DEFINED(c.last_activity) AND c.last_activity >= @start AND c.last_activity <= @end) OR (IS_DEFINED(c.last_heartbeat) AND c.last_heartbeat >= @start AND c.last_heartbeat <= @end))"
                 sess_params2 = [{"name": "@start", "value": start_dt.isoformat()}, {"name": "@end", "value": end_dt.isoformat()}]
                 for s in self.cosmos_db.sessions_container.query_items(query=sess_query2, parameters=sess_params2, enable_cross_partition_query=True):
                     try:
-                        hb = s.get('last_heartbeat')
+                        hb = s.get('last_activity') or s.get('last_heartbeat')
                         uid = s.get('user_id')
                         if not hb or not uid:
                             continue

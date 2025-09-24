@@ -59,7 +59,7 @@ export function VoiceRecorder({ onRecordingComplete }: VoiceRecorderProps) {
         ) : (
           <button
             onClick={stopRecording}
-            className="w-16 h-16 flex items-center justify-center rounded-full bg-red-500 text-white shadow-lg animate-pulse hover:bg-red-600 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-red-400"
+            className="w-16 h-16 flex items-center justify-center rounded-full bg-red-500 text-white shadow-lg hover:bg-red-600 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-red-400"
             aria-label="Stop Recording"
           >
             <Square className="w-8 h-8" />

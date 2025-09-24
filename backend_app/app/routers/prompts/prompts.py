@@ -3,9 +3,10 @@ from typing import Dict, Any, Optional, List, Union
 from pydantic import BaseModel, Field
 import logging
 from ...core.config import DatabaseError
-from ...core.dependencies import get_current_user, require_prompt_management, require_user, require_editor
-from ...services.prompts.talking_points_service import talking_points_service, TalkingPointSection
-from ...services.prompts.prompt_service import prompt_service
+from ...core.dependencies import get_current_user, require_user, require_editor, require_admin, get_cosmos_service, get_prompt_service, get_talking_points_service, CosmosService
+from ...models.permissions import PermissionLevel, has_permission_level
+from ...services.prompts.talking_points_service import TalkingPointSection
+from ...services.interfaces import PromptServiceInterface, TalkingPointsServiceInterface
 from ...core.async_utils import run_sync
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,10 @@ the talking_points_service and persistence to prompt_service.
 
 
 # Validation and conversion functions for talking points
-def validate_talking_points_structure(talking_points: List[TalkingPointSection]) -> List[Dict[str, Any]]:
+def validate_talking_points_structure(
+    talking_points: List[TalkingPointSection], 
+    talking_points_service: TalkingPointsServiceInterface
+) -> List[Dict[str, Any]]:
     # Delegate to talking_points_service which contains robust validation
     # Accept either Pydantic sections or raw dicts
     try:
@@ -39,12 +43,18 @@ def validate_talking_points_structure(talking_points: List[TalkingPointSection])
         raise ValueError(str(e))
 
 
-def convert_talking_points_to_response(talking_points_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def convert_talking_points_to_response(
+    talking_points_data: List[Dict[str, Any]], 
+    talking_points_service: TalkingPointsServiceInterface
+) -> List[Dict[str, Any]]:
     # Return the service-converted structure (dicts) to keep router light
     return talking_points_service.convert_talking_points_to_response(talking_points_data)
 
 
-def migrate_legacy_talking_points(legacy_points: list) -> list:
+def migrate_legacy_talking_points(
+    legacy_points: list, 
+    talking_points_service: TalkingPointsServiceInterface
+) -> list:
     """
     Migrate legacy talking points format to new structured format
     
@@ -58,7 +68,10 @@ def migrate_legacy_talking_points(legacy_points: list) -> list:
     return talking_points_service.migrate_legacy_talking_points(legacy_points)
 
 
-def ensure_talking_points_structure(subcategory_data: dict) -> dict:
+def ensure_talking_points_structure(
+    subcategory_data: dict, 
+    talking_points_service: TalkingPointsServiceInterface
+) -> dict:
     """
     Ensure talking points are in the correct format, migrating if necessary
     """
@@ -116,11 +129,11 @@ class SubcategoryResponse(SubcategoryBase):
 async def create_category(
     category: CategoryCreate,
     current_user: dict = Depends(get_current_user),
-    _auth: str = Depends(require_prompt_management),
+    _auth: str = Depends(require_editor),
+    prompt_service: PromptServiceInterface = Depends(get_prompt_service),
 ) -> Dict[str, Any]:
     """Create a new prompt category (requires prompt management capability)."""
     try:
-        # Reuse service which uses cached DB client
         created = await run_sync(prompt_service.create_category, category.name, getattr(category, "parent_category_id", None))
         return created
     except DatabaseError:
@@ -133,8 +146,12 @@ async def create_category(
 
 
 @router.get("/categories", response_model=List[CategoryResponse])
-async def list_categories(current_user: dict = Depends(get_current_user), _auth: str = Depends(require_user)) -> List[Dict[str, Any]]:
-    """List all prompt categories (any authenticated user)."""
+async def list_categories(
+    current_user: dict = Depends(get_current_user), 
+    _auth: str = Depends(require_user),
+    prompt_service: PromptServiceInterface = Depends(get_prompt_service),
+) -> List[Dict[str, Any]]:
+    """List all prompt categories (requires CAN_VIEW_PROMPTS capability)."""
     try:
         return await run_sync(prompt_service.list_categories)
     except Exception as e:
@@ -143,7 +160,12 @@ async def list_categories(current_user: dict = Depends(get_current_user), _auth:
 
 
 @router.get("/categories/{category_id}", response_model=CategoryResponse)
-async def get_category(category_id: str, current_user: dict = Depends(get_current_user), _auth: str = Depends(require_user)) -> Dict[str, Any]:
+async def get_category(
+    category_id: str, 
+    current_user: dict = Depends(get_current_user), 
+    _auth: str = Depends(require_user),
+    prompt_service: PromptServiceInterface = Depends(get_prompt_service),
+) -> Dict[str, Any]:
     try:
         item = await run_sync(prompt_service.get_category, category_id)
         if not item:
@@ -157,7 +179,13 @@ async def get_category(category_id: str, current_user: dict = Depends(get_curren
 
 
 @router.put("/categories/{category_id}", response_model=CategoryResponse)
-async def update_category(category_id: str, category: CategoryUpdate, current_user: dict = Depends(get_current_user), _auth: str = Depends(require_prompt_management)) -> Dict[str, Any]:
+async def update_category(
+    category_id: str,
+    category: CategoryUpdate,
+    current_user: dict = Depends(get_current_user),
+    _auth: str = Depends(require_editor),
+    prompt_service: PromptServiceInterface = Depends(get_prompt_service),
+) -> Dict[str, Any]:
     try:
         updated = await run_sync(prompt_service.update_category, category_id, category.name, getattr(category, "parent_category_id", None))
         if not updated:
@@ -171,7 +199,12 @@ async def update_category(category_id: str, category: CategoryUpdate, current_us
 
 
 @router.delete("/categories/{category_id}")
-async def delete_category(category_id: str, current_user: dict = Depends(get_current_user), _auth: str = Depends(require_prompt_management)) -> Dict[str, Any]:
+async def delete_category(
+    category_id: str,
+    current_user: dict = Depends(get_current_user),
+    _auth: str = Depends(require_editor),
+    prompt_service: PromptServiceInterface = Depends(get_prompt_service),
+) -> Dict[str, Any]:
     try:
         # Ensure category exists first to provide clear 404 when absent
         existing = await run_sync(prompt_service.get_category, category_id)
@@ -187,7 +220,13 @@ async def delete_category(category_id: str, current_user: dict = Depends(get_cur
 
 
 @router.post("/subcategories", response_model=SubcategoryResponse)
-async def create_subcategory(subcategory: SubcategoryCreate, current_user: dict = Depends(get_current_user), _auth: str = Depends(require_prompt_management)) -> Dict[str, Any]:
+async def create_subcategory(
+    subcategory: SubcategoryCreate,
+    current_user: dict = Depends(get_current_user),
+    _auth: str = Depends(require_editor),
+    prompt_service: PromptServiceInterface = Depends(get_prompt_service),
+    talking_points_service: TalkingPointsServiceInterface = Depends(get_talking_points_service),
+) -> Dict[str, Any]:
     """Create a new prompt subcategory (requires prompt management capability)."""
     try:
         # Validate talking points via service
@@ -205,7 +244,7 @@ async def create_subcategory(subcategory: SubcategoryCreate, current_user: dict 
             raise HTTPException(status_code=404, detail=f"Category with id '{subcategory.category_id}' not found")
 
         created = await run_sync(prompt_service.create_subcategory, subcategory.category_id, subcategory.name, subcategory.prompts, validated_pre, validated_in)
-        created = talking_points_service.ensure_talking_points_structure(created)
+        created = ensure_talking_points_structure(created, talking_points_service)
         return created
     except HTTPException:
         raise
@@ -215,10 +254,16 @@ async def create_subcategory(subcategory: SubcategoryCreate, current_user: dict 
 
 
 @router.get("/subcategories", response_model=List[SubcategoryResponse])
-async def list_subcategories(category_id: Optional[str] = None, current_user: dict = Depends(get_current_user), _auth: str = Depends(require_user)) -> List[Dict[str, Any]]:
+async def list_subcategories(
+    category_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+    _auth: str = Depends(require_user),
+    prompt_service: PromptServiceInterface = Depends(get_prompt_service),
+    talking_points_service: TalkingPointsServiceInterface = Depends(get_talking_points_service),
+) -> List[Dict[str, Any]]:
     try:
         subs = await run_sync(prompt_service.list_subcategories, category_id)
-        subs = [talking_points_service.ensure_talking_points_structure(s) for s in subs]
+        subs = [ensure_talking_points_structure(s, talking_points_service) for s in subs]
         return subs
     except Exception as e:
         logger.error("Error listing subcategories", exc_info=True)
@@ -226,12 +271,18 @@ async def list_subcategories(category_id: Optional[str] = None, current_user: di
 
 
 @router.get("/subcategories/{subcategory_id}", response_model=SubcategoryResponse)
-async def get_subcategory(subcategory_id: str, current_user: dict = Depends(get_current_user), _auth: str = Depends(require_user)) -> Dict[str, Any]:
+async def get_subcategory(
+    subcategory_id: str,
+    current_user: dict = Depends(get_current_user),
+    _auth: str = Depends(require_user),
+    prompt_service: PromptServiceInterface = Depends(get_prompt_service),
+    talking_points_service: TalkingPointsServiceInterface = Depends(get_talking_points_service),
+) -> Dict[str, Any]:
     try:
         sub = await run_sync(prompt_service.get_subcategory, subcategory_id)
         if not sub:
             raise HTTPException(status_code=404, detail=f"Subcategory with id '{subcategory_id}' not found")
-        sub = talking_points_service.ensure_talking_points_structure(sub)
+        sub = ensure_talking_points_structure(sub, talking_points_service)
         return sub
     except HTTPException:
         raise
@@ -241,7 +292,14 @@ async def get_subcategory(subcategory_id: str, current_user: dict = Depends(get_
 
 
 @router.put("/subcategories/{subcategory_id}", response_model=SubcategoryResponse)
-async def update_subcategory(subcategory_id: str, subcategory: SubcategoryUpdate, current_user: dict = Depends(get_current_user), _auth: str = Depends(require_prompt_management)) -> Dict[str, Any]:
+async def update_subcategory(
+    subcategory_id: str,
+    subcategory: SubcategoryUpdate,
+    current_user: dict = Depends(get_current_user),
+    _auth: str = Depends(require_editor),
+    prompt_service: PromptServiceInterface = Depends(get_prompt_service),
+    talking_points_service: TalkingPointsServiceInterface = Depends(get_talking_points_service),
+) -> Dict[str, Any]:
     try:
         pre_session_dict = [section.dict() for section in subcategory.preSessionTalkingPoints]
         in_session_dict = [section.dict() for section in subcategory.inSessionTalkingPoints]
@@ -254,7 +312,7 @@ async def update_subcategory(subcategory_id: str, subcategory: SubcategoryUpdate
         updated = await run_sync(prompt_service.update_subcategory, subcategory_id, subcategory.name, subcategory.prompts, validated_pre, validated_in)
         if not updated:
             raise HTTPException(status_code=404, detail=f"Subcategory with id '{subcategory_id}' not found")
-        updated = talking_points_service.ensure_talking_points_structure(updated)
+        updated = ensure_talking_points_structure(updated, talking_points_service)
         return updated
     except HTTPException:
         raise
@@ -264,7 +322,12 @@ async def update_subcategory(subcategory_id: str, subcategory: SubcategoryUpdate
 
 
 @router.delete("/subcategories/{subcategory_id}")
-async def delete_subcategory(subcategory_id: str, current_user: dict = Depends(get_current_user), _auth: str = Depends(require_prompt_management)) -> Dict[str, Any]:
+async def delete_subcategory(
+    subcategory_id: str,
+    current_user: dict = Depends(get_current_user),
+    _auth: str = Depends(require_editor),
+    prompt_service: PromptServiceInterface = Depends(get_prompt_service),
+) -> Dict[str, Any]:
     try:
         # Ensure subcategory exists first for clear 404 mapping
         existing = await run_sync(prompt_service.get_subcategory, subcategory_id)
@@ -300,7 +363,11 @@ class AllPromptsResponse(BaseModel):
 
 
 @router.get("/retrieve_prompts", response_model=AllPromptsResponse)
-async def retrieve_prompts(current_user: dict = Depends(get_current_user), _auth: str = Depends(require_user)) -> Dict[str, Any]:
+async def retrieve_prompts(
+    current_user: dict = Depends(get_current_user),
+    _auth: str = Depends(require_user),
+    prompt_service: PromptServiceInterface = Depends(get_prompt_service),
+) -> Dict[str, Any]:
     try:
         data = await run_sync(prompt_service.retrieve_prompts_hierarchy)
         return {"status": 200, "data": data}

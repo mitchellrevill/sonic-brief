@@ -1,83 +1,66 @@
 """
-Centralized permission helpers for resource-scoped capability checks.
-This module consolidates the duplicated `_user_has_capability_for_job` logic
-so routers can import a single, well-tested helper.
+Centralized permission helpers for resource-scoped permission checks.
+Simplified to use only hierarchical permissions (USER/EDITOR/ADMIN).
 """
 from typing import Dict, Any
 from app.models.permissions import (
     PermissionLevel,
-    PermissionCapability,
-    can_user_perform_action,
-    get_user_capabilities,
-    merge_custom_capabilities,
+    has_permission_level,
+    PERMISSION_HIERARCHY,
 )
 
 
-def get_effective_capability_map(user: Dict[str, Any]) -> Dict[str, bool]:
-    """Compute the effective capability map for a user (base role + custom overrides).
+def user_has_permission_for_job(user: Dict[str, Any], job: Dict[str, Any], required_level: PermissionLevel) -> bool:
+    """Check if a user has the required permission level for a job/resource.
 
-    Returns a mapping of capability_value -> bool.
-    """
-    user_permission = user.get("permission")
-    custom = user.get("custom_capabilities", {}) or {}
-    base = get_user_capabilities(user_permission)
-    if custom:
-        return merge_custom_capabilities(base, custom)
-    return base
-
-
-def user_has_capability_for_job(user: Dict[str, Any], job: Dict[str, Any], capability: str) -> bool:
-    """Check if a user has a given capability for a job/resource.
-
-    Evaluation order mirrors previous router implementations:
-      - Admin role override
-      - Role-based capability (via can_user_perform_action)
-      - Effective capability map (base + custom)
-      - Explicit user 'capabilities' list
-      - Owner of the job
+    Evaluation order:
+      - Permission level hierarchy check (ADMIN > EDITOR > USER)
+      - Owner of the job  
       - Job.shared_with entries (permission: 'read' or 'write')
     """
-    # Admin override
-    if user.get("permission") == PermissionLevel.ADMIN.value:
+    user_permission = user.get("permission")
+    
+    # Check if user has required permission level
+    if has_permission_level(user_permission, required_level):
         return True
 
-    # Role-based capability (legacy helper)
-    try:
-        if can_user_perform_action(user.get("permission"), capability):
-            return True
-    except Exception:
-        # Be conservative if role lookup fails
-        pass
-
-    # Effective capability map
-    effective = get_effective_capability_map(user)
-    if effective.get(capability, False):
-        return True
-
-    # Explicit capability flags on the user (older shape)
-    user_caps = user.get("capabilities") or []
-    if capability in user_caps:
-        return True
-
-    # Owner
+    # Owner always has access
     if job.get("user_id") == user.get("id"):
         return True
 
-    # Shared-with entries
+    # Check shared-with entries
     for share in job.get("shared_with", []):
         if share.get("user_id") == user.get("id"):
-            perm = share.get("permission", "read")
-            if perm == "read" and capability in (
-                PermissionCapability.CAN_VIEW_OWN_JOBS.value,
-                PermissionCapability.CAN_VIEW_SHARED_JOBS.value,
-                PermissionCapability.CAN_DOWNLOAD_FILES.value,
-            ):
+            share_permission = share.get("permission", "read")
+            
+            # Read permission allows viewing
+            if required_level == PermissionLevel.USER and share_permission in ["read", "write"]:
                 return True
-            if perm == "write" and capability in (
-                PermissionCapability.CAN_EDIT_OWN_JOBS.value,
-                PermissionCapability.CAN_EDIT_SHARED_JOBS.value,
-                PermissionCapability.CAN_DOWNLOAD_FILES.value,
-            ):
+            
+            # Write permission allows editing  
+            if required_level == PermissionLevel.EDITOR and share_permission == "write":
                 return True
 
     return False
+
+
+def user_can_view_job(user: Dict[str, Any], job: Dict[str, Any]) -> bool:
+    """Check if user can view a job"""
+    return user_has_permission_for_job(user, job, PermissionLevel.USER)
+
+
+def user_can_edit_job(user: Dict[str, Any], job: Dict[str, Any]) -> bool:
+    """Check if user can edit a job"""
+    return user_has_permission_for_job(user, job, PermissionLevel.EDITOR)
+
+
+def user_can_delete_job(user: Dict[str, Any], job: Dict[str, Any]) -> bool:
+    """Check if user can delete a job (admin only or owner)"""
+    user_permission = user.get("permission")
+    
+    # Admin can delete any job
+    if user_permission == PermissionLevel.ADMIN.value:
+        return True
+    
+    # Owner can delete their own job
+    return job.get("user_id") == user.get("id")

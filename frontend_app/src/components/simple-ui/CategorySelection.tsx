@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RetentionDisclaimer } from "@/components/ui/retention-disclaimer";
-import { ArrowRight, Folder, FormInput, FileText } from "lucide-react";
+import { ArrowRight, ArrowLeft, Folder, FormInput, FileText, CheckCircle} from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getPromptManagementCategoriesQuery, getPromptManagementSubcategoriesQuery } from "@/queries/prompt-management.query";
 import { fetchSubcategories } from "@/api/prompt-management";
@@ -280,11 +280,18 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
   if (isCategoriesLoading || isSubcategoriesLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-6">
+        <Card className="w-full max-w-md border-0 shadow-xl">
+          <CardContent className="pt-8 pb-8">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-              <p className="text-muted-foreground">Loading service areas...</p>
+              <div className="w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mx-auto mb-6">
+                <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                Loading Service Areas
+              </h3>
+              <p className="text-gray-600 dark:text-gray-400">
+                Please wait while we prepare your recording options...
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -293,73 +300,108 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
   }
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="max-w-2xl mx-auto">
+    <div className="min-h-screen bg-background">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-2">Select Service Area</h1>
-          <p className="text-muted-foreground text-lg">Choose the type of meeting you're recording</p>
+        <div className="text-center mb-8 sm:mb-10">
+            <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-gray-700 to-gray-900 dark:from-gray-100 dark:to-gray-400 bg-clip-text text-transparent mb-3 sm:mb-4">
+            Create New Recording
+            </h1>
+          <p className="text-base sm:text-lg text-gray-600 dark:text-gray-400 max-w-2xl mx-auto px-2">
+            Choose your service area and meeting type to get started with your recording session
+          </p>
         </div>
 
         {/* Retention Policy Disclaimer */}
-        <RetentionDisclaimer className="mb-8" />
+        <div className="mb-8 sm:mb-10">
+          <RetentionDisclaimer className="max-w-3xl mx-auto" />
+        </div>
 
-        {/* Progress indicator */}
-        <div className="flex items-center justify-center mb-8">
-          <div className="flex items-center space-x-2">
-            <div className="flex items-center">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                !selectedCategory ? 'bg-primary text-primary-foreground' : 'bg-primary text-primary-foreground'
-              }`}>
-                1
+        {/* Enhanced Progress Steps */}
+        <div className="mb-12">
+          <div className="max-w-3xl mx-auto">
+            <div className="flex items-center justify-between relative">
+              {/* Progress Line */}
+              <div className="absolute top-4 left-0 right-0 h-0.5 bg-gray-200 dark:bg-gray-700"></div>
+              <div 
+                className="absolute top-4 left-0 h-0.5 bg-gradient-to-r from-gray-500 to-gray-600 transition-all duration-500" 
+                style={{ 
+                  width: selectedSubcategory ? '100%' : selectedCategory ? '66%' : '33%'
+                }}
+              ></div>
+
+              {/* Step 1: Service Area */}
+              <div className="relative flex flex-col items-center">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold transition-all duration-300 z-10 ${
+                  selectedCategory 
+                    ? 'bg-gray-500 text-white shadow-lg' 
+                    : 'bg-white dark:bg-gray-800 border-2 border-gray-500 text-gray-500'
+                }`}>
+                  {selectedCategory ? <CheckCircle className="w-4 h-4" /> : '1'}
+                </div>
+                <span className="mt-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Service Area
+                </span>
               </div>
-              <span className={`ml-2 text-sm ${!selectedCategory ? 'text-foreground' : 'text-muted-foreground'}`}>
-                Service Area
-              </span>
-            </div>
-            <ArrowRight className="w-4 h-4 text-muted-foreground" />
-            <div className="flex items-center">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                selectedCategory && !selectedSubcategory ? 'bg-primary text-primary-foreground' : 
-                selectedSubcategory ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
-              }`}>
-                2
+
+              {/* Step 2: Meeting Type */}
+              <div className="relative flex flex-col items-center">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold transition-all duration-300 z-10 ${
+                  selectedSubcategory 
+                    ? 'bg-gray-500 text-white shadow-lg' 
+                    : selectedCategory 
+                      ? 'bg-white dark:bg-gray-800 border-2 border-gray-500 text-gray-500'
+                      : 'bg-gray-200 dark:bg-gray-700 text-gray-500'
+                }`}>
+                  {selectedSubcategory ? <CheckCircle className="w-4 h-4" /> : '2'}
+                </div>
+                <span className={`mt-2 text-sm font-medium transition-colors ${
+                  selectedCategory ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400'
+                }`}>
+                  Meeting Type
+                </span>
               </div>
-              <span className={`ml-2 text-sm ${
-                selectedCategory ? 'text-foreground' : 'text-muted-foreground'
-              }`}>
-                Meeting Type
-              </span>
-            </div>
-            <ArrowRight className="w-4 h-4 text-muted-foreground" />
-            <div className="flex items-center">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                selectedSubcategory ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
-              }`}>
-                3
+
+              {/* Step 3: Pre-Session */}
+              <div className="relative flex flex-col items-center">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold transition-all duration-300 z-10 ${
+                  selectedSubcategory 
+                    ? 'bg-white dark:bg-gray-800 border-2 border-gray-500 text-gray-500'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-500'
+                }`}>
+                  3
+                </div>
+                <span className={`mt-2 text-sm font-medium transition-colors ${
+                  selectedSubcategory ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400'
+                }`}>
+                  Pre-Session
+                </span>
               </div>
-              <span className={`ml-2 text-sm ${
-                selectedSubcategory ? 'text-foreground' : 'text-muted-foreground'
-              }`}>
-                Pre-Session
-              </span>
-            </div>
-            <ArrowRight className="w-4 h-4 text-muted-foreground" />
-            <div className="flex items-center">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium bg-muted text-muted-foreground">
-                4
+
+              {/* Step 4: Record */}
+              <div className="relative flex flex-col items-center">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold bg-gray-200 dark:bg-gray-700 text-gray-500 z-10">
+                  4
+                </div>
+                <span className="mt-2 text-sm font-medium text-gray-400">
+                  Record
+                </span>
               </div>
-              <span className="ml-2 text-sm text-muted-foreground">
-                Record
-              </span>
             </div>
           </div>
         </div>
 
-        {/* Category Selection - Progressive disclosure */}
+        {/* Category Selection - Step 1 */}
         {!selectedCategory && (
-          <div className="space-y-6">
-            <h2 className="text-xl font-semibold text-center mb-6">Choose Service Area</h2>
+          <div className="space-y-8 animate-in fade-in-0 slide-in-from-bottom-4 duration-500">
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                Choose Your Service Area
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400">
+                Select the department or area where your meeting will take place
+              </p>
+            </div>
             
             {(() => {
               const rootCategories = (categories || []).filter(cat => !(cat as any).parent_category_id);
@@ -373,64 +415,111 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
               });
 
               const toggleExpand = (parentId: string) => setExpandedParentCategoryId(cur => cur === parentId ? "" : parentId);
+              
               return (
-                <div className="space-y-2" role="radiogroup" aria-label="Service Areas">
-                  {rootCategories.map((category: CategoryResponse) => {
+                <div className="grid gap-6 md:grid-cols-2" role="radiogroup" aria-label="Service Areas">
+                  {rootCategories.map((category: CategoryResponse, index: number) => {
                     const hasChildren = childrenByParent[category.id]?.length > 0;
                     const expanded = expandedParentCategoryId === category.id;
                     const isSelected = !!(selectedCategory && (selectedCategory as any).id === category.id);
+                    const subcategoryCount = subcategories?.filter(sub => sub.category_id === category.id).length || 0;
+                    
                     return (
-                      <div key={category.id} className="border rounded-md bg-card/70 backdrop-blur-sm border-border/30 overflow-hidden">
-                        <div className="flex items-start justify-between gap-4 p-4 cursor-pointer hover:border-primary/40 transition"
-              onClick={() => setSelectedCategory(category)}
-                             role="radio" aria-checked={isSelected}>
-                          <div className="flex-shrink-0">
-                            <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
-                              <Folder className="w-6 h-6 text-primary" />
+                      <Card 
+                        key={category.id} 
+                        className={`group cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1 border-2 overflow-hidden animate-in fade-in-0 slide-in-from-bottom-4 ${
+                          isSelected 
+                            ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-900/20 shadow-lg' 
+                            : 'border-gray-200 dark:border-gray-700 hover:border-blue-300'
+                        }`}
+                        style={{ animationDelay: `${index * 100}ms` }}
+                        onClick={() => setSelectedCategory(category)}
+                        role="radio" 
+                        aria-checked={isSelected}
+                      >
+                        <CardContent className="p-6">
+                          <div className="flex items-start space-x-4">
+                            <div className={`flex-shrink-0 w-14 h-14 rounded-xl flex items-center justify-center transition-colors ${
+                              isSelected 
+                                ? 'bg-gray-500 text-white' 
+                                : 'bg-gray-100 dark:bg-gray-900/30 text-gray-600 dark:text-gray-400 group-hover:bg-gray-200'
+                            }`}>
+                              <Folder className="w-7 h-7" />
                             </div>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start gap-2 flex-wrap">
-                              <p className="font-medium leading-tight">{category.name}</p>
+                            <div className="flex-1 min-w-0">
+                              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2 group-hover:text-gray-600 dark:group-hover:text-gray-400 transition-colors">
+                                {category.name}
+                              </h3>
+                              <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-400">
+                                <span className="flex items-center">
+                                  <FileText className="w-4 h-4 mr-1" />
+                                  {subcategoryCount} meeting types
+                                </span>
+                                {hasChildren && (
+                                  <span className="flex items-center">
+                                    <Folder className="w-4 h-4 mr-1" />
+                                    {childrenByParent[category.id].length} subcategories
+                                  </span>
+                                )}
+                              </div>
+                              
                               {hasChildren && (
-                                <button type="button" onClick={(e) => { e.stopPropagation(); toggleExpand(category.id); }}
-                                        className="text-[11px] mt-0.5 rounded px-2 py-0.5 border border-border/40 hover:border-primary/40 hover:text-primary transition bg-background/40">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => { 
+                                    e.stopPropagation(); 
+                                    toggleExpand(category.id); 
+                                  }}
+                                  className="mt-3 h-8 px-3 text-xs hover:bg-gray-100 dark:hover:bg-gray-900/30"
+                                >
                                   {expanded ? 'Hide' : 'Show'} subcategories
-                                </button>
+                                </Button>
                               )}
                             </div>
-                            <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2">
-                              {(subcategories?.filter(sub => sub.category_id === category.id).length || 0)} meeting types
-                              {hasChildren && ` • ${childrenByParent[category.id].length} subcategories`}
-                            </p>
-                          </div>
-                          <ArrowRight className="w-5 h-5 text-muted-foreground" />
-                        </div>
-                        {hasChildren && expanded && (
-                          <div className="px-4 pb-4">
-                            <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3" role="radiogroup" aria-label="Child Categories">
-                              {childrenByParent[category.id].map(child => {
-                                const childSelected = !!(selectedCategory && (selectedCategory as any).id === child.id);
-                                return (
-                                  <button
-                                    key={child.id}
-                                    type="button"
-                                    role="radio"
-                                    aria-checked={childSelected}
-                                    onClick={(e) => { e.stopPropagation(); setSelectedCategory(child); }}
-                                    className={[
-                                      "text-left w-full rounded-lg border p-3 transition bg-muted/40 hover:bg-muted/60",
-                                      childSelected ? "border-primary/60 ring-2 ring-primary/30" : "border-border/40 hover:border-primary/40"
-                                    ].join(" ")}
-                                  >
-                                    <p className="text-sm font-medium leading-snug text-foreground">{child.name}</p>
-                                  </button>
-                                );
-                              })}
+                            
+                            <div className="flex-shrink-0">
+                              <ArrowRight className={`w-5 h-5 transition-all duration-300 ${
+                                isSelected 
+                                  ? 'text-gray-500 translate-x-1' 
+                                  : 'text-gray-400 group-hover:text-gray-500 group-hover:translate-x-1'
+                              }`} />
                             </div>
                           </div>
-                        )}
-                      </div>
+                          
+                          {/* Expanded subcategories */}
+                          {hasChildren && expanded && (
+                            <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700 animate-in fade-in-0 slide-in-from-top-4 duration-300">
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                {childrenByParent[category.id].map(child => {
+                                  const childSelected = !!(selectedCategory && (selectedCategory as any).id === child.id);
+                                  return (
+                                    <button
+                                      key={child.id}
+                                      type="button"
+                                      role="radio"
+                                      aria-checked={childSelected}
+                                      onClick={(e) => { 
+                                        e.stopPropagation(); 
+                                        setSelectedCategory(child); 
+                                      }}
+                                      className={`text-left p-3 rounded-lg border transition-all duration-200 ${
+                                        childSelected 
+                                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' 
+                                          : 'border-gray-200 dark:border-gray-700 hover:border-blue-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                                      }`}
+                                    >
+                                      <p className="font-medium text-sm text-gray-900 dark:text-white">
+                                        {child.name}
+                                      </p>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
                     );
                   })}
                 </div>
@@ -439,21 +528,31 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
           </div>
         )}
 
-        {/* Subcategory Selection - appears when category is selected */}
+        {/* Subcategory Selection - Step 2 */}
         {selectedCategory && !selectedSubcategory && (
-          <div className="space-y-6">
-            <div className="flex items-center space-x-4 mb-6">
+          <div className="space-y-8 animate-in fade-in-0 slide-in-from-bottom-4 duration-500">
+            <div className="flex items-center justify-between">
               <Button 
                 variant="ghost" 
                 onClick={() => setSelectedCategory(null)}
-                className="text-muted-foreground hover:text-foreground"
+                className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
               >
-                ← Back
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Service Areas
               </Button>
-              <div>
-                <h2 className="text-xl font-semibold">Choose Meeting Type</h2>
-                <p className="text-sm text-muted-foreground">Selected: {selectedCategory.name}</p>
-              </div>
+              
+              <Badge variant="secondary" className="px-3 py-1">
+                {selectedCategory.name}
+              </Badge>
+            </div>
+
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                Choose Meeting Type
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400">
+                Select the specific type of meeting you'll be recording
+              </p>
             </div>
 
             {(() => {
@@ -471,83 +570,130 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
               const selectedCategoryChildren = isRootCategory ? childrenByParent[selectedCategory.id] : [];
 
               return (
-                <div className="space-y-6">
+                <div className="space-y-8">
                   {/* Show child categories if the selected category has them */}
                   {selectedCategoryChildren?.length > 0 && (
-                    <div className="space-y-4">
-                      <h3 className="text-lg font-medium">Choose a {selectedCategory.name} subcategory:</h3>
-                      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3" role="radiogroup" aria-label="Subcategories">
-                        {selectedCategoryChildren.map((child: any) => {
+                    <div className="space-y-6">
+                      <div className="text-center">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                          {selectedCategory.name} Subcategories
+                        </h3>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                          Choose a more specific area within {selectedCategory.name}
+                        </p>
+                      </div>
+                      
+                      <div className="grid gap-4 md:grid-cols-2" role="radiogroup" aria-label="Subcategories">
+                        {selectedCategoryChildren.map((child: any, index: number) => {
                           const childSelected = !!(selectedCategory && (selectedCategory as any).id === child.id);
+                          const childSubcategoryCount = subcategories?.filter(sub => sub.category_id === child.id).length || 0;
+                          
                           return (
-                            <button
+                            <Card
                               key={child.id}
-                              type="button"
+                              className={`group cursor-pointer transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 border-2 animate-in fade-in-0 slide-in-from-bottom-4 ${
+                                childSelected
+                                  ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-900/20'
+                                  : 'border-gray-200 dark:border-gray-700 hover:border-blue-300'
+                              }`}
+                              style={{ animationDelay: `${index * 100}ms` }}
+                              onClick={() => setSelectedCategory(child)}
                               role="radio"
                               aria-checked={childSelected}
-                              onClick={() => setSelectedCategory(child)}
-                              className={[
-                                "group text-left w-full rounded-xl border p-4 transition shadow-sm hover:shadow-md focus:outline-none",
-                                "bg-card/70 backdrop-blur-sm",
-                                childSelected
-                                  ? "border-primary/60 ring-2 ring-primary/30"
-                                  : "border-border/40 hover:border-primary/40"
-                              ].join(" ")}
                             >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                  <Folder className="w-5 h-5 text-primary/70 group-hover:text-primary" />
-                                  <p className="font-medium leading-snug text-sm md:text-base text-foreground group-hover:text-primary">{child.name}</p>
+                              <CardContent className="p-4">
+                                <div className="flex items-center space-x-3">
+                                  <div className={`flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
+                                    childSelected 
+                                      ? 'bg-blue-500 text-white' 
+                                      : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 group-hover:bg-blue-200'
+                                  }`}>
+                                    <Folder className="w-5 h-5" />
+                                  </div>
+                                  <div className="flex-1">
+                                    <h4 className="font-medium text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                                      {child.name}
+                                    </h4>
+                                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                                      {childSubcategoryCount} meeting types
+                                    </p>
+                                  </div>
+                                  {childSelected && (
+                                    <CheckCircle className="w-5 h-5 text-blue-500" />
+                                  )}
                                 </div>
-                                {childSelected && (
-                                  <span className="inline-block rounded-full bg-primary/15 text-primary text-[10px] px-2 py-0.5 font-semibold tracking-wide">Selected</span>
-                                )}
-                              </div>
-                            </button>
+                              </CardContent>
+                            </Card>
                           );
                         })}
                       </div>
                     </div>
                   )}
 
-                  {/* Show subcategories for the selected category */}
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-medium">Meeting Types:</h3>
-                    <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3" role="radiogroup" aria-label="Meeting Types">
-                      {availableSubcategories.map((subcategory: SubcategoryResponse) => {
-                        const active = !!(selectedSubcategory && (selectedSubcategory as any).id === (subcategory as any).id);
-                        return (
-                          <button
-                            key={subcategory.id}
-                            type="button"
-                            role="radio"
-                            aria-checked={active}
-                            onClick={() => setSelectedSubcategory(subcategory)}
-                            className={[
-                              "group text-left w-full rounded-xl border p-4 transition shadow-sm hover:shadow-md focus:outline-none",
-                              "bg-card/70 backdrop-blur-sm",
-                              active
-                                ? "border-primary/60 ring-2 ring-primary/30"
-                                : "border-border/40 hover:border-primary/40"
-                            ].join(" ")}
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex items-center gap-2">
-                                <FileText className="w-5 h-5 text-primary/70 group-hover:text-primary" />
-                                <p className="font-medium leading-snug text-sm md:text-base text-foreground group-hover:text-primary">{subcategory.name}</p>
-                              </div>
-                              {active && (
-                                <span className="inline-block rounded-full bg-primary/15 text-primary text-[10px] px-2 py-0.5 font-semibold tracking-wide">Selected</span>
-                              )}
-                            </div>
-                            {/* Room for description or metadata later */}
-                          </button>
-                        );
-                      })}
-                      {!availableSubcategories.length && (
-                        <span className="text-sm text-muted-foreground">No meeting types available for this category.</span>
-                      )}
+                  {/* Show meeting types for the selected category */}
+                  <div className="space-y-6">
+                    <div className="text-center">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                        Available Meeting Types
+                      </h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Select the type of meeting you want to record
+                      </p>
                     </div>
+                    
+                    {availableSubcategories.length > 0 ? (
+                      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3" role="radiogroup" aria-label="Meeting Types">
+                        {availableSubcategories.map((subcategory: SubcategoryResponse, index: number) => {
+                          const active = !!(selectedSubcategory && (selectedSubcategory as any).id === (subcategory as any).id);
+                          return (
+                            <Card
+                              key={subcategory.id}
+                              className={`group cursor-pointer transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 border-2 animate-in fade-in-0 slide-in-from-bottom-4 ${
+                                active
+                                  ? 'border-green-500 bg-green-50/50 dark:bg-green-900/20'
+                                  : 'border-gray-200 dark:border-gray-700 hover:border-green-300'
+                              }`}
+                              style={{ animationDelay: `${index * 100}ms` }}
+                              onClick={() => setSelectedSubcategory(subcategory)}
+                              role="radio"
+                              aria-checked={active}
+                            >
+                              <CardContent className="p-4">
+                                <div className="flex items-center space-x-3">
+                                  <div className={`flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
+                                    active 
+                                      ? 'bg-green-500 text-white' 
+                                      : 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 group-hover:bg-green-200'
+                                  }`}>
+                                    <FileText className="w-5 h-5" />
+                                  </div>
+                                  <div className="flex-1">
+                                    <h4 className="font-medium text-gray-900 dark:text-white group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors">
+                                      {subcategory.name}
+                                    </h4>
+                                  </div>
+                                  {active && (
+                                    <CheckCircle className="w-5 h-5 text-green-500" />
+                                  )}
+                                </div>
+                              </CardContent>
+                            </Card>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <Card className="border-2 border-dashed border-gray-300 dark:border-gray-700">
+                        <CardContent className="p-8 text-center">
+                          <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                            No Meeting Types Available
+                          </h3>
+                          <p className="text-gray-600 dark:text-gray-400">
+                            There are no meeting types configured for this service area yet.
+                          </p>
+                        </CardContent>
+                      </Card>
+                    )}
                   </div>
                 </div>
               );
@@ -555,107 +701,156 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
           </div>
         )}
 
-        {/* Pre-Session Form and Final step */}
+        {/* Pre-Session Form - Step 3 */}
         {selectedCategory && selectedSubcategory && (
-          <div className="space-y-6">
-            <div className="flex items-center space-x-4 mb-6">
+          <div className="space-y-8 animate-in fade-in-0 slide-in-from-bottom-4 duration-500">
+            <div className="flex items-center justify-between">
               <Button 
                 variant="ghost" 
                 onClick={() => setSelectedSubcategory(null)}
-                className="text-muted-foreground hover:text-foreground"
+                className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
               >
-                ← Back
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Meeting Types
               </Button>
-              <div>
-                <h2 className="text-xl font-semibold">Pre-Session Form</h2>
-                <p className="text-sm text-muted-foreground">Complete any required information before recording</p>
+              
+              <div className="flex items-center space-x-2">
+                <Badge variant="secondary" className="px-2 py-1 text-xs">
+                  {selectedCategory.name}
+                </Badge>
+                <span className="text-gray-400">•</span>
+                <Badge variant="secondary" className="px-2 py-1 text-xs">
+                  {selectedSubcategory.name}
+                </Badge>
               </div>
             </div>
 
-            {/* Selection Summary */}
-            <Card className="border-2 border-primary/20">
-              <CardHeader>
-                <CardTitle className="text-lg">Your Selection</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Service Area:</span>
-                  <Badge variant="outline">{selectedCategory.name}</Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Meeting Type:</span>
-                  <Badge variant="outline">{selectedSubcategory.name}</Badge>
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                Pre-Session Information
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400">
+                Complete any required information before starting your recording
+              </p>
+            </div>
+
+            {/* Selection Summary Card */}
+            <Card className="border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
+              <CardContent className="p-6">
+                <div className="flex items-center space-x-4">
+                  <div className="flex-shrink-0">
+                    <div className="w-12 h-12 rounded-xl bg-blue-500 flex items-center justify-center">
+                      <CheckCircle className="w-6 h-6 text-white" />
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+                      Ready to Record
+                    </h3>
+                    <div className="space-y-1">
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        <span className="font-medium">Service Area:</span> {selectedCategory.name}
+                      </p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        <span className="font-medium">Meeting Type:</span> {selectedSubcategory.name}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
 
             {/* Pre-Session Form */}
             {hasFormFields ? (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <FormInput className="h-5 w-5" />
-                    Pre-Session Information
+              <Card className="border-2 border-gray-200 dark:border-gray-700">
+                <CardHeader className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                  <CardTitle className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+                      <FormInput className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                    </div>
+                    <span>Required Information</span>
                   </CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    Please fill out the following information before we begin the recording session.
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
+                    Please fill out the following information to help us provide the best recording experience.
                   </p>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  {preSessionSections.map((section: FormSection, sectionIndex: number) => (
-                    <div key={sectionIndex} className="space-y-4">
-                      {section.fields?.length > 0 && (
-                        <div className="space-y-4">
-                          {section.fields.map((field: FormField, fieldIndex: number) => 
-                            renderField(field, sectionIndex, fieldIndex)
-                          )}
-                        </div>
-                      )}
-                      {sectionIndex < preSessionSections.length - 1 && (
-                        <div className="border-b border-border my-6" />
-                      )}
-                    </div>
-                  ))}
+                <CardContent className="p-6">
+                  <div className="space-y-8">
+                    {preSessionSections.map((section: FormSection, sectionIndex: number) => (
+                      <div key={sectionIndex} className="space-y-6">
+                        {section.fields?.length > 0 && (
+                          <div className="grid gap-6 md:grid-cols-2">
+                            {section.fields.map((field: FormField, fieldIndex: number) => 
+                              <div key={fieldIndex} className="col-span-full md:col-span-1">
+                                {renderField(field, sectionIndex, fieldIndex)}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {sectionIndex < preSessionSections.length - 1 && (
+                          <div className="border-b border-gray-200 dark:border-gray-700" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </CardContent>
               </Card>
             ) : (
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-center text-muted-foreground">
-                    <FormInput className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No pre-session form required for this meeting type.</p>
+              <Card className="border-2 border-dashed border-gray-300 dark:border-gray-700">
+                <CardContent className="p-8 text-center">
+                  <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mx-auto mb-4">
+                    <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
                   </div>
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                    No Additional Information Required
+                  </h3>
+                  <p className="text-gray-600 dark:text-gray-400">
+                    You're all set! No pre-session form is required for this meeting type.
+                  </p>
                 </CardContent>
               </Card>
             )}
 
-            <Button 
-              onClick={handleContinue} 
-              disabled={isSubmitting}
-              className="w-full h-14 text-lg font-medium"
-              size="lg"
-            >
-              {isSubmitting ? "Processing..." : "Continue to Recording"}
-              <ArrowRight className="w-5 h-5 ml-2" />
-            </Button>
+            {/* Continue Button */}
+            <div className="pt-4">
+              <Button 
+                onClick={handleContinue} 
+                disabled={isSubmitting}
+                className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50"
+                size="lg"
+              >
+                {isSubmitting ? (
+                  <div className="flex items-center space-x-2">
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    <span>Processing...</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-2">
+                    <span>Start Recording</span>
+                    <ArrowRight className="w-5 h-5" />
+                  </div>
+                )}
+              </Button>
+            </div>
           </div>
         )}
 
         {/* No categories available */}
         {categories && categories.length === 0 && (
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <Folder className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-foreground mb-2">No Service Areas Available</h3>
-                <p className="text-muted-foreground">
-                  Please contact your administrator to set up service areas and meeting types.
-                </p>
+          <Card className="border-2 border-dashed border-gray-300 dark:border-gray-700 max-w-2xl mx-auto">
+            <CardContent className="p-12 text-center">
+              <div className="w-20 h-20 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mx-auto mb-6">
+                <Folder className="w-10 h-10 text-gray-400" />
               </div>
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">
+                No Service Areas Available
+              </h3>
+              <p className="text-gray-600 dark:text-gray-400 max-w-md mx-auto">
+                It looks like no service areas have been configured yet. Please contact your administrator to set up service areas and meeting types for recording.
+              </p>
             </CardContent>
           </Card>
         )}
-
 
       </div>
     </div>

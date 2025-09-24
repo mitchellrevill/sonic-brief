@@ -5,13 +5,22 @@ from datetime import datetime, timezone
 import logging
 from pydantic import BaseModel
 
-from ...core.dependencies import get_current_user, get_analytics_service, get_job_service, get_job_management_service, get_job_sharing_service
+from ...core.dependencies import (
+    get_current_user, 
+    get_analytics_service, 
+    get_job_service, 
+    get_job_management_service, 
+    get_job_sharing_service,
+    get_storage_service,
+    get_config,
+    AppConfig
+)
 from ...services.jobs import JobService
 from ...services.jobs import check_job_access
 from ...services.jobs.job_management_service import JobManagementService
 from ...services.jobs.job_sharing_service import JobSharingService
 from ...services.storage.blob_service import StorageService
-from ...core.config import get_app_config
+from ...services.interfaces import AnalyticsServiceInterface, StorageServiceInterface
 from fastapi import File, UploadFile, BackgroundTasks, Form
 import json
 import tempfile, shutil, os
@@ -112,6 +121,7 @@ async def get_job_transcription(
     job_id: str,
     current_user: Dict[str, Any] = Depends(get_current_user),
     job_svc: JobService = Depends(get_job_service),
+    storage_service: StorageServiceInterface = Depends(get_storage_service),
 ):
     job = job_svc.get_job(job_id)
     if not job:
@@ -129,8 +139,7 @@ async def get_job_transcription(
     if not transcription_url:
         raise HTTPException(status_code=404, detail="Transcription not available")
 
-    storage = StorageService(get_app_config())
-    stream = storage.stream_blob_content(transcription_url)
+    stream = storage_service.stream_blob_content(transcription_url)
     return StreamingResponse(stream, media_type="text/plain")
 
 
@@ -147,6 +156,7 @@ async def create_job(
     pre_session_form_data: Optional[str] = Form(None),
     current_user: Dict[str, Any] = Depends(get_current_user),
     job_svc: JobService = Depends(get_job_service),
+    analytics_service: AnalyticsServiceInterface = Depends(get_analytics_service),
 ):
     """Create a new job by uploading a media file.
     
@@ -190,7 +200,6 @@ async def create_job(
 
         # Track job creation analytics (best-effort)
         try:
-            analytics_svc = AnalyticsService(job_svc.cosmos)
             file_size_bytes = 0
             try:
                 file_size_bytes = os.path.getsize(tmp_path)
@@ -212,7 +221,7 @@ async def create_job(
             if created_job.get("audio_duration_minutes") is not None:
                 analytics_meta["audio_duration_minutes"] = created_job.get("audio_duration_minutes")
 
-            await analytics_svc.track_job_event(
+            await analytics_service.track_job_event(
                 job_id=created_job.get("id"),
                 user_id=current_user.get("id"),
                 event_type="job_created",

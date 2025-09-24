@@ -203,7 +203,8 @@ export function AppSidebar({ children }: AppSidebarProps) {
                 ))}
 
                 {/* Capability-based menu items */}
-                {guard.hasCapability(Capability.CREATE_TRANSCRIPTIONS) && (
+                {/* Show Prompt Management link only if user can view prompts */}
+                {guard.hasCapability(Capability.CAN_VIEW_PROMPTS) && (
                   <DropdownMenuItem asChild>
                     <Link to="/prompt-management" className="flex items-center">
                       <FileText className="mr-2 h-4 w-4" />
@@ -301,7 +302,8 @@ export function AppSidebar({ children }: AppSidebarProps) {
             ))}
 
             {/* Capability-based menu items */}
-            {guard.hasCapability(Capability.CREATE_TRANSCRIPTIONS) && (
+            {/* Show Prompt Management link only if user can view prompts */}
+            {guard.hasCapability(Capability.CAN_VIEW_PROMPTS) && (
               <Link
                 to="/prompt-management"
                 className={cn(

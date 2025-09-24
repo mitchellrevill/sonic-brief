@@ -7,8 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, status, Body, Query
 from pydantic import BaseModel
 import logging
 
-from ...core.config import get_app_config, get_cosmos_db_cached, CosmosDB
-from .authentication import get_current_user
+from ...core.dependencies import (
+    CosmosService,
+    get_cosmos_service,
+    get_current_user,
+    get_audit_service,
+)
+from ...services.monitoring.audit_logging_service import AuditLoggingService as AuditService
+from ...core.config import get_config
 from .user_management import require_admin_user, require_user_view_access, require_user_edit_access
 from ...models.permissions import PermissionLevel, PermissionCapability, get_user_capabilities, merge_custom_capabilities
 
@@ -48,13 +54,67 @@ async def get_my_permissions(current_user: Dict[str, Any] = Depends(get_current_
     try:
         user_permission = current_user.get("permission")
         custom_capabilities = current_user.get("custom_capabilities", {})
-        effective_capabilities = get_user_capabilities(user_permission, custom_capabilities)
-        return {
+
+        # Build full capability list from frontend types file to ensure all keys exist
+        # We'll derive capability keys by reading the Capability enum names from frontend types
+        # For now, use a conservative, hard-coded list matching the frontend expectations
+        all_caps = [
+            "can_view_own_jobs",
+            "can_create_jobs",
+            "can_edit_own_jobs",
+            "can_delete_own_jobs",
+            "can_view_shared_jobs",
+            "can_edit_shared_jobs",
+            "can_delete_shared_jobs",
+            "can_share_jobs",
+            "can_view_all_jobs",
+            "can_edit_all_jobs",
+            "can_delete_all_jobs",
+            "can_view_prompts",
+            "can_create_prompts",
+            "can_edit_prompts",
+            "can_delete_prompts",
+            "can_create_templates",
+            "can_view_users",
+            "can_create_users",
+            "can_edit_users",
+            "can_delete_users",
+            "can_manage_users",
+            "can_view_settings",
+            "can_edit_settings",
+            "can_view_analytics",
+            "can_manage_system",
+            "can_upload_files",
+            "can_download_files",
+            "can_export_data",
+            "can_import_data",
+        ]
+
+        from ...models.permissions import capabilities_for_permission
+
+        # Start with base mapping for the user's permission
+        base_caps = capabilities_for_permission(user_permission, all_caps)
+
+        # Merge custom capabilities (override base mapping)
+        effective_capabilities = base_caps.copy()
+        for k, v in custom_capabilities.items():
+            if k in effective_capabilities:
+                effective_capabilities[k] = bool(v)
+            else:
+                effective_capabilities[k] = bool(v)
+
+        # Build response structure requested by frontend
+        response = {
             "status": 200,
-            "permission_level": user_permission,
-            "custom_capabilities": custom_capabilities,
-            "effective_capabilities": effective_capabilities,
+            "data": {
+                "user_id": current_user.get("id"),
+                "email": current_user.get("email"),
+                "permission": user_permission,
+                "capabilities": effective_capabilities,
+                "custom_capabilities": custom_capabilities,
+            },
         }
+        return response
     except Exception as e:
         logger.error(f"Error resolving current user permissions: {e}")
         return {"status": 500, "message": f"Error resolving permissions: {e}"}
@@ -63,7 +123,8 @@ async def get_my_permissions(current_user: Dict[str, Any] = Depends(get_current_
 @router.get("/users/by-permission/{permission_level}")
 async def get_users_by_permission(
     permission_level: str,
-    current_user: Dict[str, Any] = Depends(require_user_view_access)
+    current_user: Dict[str, Any] = Depends(require_user_view_access),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
 ):
     """Get all users with a specific permission level (requires user viewing capability)."""
     # Validate permission level
@@ -73,12 +134,10 @@ async def get_users_by_permission(
         return {"status": 400, "message": f"Invalid permission level: {permission_level}"}
 
     try:
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
         query = "SELECT * FROM c WHERE c.type = 'user' AND c.permission = @permission"
         parameters = [{"name": "@permission", "value": permission_level}]
         users = list(
-            cosmos_db.users_container.query_items(
+            cosmos_service.users_container.query_items(
                 query=query,
                 parameters=parameters,
                 enable_cross_partition_query=True,
@@ -101,7 +160,9 @@ async def get_users_by_permission(
 async def update_user_permission(
     user_id: str,
     permission_data: Dict[str, str] = Body(...),
-    current_user: Dict[str, Any] = Depends(require_admin_user)
+    current_user: Dict[str, Any] = Depends(require_admin_user),
+    cosmos_service: CosmosService = Depends(get_cosmos_service),
+    audit_service: AuditService = Depends(get_audit_service)
 ):
     """
     Update a user's permission level. Admin only.
@@ -130,35 +191,31 @@ async def update_user_permission(
                 detail="Cannot change your own permission level"
             )
 
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
-
         # Update user permission
         from datetime import datetime, timezone
         update_data = {
             "permission": new_permission,
             "updated_at": datetime.now(timezone.utc).isoformat()
         }
-        updated_user = await cosmos_db.update_user(user_id, update_data)
+        updated_user = await cosmos_service.update_user(user_id, update_data)
 
         # Log audit entry for permission change
         try:
-            from ...services.auth.audit_service import AuditService
-            audit_service = AuditService(cosmos_db)
-            await audit_service.log_administrative_action(
-                action_type="permission_changed",
-                admin_user_id=current_user.get("id"),
-                target_resource_type="user",
-                target_resource_id=user_id,
-                changes={
+                # AuditService.log_administrative_action expects (action_type, admin_user_id,
+                # target_resource_type, target_resource_id, action_details)
+                action_details = {
                     "old_permission": "unknown",  # Would need to fetch from DB first
-                    "new_permission": new_permission
-                },
-                metadata={
+                    "new_permission": new_permission,
                     "admin_email": current_user.get("email"),
-                    "target_user_email": updated_user.get("email")
+                    "target_user_email": updated_user.get("email"),
                 }
-            )
+                await audit_service.log_administrative_action(
+                    "permission_changed",
+                    current_user.get("id"),
+                    "user",
+                    user_id,
+                    action_details,
+                )
         except Exception as e:
             logger.warning(f"Failed to log permission change audit: {str(e)}")
 
@@ -192,17 +249,15 @@ async def update_user_permission(
 @router.get("/users/{user_id}/capabilities")
 async def get_user_capabilities_endpoint(
     user_id: str,
-    current_user: Dict[str, Any] = Depends(require_user_view_access)
+    current_user: Dict[str, Any] = Depends(require_user_view_access),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
 ):
     """
     Get user's effective capabilities (base + custom). Admin only.
     """
     try:
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
-
         # Get user
-        user = await cosmos_db.get_user_by_id(user_id)
+        user = await cosmos_service.get_user_by_id(user_id)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -236,7 +291,8 @@ async def get_user_capabilities_endpoint(
 async def update_user_capabilities(
     user_id: str,
     capability_data: Dict[str, Any] = Body(...),
-    current_user: Dict[str, Any] = Depends(require_user_edit_access)
+    current_user: Dict[str, Any] = Depends(require_user_edit_access),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
 ):
     """
     Update user's custom capabilities. Admin only.
@@ -253,16 +309,13 @@ async def update_user_capabilities(
                     detail=f"Invalid capability: {capability}"
                 )
 
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
-
         # Update user capabilities
         from datetime import datetime, timezone
         update_data = {
             "custom_capabilities": custom_capabilities,
             "updated_at": datetime.now(timezone.utc).isoformat()
         }
-        updated_user = await cosmos_db.update_user(user_id, update_data)
+        updated_user = await cosmos_service.update_user(user_id, update_data)
 
         logger.info(f"Capabilities updated for user {user_id} by admin {current_user['id']}")
 

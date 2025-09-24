@@ -61,7 +61,15 @@ export function PromptManagementProvider({ children }: { children: React.ReactNo
         const allSubcategories = await fetchSubcategories()
         setSubcategories(allSubcategories)
       }
-    } catch (err) {
+    } catch (err: any) {
+      // If unauthorized, navigate to unauthorised page
+      if (err && err.status === 403) {
+        try {
+          window.location.href = '/unauthorised'
+        } catch (e) {
+          // ignore
+        }
+      }
       setError(err instanceof Error ? err.message : "An error occurred while fetching data")
       console.error("Error fetching data:", err)
     } finally {

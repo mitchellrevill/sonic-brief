@@ -8,6 +8,7 @@ import { AnalyticsOverviewCards } from "../UserManagement/AnalyticsOverviewCards
 // System health metrics removed per request
 import { UserDistributionCard } from "./UserDistributionCard";
 import { AnalyticsRecordsTable } from "./AnalyticsRecordsTable";
+import { EXPORT_SYSTEM_CSV_API } from "@/lib/apiConstants";
 import type { User, SystemAnalytics } from "@/lib/api";
 
 interface SystemAnalyticsTabProps {
@@ -83,7 +84,7 @@ export function SystemAnalyticsTab({
             size="sm"
             onClick={async () => {
               const period = analyticsPeriod === 'total' ? 30 : analyticsPeriod;
-              const resp = await fetch(`${import.meta.env.VITE_API_URL}/api/export/system/csv?days=${period}`, {
+              const resp = await fetch(`${EXPORT_SYSTEM_CSV_API}?days=${period}`, {
                 headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
               });
               if (!resp.ok) {

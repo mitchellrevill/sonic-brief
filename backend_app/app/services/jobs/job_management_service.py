@@ -3,7 +3,9 @@ from datetime import datetime, timezone
 import logging
 import uuid
 
-from ...core.config import get_app_config, get_cosmos_db_cached, DatabaseError
+from ...core.config import get_config, DatabaseError
+from ...core.dependencies import CosmosService
+from ..storage.blob_service import StorageService
 from ...core.async_utils import run_sync
 from .job_service import JobService
 
@@ -13,12 +15,9 @@ logger = logging.getLogger(__name__)
 class JobManagementService:
     """Service for job lifecycle management operations (soft delete, restore, admin operations)."""
     
-    def __init__(self, cosmos_db=None):
-        cfg = get_app_config()
-        if cosmos_db is None:
-            cosmos_db = get_cosmos_db_cached(cfg)
-        self.cosmos = cosmos_db
-        self.job_service = JobService(cosmos_db)
+    def __init__(self, cosmos_service: CosmosService, storage_service: StorageService):
+        self.cosmos = cosmos_service
+        self.job_service = JobService(cosmos_service, storage_service)
 
     async def soft_delete_job(self, job_id: str, user_id: str, is_admin: bool = False) -> Dict[str, Any]:
         """

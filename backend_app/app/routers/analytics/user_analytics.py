@@ -15,22 +15,24 @@ from fastapi import (
 from pydantic import BaseModel
 import logging
 
-from ...core.config import get_app_config, get_cosmos_db_cached, CosmosDB, DatabaseError
-from ...services.content import AnalyticsService
-from ...services.content import ExportService
+from ...core.dependencies import (
+    get_current_user,
+    require_analytics_access,
+    require_admin,
+    get_cosmos_service,
+    CosmosService
+)
+from ...services.analytics import AnalyticsService
+from ...services.analytics import ExportService
 from ...models.analytics_models import (
     UserAnalyticsResponse,
     UserDetailsResponse,
     ExportRequest,
     ExportResponse,
-    UserMinutesResponse
+    UserMinutesResponse,
+    UserMinuteRecord
 )
-from ...core.dependencies import (
-    get_current_user,
-    require_analytics_access,
-    require_admin,
-)
-from ...models.permissions import PermissionLevel, PermissionCapability, get_user_capabilities
+from ...models.permissions import PermissionLevel, has_permission_level
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -43,13 +45,11 @@ router = APIRouter(prefix="", tags=["user-analytics"])
 async def get_user_analytics(
     user_id: str,
     days: int = Query(30, ge=1, le=365),
-    current_user: Dict[str, Any] = Depends(require_analytics_access)
+    current_user: Dict[str, Any] = Depends(require_analytics_access),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
 ):
     """Get analytics for a specific user (Admin only)"""
     try:
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
-        
         end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(days=days)
         
@@ -61,7 +61,7 @@ async def get_user_analytics(
         ]
         
         try:
-            items_iter = cosmos_db.analytics_container.query_items(
+            items_iter = cosmos_service.analytics_container.query_items(
                 query=query,
                 parameters=parameters,
                 enable_cross_partition_query=True,
@@ -82,13 +82,27 @@ async def get_user_analytics(
             if isinstance(minutes, (int, float)):
                 total_minutes += minutes
             total_jobs += 1
-        
+
+        # Prepare analytics data
+        analytics_data = {
+            "total_minutes": total_minutes,
+            "total_jobs": total_jobs,
+            "average_duration": total_minutes / total_jobs if total_jobs > 0 else 0,
+            "records": items,
+            "overview": {
+                "total_transcription_minutes": total_minutes,
+                "total_jobs": total_jobs,
+                "average_job_duration": total_minutes / total_jobs if total_jobs > 0 else 0,
+                "active_days": len(set(item.get("created_at", "").split("T")[0] for item in items if item.get("created_at")))
+            }
+        }
+
         return UserAnalyticsResponse(
             user_id=user_id,
-            total_minutes=total_minutes,
-            total_jobs=total_jobs,
-            average_duration=total_minutes / total_jobs if total_jobs > 0 else 0,
             period_days=days,
+            start_date=start_time.isoformat(),
+            end_date=end_time.isoformat(),
+            analytics=analytics_data
         )
         
     except HTTPException:
@@ -105,22 +119,19 @@ async def get_user_analytics(
 async def get_user_session_summary(
     user_id: str,
     days: int = Query(default=30, description="Number of days to analyze"),
-    current_user: Dict[str, Any] = Depends(require_admin)
+    current_user: Dict[str, Any] = Depends(require_admin),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
 ):
     """Get high-level session summary for a user"""
     try:
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
-        
         # Query sessions for the user in the specified timeframe
         cutoff_time = datetime.now(timezone.utc) - timedelta(days=days)
-        
+
         query = """
-        SELECT c.id, c.created_at, c.last_heartbeat, c.status, 
+        SELECT c.id, c.created_at, c.last_activity, c.last_heartbeat, c.status, 
                c.activity_count, c.session_metadata, c.total_requests
         FROM c 
-        WHERE c.type = 'session' 
-        AND c.user_id = @user_id 
+        WHERE c.user_id = @user_id 
         AND c.created_at >= @cutoff_time
         ORDER BY c.created_at DESC
         """
@@ -130,7 +141,7 @@ async def get_user_session_summary(
             {"name": "@cutoff_time", "value": cutoff_time.isoformat()}
         ]
         
-        sessions = list(cosmos_db.sessions_container.query_items(
+        sessions = list(cosmos_service.sessions_container.query_items(
             query=query,
             parameters=parameters,
             enable_cross_partition_query=True
@@ -147,7 +158,8 @@ async def get_user_session_summary(
         for session in sessions:
             try:
                 created_at = datetime.fromisoformat(session["created_at"].replace('Z', '+00:00'))
-                last_heartbeat = datetime.fromisoformat(session["last_heartbeat"].replace('Z', '+00:00'))
+                last_ts = session.get("last_activity") or session.get("last_heartbeat")
+                last_heartbeat = datetime.fromisoformat(last_ts.replace('Z', '+00:00')) if last_ts else created_at
                 duration_minutes = (last_heartbeat - created_at).total_seconds() / 60
                 session_durations.append(duration_minutes)
             except Exception:
@@ -180,13 +192,11 @@ async def get_user_session_summary(
 async def get_user_session_analytics(
     user_id: str,
     days: int = Query(default=30, description="Number of days to analyze"),
-    current_user: Dict[str, Any] = Depends(require_admin)
+    current_user: Dict[str, Any] = Depends(require_admin),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
 ):
     """Get comprehensive session analytics for a user"""
     try:
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
-        
         # Query sessions for the user in the specified timeframe
         cutoff_time = datetime.now(timezone.utc) - timedelta(days=days)
         
@@ -204,7 +214,7 @@ async def get_user_session_analytics(
             {"name": "@cutoff_time", "value": cutoff_time.isoformat()}
         ]
         
-        sessions = list(cosmos_db.sessions_container.query_items(
+        sessions = list(cosmos_service.sessions_container.query_items(
             query=query,
             parameters=parameters,
             enable_cross_partition_query=True
@@ -385,13 +395,11 @@ async def get_user_detailed_sessions(
     days: int = Query(default=7, description="Number of days to analyze"),
     limit: int = Query(default=50, description="Maximum number of sessions to return"),
     include_audit: bool = Query(default=True, description="Include audit log entries"),
-    current_user: Dict[str, Any] = Depends(require_admin)
+    current_user: Dict[str, Any] = Depends(require_admin),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
 ):
     """Get detailed session information for a user with audit trail"""
     try:
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
-        
         # Query sessions for the user
         cutoff_time = datetime.now(timezone.utc) - timedelta(days=days)
         
@@ -411,7 +419,7 @@ async def get_user_detailed_sessions(
             {"name": "@limit", "value": limit}
         ]
         
-        sessions = list(cosmos_db.sessions_container.query_items(
+        sessions = list(cosmos_service.sessions_container.query_items(
             query=query,
             parameters=parameters,
             enable_cross_partition_query=True
@@ -455,7 +463,7 @@ async def get_user_detailed_sessions(
         
         # Get audit logs if requested
         audit_timeline = []
-        if include_audit and hasattr(cosmos_db, 'audit_container'):
+        if include_audit and hasattr(cosmos_service, 'audit_container'):
             try:
                 audit_query = """
                 SELECT *
@@ -467,7 +475,7 @@ async def get_user_detailed_sessions(
                 OFFSET 0 LIMIT 100
                 """
                 
-                audit_logs = list(cosmos_db.audit_container.query_items(
+                audit_logs = list(cosmos_service.audit_container.query_items(
                     query=audit_query,
                     parameters=parameters[:2],  # user_id and cutoff_time
                     enable_cross_partition_query=True
@@ -521,49 +529,90 @@ async def get_user_detailed_sessions(
 async def get_user_minutes(
     user_id: str,
     days: int = Query(30, ge=1, le=365),
-    current_user: Dict[str, Any] = Depends(require_analytics_access)
+    current_user: Dict[str, Any] = Depends(require_analytics_access),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
 ):
     """Get total minutes processed by a user (Admin only)"""
     try:
-        config = get_app_config()
-        cosmos_db = get_cosmos_db_cached(config)
-        
         end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(days=days)
         
-        # Query analytics data for the user's audio minutes
-        query = "SELECT * FROM c WHERE c.user_id = @user_id AND c.created_at >= @start_time"
-        parameters = [
-            {"name": "@user_id", "value": user_id},
-            {"name": "@start_time", "value": start_time.isoformat()}
-        ]
+        # Query analytics data first (preferred source)
+        total_minutes = 0.0
+        records = []
+        items = []
         
+        # Try analytics container first with correct timestamp field
         try:
-            items_iter = cosmos_db.analytics_container.query_items(
+            query = "SELECT * FROM c WHERE c.user_id = @user_id AND c.timestamp >= @start_time"
+            parameters = [
+                {"name": "@user_id", "value": user_id},
+                {"name": "@start_time", "value": start_time.isoformat()}
+            ]
+            
+            items_iter = cosmos_service.analytics_container.query_items(
                 query=query,
                 parameters=parameters,
                 enable_cross_partition_query=True,
             )
             items = list(items_iter)
         except Exception as e:
-            logger.error(f"Error querying analytics container: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error querying analytics data: {str(e)}"
-            )
+            logger.warning(f"Error querying analytics container: {str(e)}")
+            items = []
         
-        # Calculate total minutes
-        total_minutes = 0.0
+        # If no data in analytics container, try jobs container as fallback
+        if not items:
+            try:
+                query = "SELECT * FROM c WHERE c.user_id = @user_id AND c.created_at >= @start_time AND c.type = 'job'"
+                parameters = [
+                    {"name": "@user_id", "value": user_id},
+                    {"name": "@start_time", "value": start_time.isoformat()}
+                ]
+                
+                items_iter = cosmos_service.jobs_container.query_items(
+                    query=query,
+                    parameters=parameters,
+                    enable_cross_partition_query=True,
+                )
+                items = list(items_iter)
+                logger.info(f"Found {len(items)} items in jobs container for user {user_id}")
+            except Exception as e:
+                logger.error(f"Error querying jobs container: {str(e)}")
+                items = []
+        
+        # Calculate total minutes and build records
         for item in items:
             minutes = item.get("audio_duration_minutes")
+            # Convert seconds to minutes if needed
+            if minutes is None and item.get("audio_duration_seconds") is not None:
+                try:
+                    minutes = float(item.get("audio_duration_seconds")) / 60.0
+                except (ValueError, TypeError):
+                    minutes = None
+                    
             if isinstance(minutes, (int, float)):
                 total_minutes += minutes
+                
+                # Create a UserMinuteRecord for each item
+                record = UserMinuteRecord(
+                    job_id=item.get("job_id", item.get("id", "")),
+                    timestamp=item.get("timestamp", item.get("created_at", "")),
+                    audio_duration_minutes=minutes,
+                    event_type=item.get("event_type", "job"),
+                    file_name=item.get("file_name", ""),
+                    prompt_category_id=item.get("prompt_category_id"),
+                    prompt_subcategory_id=item.get("prompt_subcategory_id")
+                )
+                records.append(record)
         
         return UserMinutesResponse(
             user_id=user_id,
-            total_minutes=total_minutes,
             period_days=days,
-            query_timestamp=datetime.now(timezone.utc).isoformat()
+            start_date=start_time.isoformat(),
+            end_date=end_time.isoformat(),
+            total_minutes=total_minutes,
+            total_records=len(records),
+            records=records
         )
         
     except HTTPException:
@@ -573,4 +622,112 @@ async def get_user_minutes(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error getting user minutes: {str(e)}"
+        )
+
+
+@router.get("/system")
+async def get_system_analytics(
+    days: int = Query(30, ge=1, le=365),
+    current_user: Dict[str, Any] = Depends(require_admin),
+    cosmos_service: CosmosService = Depends(get_cosmos_service)
+):
+    """Get system-wide analytics (Admin only)"""
+    try:
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(days=days)
+        
+        # Check if Cosmos is available
+        if not cosmos_service.is_available():
+            logger.warning("CosmosDB not available, returning empty analytics")
+            return {
+                "period_days": days,
+                "start_date": start_time.isoformat(),
+                "end_date": end_time.isoformat(),
+                "analytics": {
+                    "records": [],
+                    "total_minutes": 0.0,
+                    "total_jobs": 0,
+                    "active_users": 0
+                }
+            }
+        
+        # Query analytics data for total system metrics.
+        # Analytics documents use `timestamp` for creation; some legacy docs use `created_at`.
+        # Query both fields to be robust for either shape.
+        analytics_query = (
+            "SELECT * FROM c WHERE (IS_DEFINED(c.timestamp) AND c.timestamp >= @start_time) "
+            "OR (IS_DEFINED(c.created_at) AND c.created_at >= @start_time)"
+        )
+        parameters = [
+            {"name": "@start_time", "value": start_time.isoformat()}
+        ]
+        
+        try:
+            # Get analytics records
+            analytics_container = cosmos_service.get_container("analytics")
+            analytics_items = list(analytics_container.query_items(
+                query=analytics_query,
+                parameters=parameters,
+                enable_cross_partition_query=True,
+            ))
+            logger.debug("System analytics: fetched %d analytics records", len(analytics_items))
+        except Exception as e:
+            logger.warning(f"Error querying analytics container: {str(e)}")
+            analytics_items = []
+        
+        # Calculate total minutes and jobs
+        total_minutes = 0.0
+        total_jobs = len(analytics_items)
+        for item in analytics_items:
+            minutes = item.get("audio_duration_minutes")
+            if isinstance(minutes, (int, float)):
+                total_minutes += minutes
+        
+        # Get active users from sessions
+        active_users = 0
+        try:
+            # Query for active sessions in the last 24 hours
+            recent_cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+            session_query = """
+            SELECT DISTINCT c.user_id 
+            FROM c 
+            WHERE ((IS_DEFINED(c.last_activity) AND c.last_activity >= @recent_cutoff) OR (IS_DEFINED(c.last_heartbeat) AND c.last_heartbeat >= @recent_cutoff))
+            """
+            session_parameters = [
+                {"name": "@recent_cutoff", "value": recent_cutoff.isoformat()}
+            ]
+
+            try:
+                sessions_container = cosmos_service.get_container("user_sessions")
+                active_sessions = list(sessions_container.query_items(
+                    query=session_query,
+                    parameters=session_parameters,
+                    enable_cross_partition_query=True,
+                ))
+                active_users = len(active_sessions)
+                logger.debug("System analytics: found %d active session rows", len(active_sessions))
+            except Exception as container_error:
+                logger.warning(f"Sessions container not available for active user count: {str(container_error)}")
+                active_users = 0
+        except Exception as e:
+            logger.warning(f"Error getting active users: {str(e)}")
+            active_users = 0
+        
+        return {
+            "period_days": days,
+            "start_date": start_time.isoformat(),
+            "end_date": end_time.isoformat(),
+            "analytics": {
+                "records": analytics_items,
+                "total_minutes": total_minutes,
+                "total_jobs": total_jobs,
+                "active_users": active_users
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting system analytics: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting system analytics: {str(e)}"
         )

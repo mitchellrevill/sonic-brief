@@ -691,6 +691,7 @@ export interface DeletedJobsAdminResponse {
   status: string;
   message?: string;
   deleted_jobs: Array<any>;
+  jobs?: Array<any>;
   total_count: number;
   limit?: number;
   offset?: number;
@@ -773,7 +774,58 @@ export async function getDeletedJobs(): Promise<DeletedJobsAdminResponse> {
       throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
     }
 
-    return await response.json();
+    const data = await response.json();
+
+    // Normalize different backend shapes to a consistent format used by the UI
+    // Accepts: { deleted_jobs: [...] }, { jobs: [...] }, { items: [...] }, { data: { jobs: [...] } }, or an array of jobs
+    let jobs: any[] = [];
+    if (!data) {
+      jobs = [];
+    } else if (Array.isArray(data)) {
+      jobs = data;
+    } else if (Array.isArray((data as any).deleted_jobs)) {
+      jobs = (data as any).deleted_jobs;
+    } else if (Array.isArray((data as any).jobs)) {
+      jobs = (data as any).jobs;
+    } else if (Array.isArray((data as any).items)) {
+      jobs = (data as any).items;
+    } else if ((data as any).data && Array.isArray((data as any).data.deleted_jobs)) {
+      jobs = (data as any).data.deleted_jobs;
+    } else if ((data as any).data && Array.isArray((data as any).data.jobs)) {
+      jobs = (data as any).data.jobs;
+    } else if ((data as any).results && Array.isArray((data as any).results)) {
+      jobs = (data as any).results;
+    }
+
+    // Debug log which key was used to normalize (only in dev)
+    if (typeof window !== 'undefined' && (window as any).__DEV__) {
+      try {
+        const keys = Object.keys(data || {});
+        // eslint-disable-next-line no-console
+        console.debug('getDeletedJobs: using keys', keys, 'normalizedCount', jobs.length);
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // Helpful for debugging unexpected shapes in development
+    // Use a safe, browser-compatible check
+    if (typeof window !== 'undefined' && window && (window as any).__DEV__) {
+      // eslint-disable-next-line no-console
+      console.debug('getDeletedJobs: normalized jobs length', jobs.length, 'originalShapeKeys', Object.keys(data || {}));
+    }
+
+    // Normalize to the application's DeletedJobsResponse shape
+    const result: any = {
+      status: 'ok',
+      message: '',
+      count: jobs.length,
+      jobs,
+      deleted_jobs: jobs,
+      total_count: jobs.length,
+    };
+
+    return result as DeletedJobsAdminResponse;
   } catch (error) {
     console.error("Error getting deleted jobs:", error);
     throw error;
@@ -1065,7 +1117,7 @@ export async function getUserAnalytics(userId: string, days: number = 30): Promi
   const token = localStorage.getItem("token");
   if (!token) throw new Error("No authentication token found. Please log in again.");
 
-  const response = await fetch(`${USER_ANALYTICS_API}/${userId}?days=${days}`, {
+  const response = await fetch(`${USER_ANALYTICS_API}/${userId}/analytics?days=${days}`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -1590,9 +1642,14 @@ export async function getUserPermissions() {
   if (typeof result === 'object' && (result.user_id || result.userId || result.email)) return result;
   // Some backends return { status: 200, user_id, ... } without wrapping in data
   if (typeof result === 'object' && result.status === 200) {
-    // Remove status and return rest
+    // If the backend uses the { status: 200, data: ... } wrapper, prefer data
+    if ((result as any).data) return (result as any).data;
+    // Remove status and return rest when it looks like a user object
     const { status, ...rest } = result as any;
     if (rest && (rest.user_id || rest.email)) return rest;
+    // Newer backend responses include capability fields without user_id/email
+    // e.g. { status:200, permission_level: ..., effective_capabilities: {...} }
+    if (rest && (rest.effective_capabilities || rest.permission_level)) return rest;
   }
 
   throw new Error(result.message || 'Failed to fetch user permissions');
@@ -1988,7 +2045,7 @@ export interface UserAuditLogsResponse {
 
 export async function getUserAuditLogs(userId: string, days: number = 30): Promise<UserAuditLogsResponse> {
   const token = localStorage.getItem("token");
-  const url = `${USER_ANALYTICS_API}/${userId}/audit-logs?days=${days}`;
+  const url = `${USER_ANALYTICS_API}/${userId}/detailed-sessions?days=${days}&include_audit=true`;
   const response = await fetch(url, {
     method: "GET",
     headers: {

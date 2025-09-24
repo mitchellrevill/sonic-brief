@@ -1,6 +1,5 @@
 from typing import Dict, Any, Optional
-from ...models.permissions import PermissionLevel, PermissionCapability
-from ..auth.permission_service import permission_service
+from ...models.permissions import PermissionLevel, has_permission_level
 import logging
 
 logger = logging.getLogger(__name__)
@@ -35,21 +34,38 @@ def check_job_access(job: Dict[str, Any], current_user: Dict[str, Any], required
     
 
 
-async def check_job_access_permission(current_user: Dict[str, Any], job: Dict[str, Any], required_capability: PermissionCapability) -> bool:
-    user_permission = current_user.get("permission", PermissionLevel.USER)
-    custom_capabilities = current_user.get("custom_capabilities", {})
-    if await permission_service.has_capability(user_permission, custom_capabilities, required_capability):
+def check_job_permission_level(current_user: Dict[str, Any], job: Dict[str, Any], required_permission: str = "view") -> bool:
+    """
+    Check if user has required permission level for a job using simple hierarchical permissions.
+    
+    Args:
+        current_user: User dict with permission level
+        job: Job dict
+        required_permission: "view", "edit", or "admin"
+    
+    Returns:
+        bool: True if user has sufficient permission
+    """
+    user_permission = current_user.get("permission", "User")
+    
+    # Admin users can do everything
+    if user_permission == PermissionLevel.ADMIN.value:
         return True
+    
+    # Check if user owns the job
     if job.get("user_id") == current_user.get("id"):
         return True
+    
+    # Check shared permissions
     if "shared_with" in job:
         for share in job["shared_with"]:
             if share.get("user_id") == current_user.get("id"):
                 share_permission = share.get("permission_level", "view")
-                if required_capability in [PermissionCapability.CAN_EDIT_SHARED_JOBS, PermissionCapability.CAN_DELETE_SHARED_JOBS] and share_permission in ["edit", "admin"]:
-                    return True
-                if required_capability == PermissionCapability.CAN_VIEW_SHARED_JOBS:
-                    return True
+                permission_levels = {"view": 1, "edit": 2, "admin": 3}
+                user_level = permission_levels.get(share_permission, 0)
+                required_level = permission_levels.get(required_permission, 0)
+                return user_level >= required_level
+    
     return False
 
 

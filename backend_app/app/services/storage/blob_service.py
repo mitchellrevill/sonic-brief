@@ -15,11 +15,19 @@ class StorageService:
     def __init__(self, config: AppConfig):
         self.config = config
         self.logger = logging.getLogger(__name__)
-        self.credential = DefaultAzureCredential()
+        
+        # Prefer key-based authentication for local development
+        # Falls back to managed identity for cloud deployment
+        if config.azure_storage_key:
+            self.logger.info("Using Azure Storage key-based authentication")
+            self.credential = config.azure_storage_key
+        else:
+            self.logger.info("Using Azure Storage managed identity authentication")
+            self.credential = DefaultAzureCredential()
 
         # Initialize blob service client
         self.blob_service_client = BlobServiceClient(
-            account_url=self.config.storage.account_url, credential=self.credential
+            account_url=self.config.azure_storage_account_url, credential=self.credential
         )
 
     def generate_sas_token(self, blob_url: str) -> Optional[str]:
@@ -37,21 +45,33 @@ class StorageService:
             container_name = path_parts[0]
             blob_name = "/".join(path_parts[1:])
 
-            # Get user delegation key using managed identity
-            user_delegation_key = self.blob_service_client.get_user_delegation_key(
-                key_start_time=datetime.utcnow() - timedelta(minutes=5),
-                key_expiry_time=datetime.utcnow() + timedelta(hours=8),
-            )
+            # Use different SAS generation method depending on authentication type
+            if isinstance(self.credential, str):
+                # Key-based authentication - use account key
+                sas_token = generate_blob_sas(
+                    account_name=parsed_url.netloc.split(".")[0],
+                    container_name=container_name,
+                    blob_name=blob_name,
+                    account_key=self.credential,
+                    permission=BlobSasPermissions(read=True),
+                    expiry=datetime.utcnow() + timedelta(hours=8),
+                )
+            else:
+                # Managed identity - get user delegation key
+                user_delegation_key = self.blob_service_client.get_user_delegation_key(
+                    key_start_time=datetime.utcnow() - timedelta(minutes=5),
+                    key_expiry_time=datetime.utcnow() + timedelta(hours=8),
+                )
 
-            # Generate SAS token using user delegation key
-            sas_token = generate_blob_sas(
-                account_name=parsed_url.netloc.split(".")[0],
-                container_name=container_name,
-                blob_name=blob_name,
-                user_delegation_key=user_delegation_key,
-                permission=BlobSasPermissions(read=True),
-                expiry=datetime.utcnow() + timedelta(hours=8),
-            )
+                # Generate SAS token using user delegation key
+                sas_token = generate_blob_sas(
+                    account_name=parsed_url.netloc.split(".")[0],
+                    container_name=container_name,
+                    blob_name=blob_name,
+                    user_delegation_key=user_delegation_key,
+                    permission=BlobSasPermissions(read=True),
+                    expiry=datetime.utcnow() + timedelta(hours=8),
+                )
 
             return sas_token
 
@@ -75,7 +95,7 @@ class StorageService:
         """Upload a file to blob storage"""
         try:
             container_client = self.blob_service_client.get_container_client(
-                self.config.storage.recordings_container
+                self.config.azure_storage_recordings_container
             )            # Sanitize filename - replace spaces with underscores
             sanitized_filename = original_filename.replace(" ", "_")
             self.logger.debug(
@@ -188,7 +208,7 @@ class StorageService:
 
             # Upload DOCX
             container_client = self.blob_service_client.get_container_client(
-                self.config.storage.recordings_container
+                self.config.azure_storage_recordings_container
             )
             blob_client = container_client.get_blob_client(blob_name)
 
@@ -227,9 +247,9 @@ class StorageService:
 
             # Extract the blob name from the URL
             # First try the expected recordings container
-            if self.config.storage.recordings_container in parsed_url.path:
+            if self.config.azure_storage_recordings_container in parsed_url.path:
                 blob_name = parsed_url.path.split(
-                    self.config.storage.recordings_container, 1
+                    self.config.azure_storage_recordings_container, 1
                 )[-1].lstrip("/")
             else:
                 # For transcription files or other assets that might be in different containers,
@@ -239,7 +259,7 @@ class StorageService:
                     # Assume format: /container_name/blob_name or /container_name/folder/blob_name
                     container_name = path_parts[0]
                     blob_name = '/'.join(path_parts[1:])
-                    self.logger.warning(f"Blob URL uses different container '{container_name}' instead of expected '{self.config.storage.recordings_container}'. Using container: {container_name}")
+                    self.logger.warning(f"Blob URL uses different container '{container_name}' instead of expected '{self.config.azure_storage_recordings_container}'. Using container: {container_name}")
                 else:
                     raise ValueError(f"Blob URL path format not recognized: {parsed_url.path}")
             
@@ -249,8 +269,8 @@ class StorageService:
 
             # Create an async blob client
             async_blob_client = AsyncBlobClient(
-                account_url=self.config.storage.account_url,
-                container_name=self.config.storage.recordings_container,
+                account_url=self.config.azure_storage_account_url,
+                container_name=self.config.azure_storage_recordings_container,
                 blob_name=blob_name,
                 credential=self.credential,
             )

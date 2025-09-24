@@ -44,10 +44,12 @@ import { Badge } from "@/components/ui/badge";
 import { mediaUploadSchema } from "@/schema/audio-upload.schema";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Loader2, RefreshCcw, Upload, FileText, Film, Music, Image, File, ChevronDown, ChevronUp, Copy, Check } from "lucide-react";
+import { Loader2, RefreshCcw, Upload, FileText, Film, Music, Image, File, ChevronDown, ChevronUp, Copy, Check, Search } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { useEffect, useRef } from "react";
+// Removed select dropdown approach; implementing dual-pane list browser instead
+import { Input } from "@/components/ui/input";
 import { RetentionDisclaimer } from "@/components/ui/retention-disclaimer";
 
 interface MediaUploadFormProps {
@@ -115,7 +117,9 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>("");
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>("");
   // Parent category currently expanded to show its child categories (hierarchical folders)
-  const [expandedParentCategoryId, setExpandedParentCategoryId] = useState<string>("");
+  // Track search input for categories and meeting types
+  const [categorySearch, setCategorySearch] = useState("");
+  const [subcategorySearch, setSubcategorySearch] = useState("");
   const [fileType, setFileType] = useState<keyof typeof FILE_TYPES | "other" | null>(null);
   // legacy inner zone drag state removed (full-page drag implemented)
   const [isWindowDrag, setIsWindowDrag] = useState(false); // full-page drag highlight
@@ -600,120 +604,153 @@ const convertToWav = async (file: File): Promise<File> => {
             )}
           />
 
-          {/* Categories */}
-          <div className="space-y-4">
+          {/* Categories & Subcategories (Dual-Pane Browser) */}
+          <div className="space-y-5">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">1. Service Area</h3>
+              <h3 className="text-lg font-semibold">1 & 2. Service Area & Meeting Type</h3>
               <Button type="button" size="sm" variant="outline" onClick={() => refetchCategories()} disabled={isLoadingCategories}>
                 <RefreshCcw className="h-4 w-4 mr-2" /> {isLoadingCategories ? 'Refreshing' : 'Refresh'}
               </Button>
             </div>
-            
             {(() => {
-              const rootCategories = (categories || []).filter(cat => !cat.parent_category_id);
-              const childrenByParent: Record<string, Array<any>> = {};
-              (categories || []).forEach(cat => {
-                const parent = cat.parent_category_id;
-                if (parent) {
-                  childrenByParent[parent] = childrenByParent[parent] || [];
-                  childrenByParent[parent].push(cat);
+              const allCats = categories || [];
+              const roots = allCats.filter(c => !c.parent_category_id);
+              const childrenByParent: Record<string, any[]> = {};
+              allCats.forEach(c => {
+                if (c.parent_category_id) {
+                  childrenByParent[c.parent_category_id] = childrenByParent[c.parent_category_id] || [];
+                  childrenByParent[c.parent_category_id].push(c);
                 }
               });
 
-              // We no longer jump to a separate child section. Instead each root category can expand inline.
-              const toggleExpand = (parentId: string) => {
-                setExpandedParentCategoryId(cur => cur === parentId ? "" : parentId);
-              };
+              const normalizedSearch = categorySearch.trim().toLowerCase();
+              const filteredRoots = normalizedSearch
+                ? roots.filter(r => r.name.toLowerCase().includes(normalizedSearch) || (childrenByParent[r.id]||[]).some(ch => ch.name.toLowerCase().includes(normalizedSearch)))
+                : roots;
+
+              const meetingTypesAll = (subcategories || []).filter(s => s.category_id === selectedCategory);
+              const filteredMeetingTypes = subcategorySearch.trim()
+                ? meetingTypesAll.filter(mt => mt.name.toLowerCase().includes(subcategorySearch.trim().toLowerCase()))
+                : meetingTypesAll;
 
               return (
-                <div className="space-y-4">
-                  {/* Main Categories */}
-                  <div className="space-y-2" role="radiogroup" aria-label="Service Areas">
-                    {rootCategories.map(category => {
-                      const active = category.id === selectedCategory;
-                      const hasChildren = (childrenByParent[category.id]?.length || 0) > 0;
-                      const expanded = expandedParentCategoryId === category.id;
-                      return (
-                        <div key={category.id} className="border rounded-md bg-white/60 dark:bg-card border-border/30 overflow-hidden">
-                          <div className={`flex items-start justify-between gap-3 p-4 cursor-pointer transition hover:border-primary/40 ${active ? 'ring-2 ring-primary/30 border-primary' : ''}`}
-                               onClick={() => handleCategorySelect(category.id)}
-                               role="radio" aria-checked={active}>
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium leading-tight flex items-center gap-2">
-                                {category.name}
-                                {hasChildren && (
-                                  <button type="button" onClick={(e) => { e.stopPropagation(); toggleExpand(category.id); }}
-                                          className="text-xs rounded px-2 py-0.5 border border-border/40 hover:border-primary/40 hover:text-primary transition">
-                                    {expanded ? 'Hide' : 'Show'} subcategories
-                                  </button>
-                                )}
-                              </p>
-                              <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                                {subcategories?.filter(sub => sub.category_id === category.id).length || 0} meeting types
-                                {hasChildren && ` • ${childrenByParent[category.id].length} subcategories`}
-                              </p>
-                            </div>
-                            {active && <Check className="h-4 w-4 text-primary flex-shrink-0" />}
-                          </div>
-                          {hasChildren && expanded && (
-                            <div className="px-4 pb-4">
-                              <div className="flex flex-wrap gap-2">
-                                {childrenByParent[category.id].map(child => {
+                <div className="grid md:grid-cols-5 gap-4">
+                  {/* Category Pane */}
+                  <div className="md:col-span-2 border rounded-xl bg-card/60 backdrop-blur-sm flex flex-col overflow-hidden min-h-[300px]">
+                    <div className="p-3 border-b flex items-center gap-2 bg-muted/40">
+                      <Search className="h-4 w-4 text-muted-foreground" />
+                      <Input
+                        value={categorySearch}
+                        onChange={e => setCategorySearch(e.target.value)}
+                        placeholder={isLoadingCategories ? 'Loading categories...' : 'Search service areas'}
+                        className="h-8 text-xs flex-1"
+                        disabled={isLoadingCategories || !form.getValues('mediaFile')}
+                      />
+                    </div>
+                    <div className="flex-1 overflow-y-auto thin-scrollbar divide-y">
+                      {!form.getValues('mediaFile') && (
+                        <div className="p-4 text-xs text-muted-foreground">Attach a file to pick a service area.</div>) }
+                      {form.getValues('mediaFile') && filteredRoots.map(root => {
+                        const rootActive = root.id === selectedCategory;
+                        const childList = childrenByParent[root.id] || [];
+                        const visibleChildren = childList.filter(ch => !normalizedSearch || ch.name.toLowerCase().includes(normalizedSearch));
+    
+
+                        // showChildren when there are children to display (or when search finds matches)
+                        const showChildren = visibleChildren.length > 0;
+
+                        // compute a lightweight spacing class for visual separation between roots
+                        const rootIndex = filteredRoots.findIndex(r => r.id === root.id);
+                        const rootSpacingClass = rootIndex > 0 ? "pt-2 border-t border-border/10" : "";
+
+                        // expose spacing on the root object so markup can pick it up if you want to apply it to the wrapper/button
+                        // (keeps logic here so you can easily wire classes into JSX later)
+                        (root as any).__spacingClass = rootSpacingClass;
+                        return (
+                          <div key={root.id} className="group">
+                            <button
+                              type="button"
+                              onClick={() => handleCategorySelect(root.id)}
+                              className={`w-full text-left px-4 py-3 flex items-center justify-between transition hover:bg-muted/60 ${rootActive ? 'bg-primary/10 border-l-2 border-primary font-medium' : ''}`}
+                            >
+                              <span className="truncate">{root.name}</span>
+                              <span className="text-xs text-muted-foreground ml-2">{(subcategories||[]).filter(s=>s.category_id===root.id).length}</span>
+                            </button>
+                            {showChildren && visibleChildren.length > 0 && (
+                              <div className="bg-muted/20">
+                                {visibleChildren.map(child => {
                                   const childActive = child.id === selectedCategory;
                                   return (
                                     <button
                                       key={child.id}
                                       type="button"
-                                      disabled={!form.getValues('mediaFile')}
                                       onClick={() => handleCategorySelect(child.id)}
-                                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition ${childActive ? 'bg-primary text-primary-foreground border-primary shadow-sm' : 'bg-muted/70 hover:bg-muted border-border/40 hover:border-primary/30 hover:text-foreground text-muted-foreground'} disabled:opacity-50`}
+                                      className={`w-full text-left px-8 py-2 text-xs flex items-center justify-between hover:bg-muted/50 transition ${childActive ? 'bg-primary/10 border-l-2 border-primary font-medium' : ''}`}
                                     >
-                                      {child.name}
+                                      <span className="truncate">{child.name}</span>
+                                      <span className="text-[10px] text-muted-foreground ml-2">{(subcategories||[]).filter(s=>s.category_id===child.id).length}</span>
                                     </button>
                                   );
                                 })}
                               </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {!rootCategories.length && (
-                      <div className="text-sm text-muted-foreground">{isLoadingCategories ? 'Loading categories...' : 'No categories found.'}</div>
-                    )}
+                            )}
+                          </div>
+                        );
+                      })}
+                      {form.getValues('mediaFile') && !isLoadingCategories && filteredRoots.length === 0 && (
+                        <div className="p-4 text-xs text-muted-foreground">No categories match "{categorySearch}"</div>
+                      )}
+                    </div>
+                    <div className="p-2 border-t text-[10px] text-muted-foreground flex justify-between">
+                      <span>{(categories||[]).length} total categories</span>
+                      <span>{roots.length} top-level</span>
+                    </div>
+                  </div>
+
+                  {/* Meeting Type Pane */}
+                  <div className="md:col-span-3 border rounded-xl bg-card/60 backdrop-blur-sm flex flex-col overflow-hidden min-h-[300px]">
+                    <div className="p-3 border-b flex items-center gap-2 bg-muted/40">
+                      <Search className="h-4 w-4 text-muted-foreground" />
+                      <Input
+                        value={subcategorySearch}
+                        onChange={e => setSubcategorySearch(e.target.value)}
+                        placeholder={selectedCategory ? 'Search meeting types' : 'Select a category first'}
+                        className="h-8 text-xs flex-1"
+                        disabled={!selectedCategory || !form.getValues('mediaFile')}
+                      />
+                    </div>
+                    <div className="flex-1 overflow-y-auto thin-scrollbar">
+                      {!selectedCategory && (
+                        <div className="p-4 text-xs text-muted-foreground">Choose a service area to see meeting types.</div>
+                      )}
+                      {selectedCategory && filteredMeetingTypes.map(mt => {
+                        const active = mt.id === selectedSubcategory;
+                        return (
+                          <button
+                            key={mt.id}
+                            type="button"
+                            onClick={() => handleSubcategorySelect(mt.id)}
+                            className={`w-full text-left px-4 py-2 flex items-center justify-between hover:bg-muted/60 transition text-sm ${active ? 'bg-primary/10 border-l-2 border-primary font-medium' : ''}`}
+                          >
+                            <span className="truncate">{mt.name}</span>
+                          </button>
+                        );
+                      })}
+                      {selectedCategory && !filteredMeetingTypes.length && (
+                        <div className="p-4 text-xs text-muted-foreground">No meeting types match "{subcategorySearch}"</div>
+                      )}
+                    </div>
+                    <div className="p-2 border-t text-[10px] text-muted-foreground flex justify-between">
+                      <span>{meetingTypesAll.length} meeting types</span>
+                      <span>{filteredMeetingTypes.length} shown</span>
+                    </div>
                   </div>
                 </div>
               );
             })()}
-            <FormMessage />
           </div>
 
-          {/* Subcategories */}
-          {selectedCategory && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold">2. Meeting Type</h3>
-              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Meeting Type">
-                {subcategories?.filter(sub => sub.category_id === selectedCategory).map(sub => {
-                  const active = sub.id === selectedSubcategory;
-                  return (
-                    <button
-                      key={sub.id}
-                      type="button"
-                      onClick={() => handleSubcategorySelect(sub.id)}
-                      role="radio"
-                      aria-checked={active}
-                      className={`px-3 py-1.5 rounded-full text-sm border transition ${active ? 'bg-primary text-primary-foreground border-primary shadow-sm' : 'bg-muted/80 hover:bg-muted/100 border-border/40'}`}
-                    >
-                      {sub.name}
-                    </button>
-                  );
-                })}
-                {!subcategories?.filter(sub => sub.category_id === selectedCategory).length && (
-                  <span className="text-sm text-muted-foreground">No meeting types.</span>
-                )}
-              </div>
-            </div>
-          )}
+          {/* Prompt Preview only after both selections */}
 
           {/* Prompt Preview */}
           {selectedSubcategory && (

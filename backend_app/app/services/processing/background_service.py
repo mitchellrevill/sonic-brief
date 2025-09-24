@@ -21,7 +21,8 @@ from tenacity import (
 import httpx
 from fastapi import BackgroundTasks
 
-from ...core.config import AppConfig, get_cosmos_db_cached
+from ...core.config import AppConfig
+from ...core.dependencies import CosmosService
 from ..storage.blob_service import StorageService
 from ..analytics.analytics_service import AnalyticsService
 
@@ -117,9 +118,10 @@ class CircuitBreaker:
 class BackgroundProcessingService:
     """Service for handling background processing with retry logic and circuit breaker patterns."""
     
-    def __init__(self, storage_service: StorageService, config: AppConfig):
+    def __init__(self, storage_service: StorageService, cosmos_service: CosmosService):
         self.storage_service = storage_service
-        self.config = config
+        self.cosmos_service = cosmos_service
+        self.config = cosmos_service.config
         self.tasks: Dict[str, BackgroundTask] = {}
         self.circuit_breaker = CircuitBreaker()
         # Normalize azure functions base url across different config shapes
@@ -127,14 +129,14 @@ class BackgroundProcessingService:
         # Newer or alternate shapes may expose azure_functions_base_url directly.
         base_url = None
         try:
-            if hasattr(config, 'azure_functions'):
-                af = config.azure_functions
+            if hasattr(self.config, 'azure_functions'):
+                af = self.config.azure_functions
                 if isinstance(af, dict):
                     base_url = af.get('base_url')
                 else:
                     base_url = getattr(af, 'base_url', None)
             if not base_url:
-                base_url = getattr(config, 'azure_functions_base_url', None)
+                base_url = getattr(self.config, 'azure_functions_base_url', None)
         except Exception:
             base_url = None
 
@@ -305,7 +307,7 @@ class BackgroundProcessingService:
             
             # Get job details from database
             
-            cosmos_db = get_cosmos_db_cached(self.config)
+            cosmos_db = self.cosmos_service
             job = cosmos_db.get_job(job_id)
             
             if not job:
@@ -378,7 +380,7 @@ class BackgroundProcessingService:
             # Update job with error status
             try:
                 
-                cosmos_db = get_cosmos_db_cached(self.config)
+                cosmos_db = self.cosmos_service
                 update_fields = {
                     "status": "failed",
                     "message": f"Analysis failed: {str(e)}",
@@ -399,7 +401,7 @@ class BackgroundProcessingService:
             
             # Initialize services
             
-            cosmos_db = get_cosmos_db_cached(self.config)
+            cosmos_db = self.cosmos_service
             
             # Update job status to uploading
             update_fields = {
@@ -454,7 +456,7 @@ class BackgroundProcessingService:
             # Update job with error status
             try:
                 
-                cosmos_db = get_cosmos_db_cached(self.config)
+                cosmos_db = self.cosmos_service
                 update_fields = {
                     "status": "failed",
                     "message": f"File upload failed: {str(e)}",

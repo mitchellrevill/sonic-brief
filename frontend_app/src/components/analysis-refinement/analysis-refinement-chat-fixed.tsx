@@ -94,7 +94,7 @@ export function AnalysisRefinementChat({ jobId, className }: AnalysisRefinementC
     try {
       await refinementMutation.mutateAsync({
         jobId,
-        request: { message: message.trim() }
+        request: { user_request: message.trim() }
       });
       setInputMessage("");
       refetchHistory(); // Refresh chat history after sending message

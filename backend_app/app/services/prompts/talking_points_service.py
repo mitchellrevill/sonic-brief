@@ -10,6 +10,8 @@ from typing import Dict, Any, List, Union, Optional
 from pydantic import BaseModel, Field, ValidationError
 from datetime import datetime
 
+from ..interfaces import TalkingPointsServiceInterface
+
 logger = logging.getLogger(__name__)
 
 
@@ -52,7 +54,7 @@ class TalkingPointsData(BaseModel):
         extra = "ignore"
 
 
-class TalkingPointsService:
+class TalkingPointsService(TalkingPointsServiceInterface):
     """Service for handling talking points operations"""
     
     VALID_FIELD_TYPES = {"text", "date", "markdown", "checkbox", "number", "select"}
@@ -454,7 +456,3 @@ class TalkingPointsService:
                 "form_builder": True
             }
         }
-
-
-# Global service instance
-talking_points_service = TalkingPointsService()
