@@ -113,8 +113,6 @@ const getFileType = (file: File): keyof typeof FILE_TYPES | "other" => {
 };
 
 export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
-  const [selectedCategory, setSelectedCategory] = useState<string>("");
-  const [selectedSubcategory, setSelectedSubcategory] = useState<string>("");
   // Parent category currently expanded to show its child categories (hierarchical folders)
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   // Track search input for categories and meeting types
@@ -144,6 +142,13 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
     }
   }, [mediaFile, form]);
 
+  // Watch form values to trigger re-renders when they change
+  const formValues = form.watch();
+
+  // Use formValues to ensure component re-renders when form changes
+  const currentCategory = formValues.promptCategory;
+  const currentSubcategory = formValues.promptSubcategory;
+
   const {
     data: categories,
     isLoading: isLoadingCategories,
@@ -159,14 +164,6 @@ export function MediaUploadForm({ mediaFile }: MediaUploadFormProps) {
   });
 
 const convertToWav = async (file: File): Promise<File> => {
-    console.log("🎵 Starting audio/video conversion to WAV...");
-    console.log("📁 File details:", {
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      lastModified: new Date(file.lastModified).toISOString()
-    });
-
     // Use shared utility for conversion
     const { convertToWavWithFFmpeg } = await import("@/lib/ffmpegConvert");
     return await convertToWavWithFFmpeg(file, {
@@ -191,24 +188,31 @@ const convertToWav = async (file: File): Promise<File> => {
     });const onSubmit = useCallback(
     async (values: MediaUploadValues) => {
       setIsSubmitting(true);
-      console.log("🚀 Form submission started");
-      console.log("📋 Submission details:", { 
-        fileType, 
-        hasFile: !!values.mediaFile,
-        fileName: values.mediaFile?.name,
-        fileSize: values.mediaFile?.size,
-        promptCategory: values.promptCategory,
-        promptSubcategory: values.promptSubcategory
-      });
       
       // Guard: ensure a media file exists before proceeding. Users can select
       // dropdowns before attaching a file; prevent the submit flow from
       // executing in that case and surface a validation error.
       if (!values.mediaFile) {
-        console.warn("No media file provided - aborting submit");
         toast.error("Please select or upload a media file before submitting.");
         // Mark form error so UI can reflect it
         form.setError("mediaFile", { type: "manual", message: "Please add a media file." });
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Additional validation guards for category/subcategory
+      if (!values.promptCategory) {
+        console.warn("No category selected - aborting submit");
+        toast.error("Please select a service area before submitting.");
+        form.setError("promptCategory", { type: "manual", message: "Please select a service area." });
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (!values.promptSubcategory) {
+        console.warn("No subcategory selected - aborting submit");
+        toast.error("Please select a meeting type before submitting.");
+        form.setError("promptSubcategory", { type: "manual", message: "Please select a meeting type." });
         setIsSubmitting(false);
         return;
       }
@@ -218,11 +222,6 @@ const convertToWav = async (file: File): Promise<File> => {
       if (processedFile) {
         const originalName = processedFile.name;
         const cleanName = sanitizeFilename(originalName);
-        console.log("🧹 Filename sanitization:", {
-          original: originalName,
-          sanitized: cleanName,
-          changed: cleanName !== originalName
-        });
         if (cleanName !== originalName) {
           processedFile = new (window as any).File([processedFile], cleanName, { 
             type: processedFile.type, 
@@ -232,94 +231,37 @@ const convertToWav = async (file: File): Promise<File> => {
       }
         // Convert audio and video files to WAV (extract audio from video)
       if (processedFile && (fileType === "audio" || fileType === "video")) {
-        console.log(`🎵 ${fileType === "audio" ? "Audio" : "Video"} file detected, starting conversion process...`);
-        console.log("🎧 Audio file details:", {
-          name: processedFile.name,
-          size: `${(processedFile.size / 1024 / 1024).toFixed(2)} MB`,
-          type: processedFile.type,
-          lastModified: new Date(processedFile.lastModified).toISOString()
-        });
         
         try {
           setIsConverting(true);
           setConversionProgress(0);
           setConversionStep("Starting conversion...");
           
-          console.log("🔄 Calling convertToWav function...");
-          const conversionStartTime = performance.now();
           processedFile = await convertToWav(processedFile);
-          const conversionEndTime = performance.now();
-          const conversionDuration = ((conversionEndTime - conversionStartTime) / 1000).toFixed(2);
-            console.log("✅ Conversion completed successfully!");
-          console.log("⏱️ Conversion took:", conversionDuration, "seconds");
-          console.log("📊 Conversion results:", {
-            originalSize: values.mediaFile ? `${(values.mediaFile.size / 1024 / 1024).toFixed(2)} MB` : 'unknown',
-            convertedSize: `${(processedFile.size / 1024 / 1024).toFixed(2)} MB`,
-            compressionRatio: values.mediaFile ? `${((values.mediaFile.size - processedFile.size) / values.mediaFile.size * 100).toFixed(1)}%` : 'unknown',
-            originalType: values.mediaFile?.type || 'unknown',
-            convertedType: processedFile.type
-          });
           
           toast.success("Media converted to WAV format successfully!");
         } catch (error: unknown) {
-          console.error("❌ Media conversion failed:");
-          const errorDetails = {
-            errorMessage: error instanceof Error ? error.message : 'Unknown error',
-            errorStack: error instanceof Error ? error.stack : undefined,
-            errorName: error instanceof Error ? error.name : 'Error',
-            originalFileName: processedFile?.name,
-            originalFileSize: processedFile?.size,
-            originalFileType: processedFile?.type,
-            timestamp: new Date().toISOString()
-          };
-          console.error("💥 Conversion error details:", errorDetails);
           
           toast.error("Media conversion failed. Uploading original file instead.");
-          console.warn("⚠️ Falling back to original file due to conversion failure");
           // Use original file when conversion fails
           processedFile = values.mediaFile;
         } finally {
           setIsConverting(false);
           setConversionProgress(0);
           setConversionStep("");
-          console.log("🧹 Conversion cleanup completed");
         }
       } else {
-        console.log("📄 Non-audio file or no file, skipping conversion");
         if (processedFile) {
-          console.log("📁 File details:", {
-            name: processedFile.name,
-            size: `${(processedFile.size / 1024 / 1024).toFixed(2)} MB`,
-            type: processedFile.type,
-            category: fileType
-          });
         }
       }
 
-      console.log("📤 Starting file upload...");
-      console.log("📋 Upload details:", { 
-        fileName: processedFile?.name,
-        fileType: processedFile?.type,
-        fileSize: processedFile?.size,
-        category: values.promptCategory,
-        subcategory: values.promptSubcategory
-      });
-
       try {
-        const uploadStartTime = performance.now();
-        const result = await uploadMediaMutation({
+        await uploadMediaMutation({
           ...values,
           mediaFile: processedFile,
         });
-        const uploadEndTime = performance.now();
-        const uploadDuration = ((uploadEndTime - uploadStartTime) / 1000).toFixed(2);
-
-        console.log("✅ Upload completed successfully!");
-        console.log("⏱️ Upload took:", uploadDuration, "seconds");
-        console.log("📋 Upload result:", result);
 
         // Reset form state after successful upload
-        console.log("🧹 Resetting form...");
         form.reset({
           mediaFile: undefined,
           promptCategory: "",
@@ -329,22 +271,13 @@ const convertToWav = async (file: File): Promise<File> => {
         setFileType(null);
         setTranscriptText("");
         setShowTranscriptInput(false);
-        setSelectedCategory(""); // Reset category selection
-        setSelectedSubcategory(""); // Reset subcategory selection
+        setExpandedCategories(new Set()); // Reset expanded categories
         // Clear any lingering errors and re-run validation so form.formState.isValid updates
         form.clearErrors();
         // trigger full form validation update (non-blocking)
-        void form.trigger();
-        console.log("✨ Form reset completed successfully!");
-      } catch (uploadError: unknown) {
-        console.error("❌ Upload failed:");
-        console.error("💥 Upload error details:", {
-          errorMessage: uploadError instanceof Error ? uploadError.message : 'Unknown upload error',
-          errorStack: uploadError instanceof Error ? uploadError.stack : undefined,
-          fileName: processedFile?.name,
-          fileSize: processedFile?.size,
-          timestamp: new Date().toISOString()
+        void form.trigger().then(() => {
         });
+      } catch (uploadError: unknown) {
         throw uploadError; // Re-throw to let the mutation handle it
       } finally {
         // Ensure submitting state is cleared regardless of success or failure
@@ -358,6 +291,14 @@ const convertToWav = async (file: File): Promise<File> => {
     setTranscriptText("");
     setShowTranscriptInput(false);
     form.clearErrors("mediaFile");
+    // Reset category/subcategory selections when a new file is selected
+    // This ensures clean state for each new file
+    if (currentCategory || currentSubcategory) {
+      form.setValue("promptCategory", "");
+      form.setValue("promptSubcategory", "");
+      form.clearErrors("promptCategory");
+      form.clearErrors("promptSubcategory");
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -376,35 +317,31 @@ const convertToWav = async (file: File): Promise<File> => {
     // Create a File object from the pasted text
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const fileName = `transcript-${timestamp}.txt`;
-    
+
     // Create a proper File object using the native constructor with proper typing
     const transcriptFile = new (window as any).File([transcriptText], fileName, {
       type: 'text/plain',
       lastModified: Date.now()
     }) as File;
 
-    console.log("Created transcript file:", {
-      name: transcriptFile.name,
-      size: transcriptFile.size,
-      type: transcriptFile.type,
-      hasFileProperties: !!(transcriptFile as any).name && !!(transcriptFile as any).lastModified
-    });
-
     // Set the file in form and trigger validation
     form.setValue("mediaFile", transcriptFile);
-    console.log("Form value set, triggering validation...");
-    
+
+    // Reset category/subcategory selections when transcript is uploaded
+    if (currentCategory || currentSubcategory) {
+      form.setValue("promptCategory", "");
+      form.setValue("promptSubcategory", "");
+      form.clearErrors("promptCategory");
+      form.clearErrors("promptSubcategory");
+    }
+
     // Force form validation
-    form.trigger("mediaFile").then((isValid) => {
-      console.log("Media file validation result:", isValid);
-      console.log("Form errors:", form.formState.errors);
-      console.log("Form is valid:", form.formState.isValid);
-    });
-    
+    form.trigger("mediaFile");
+
     setFileType("transcript");
     setShowTranscriptInput(false);
     form.clearErrors("mediaFile");
-    
+
     toast.success("Transcript uploaded successfully!");
   };
 
@@ -472,8 +409,8 @@ const convertToWav = async (file: File): Promise<File> => {
   }, []);
 
   const promptPreviewText = (() => {
-    if (!selectedSubcategory || !subcategories) return "";
-    const sub = subcategories.find(s => s.id === selectedSubcategory);
+    if (!currentSubcategory || !subcategories) return "";
+    const sub = subcategories.find(s => s.id === currentSubcategory);
     if (!sub?.prompts) return "No prompts found for this meeting type.";
     return Object.entries(sub.prompts)
       .map(([k, v]) => `${k}:\n${v}`)
@@ -501,11 +438,17 @@ const convertToWav = async (file: File): Promise<File> => {
   };
 
   const handleCategorySelect = (id: string) => {
-    if (!form.getValues("mediaFile")) return;
-    setSelectedCategory(id);
-    setSelectedSubcategory("");
+    if (!formValues.mediaFile) {
+      toast.error("Please upload a file before selecting a service area");
+      return;
+    }
     form.setValue("promptCategory", id);
     form.setValue("promptSubcategory", "");
+    // Clear any existing errors for these fields
+    form.clearErrors("promptCategory");
+    form.clearErrors("promptSubcategory");
+    // Trigger validation to update form state
+    form.trigger(["promptCategory", "promptSubcategory"]);
     // Auto-expand when selecting a category
     if (!expandedCategories.has(id)) {
       toggleCategory(id);
@@ -513,9 +456,32 @@ const convertToWav = async (file: File): Promise<File> => {
   };
   
   const handleSubcategorySelect = (id: string) => {
-    console.log("Selecting subcategory:", id);
-    setSelectedSubcategory(id);
+    if (!formValues.mediaFile) {
+      toast.error("Please upload a file before selecting a meeting type");
+      return;
+    }
+
+    // Find the subcategory and auto-select its parent category if not already selected
+    const subcategory = subcategories?.find(s => s.id === id);
+    if (!subcategory) {
+      return;
+    }
+
+    const parentCategoryId = subcategory.category_id;
+    if (!currentCategory || currentCategory !== parentCategoryId) {
+      form.setValue("promptCategory", parentCategoryId);
+      form.clearErrors("promptCategory");
+      // Auto-expand the parent category
+      if (!expandedCategories.has(parentCategoryId)) {
+        toggleCategory(parentCategoryId);
+      }
+    }
+
     form.setValue("promptSubcategory", id);
+    // Clear any existing errors for this field
+    form.clearErrors("promptSubcategory");
+    // Trigger validation to update form state for both fields
+    form.trigger(["promptCategory", "promptSubcategory"]);
   };
 
   const getSubcategoriesForCategory = (categoryId: string) => {
@@ -606,7 +572,18 @@ const convertToWav = async (file: File): Promise<File> => {
                         {renderFileTypeInfo()}
                         <div className="flex flex-wrap gap-2">
                           <Button type="button" size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}>Replace</Button>
-                          <Button type="button" size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); field.onChange(undefined); setFileType(null); setShowTranscriptInput(false); setTranscriptText(""); }}>Remove</Button>
+                          <Button type="button" size="sm" variant="ghost" onClick={(e) => { 
+                            e.stopPropagation(); 
+                            field.onChange(undefined); 
+                            setFileType(null); 
+                            setShowTranscriptInput(false); 
+                            setTranscriptText(""); 
+                            // Reset category/subcategory selections when file is removed
+                            form.setValue("promptCategory", "");
+                            form.setValue("promptSubcategory", "");
+                            form.clearErrors();
+                            void form.trigger();
+                          }}>Remove</Button>
                         </div>
                       </div>
                       <div className="space-y-3 text-sm text-muted-foreground">
@@ -634,9 +611,37 @@ const convertToWav = async (file: File): Promise<File> => {
               </Button>
             </div>
 
+            {/* Validation Error Messages */}
+            <FormField
+              control={form.control}
+              name="promptCategory"
+              render={({ fieldState }) => (
+                <FormItem className="space-y-0">
+                  {fieldState.error && (
+                    <FormMessage className="text-sm text-destructive">
+                      {fieldState.error.message}
+                    </FormMessage>
+                  )}
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="promptSubcategory"
+              render={({ fieldState }) => (
+                <FormItem className="space-y-0">
+                  {fieldState.error && (
+                    <FormMessage className="text-sm text-destructive">
+                      {fieldState.error.message}
+                    </FormMessage>
+                  )}
+                </FormItem>
+              )}
+            />
+
             <div className="flex gap-6 h-[60vh]">
               {/* Sidebar */}
-              <div className="w-80 border rounded-xl bg-card/60 backdrop-blur-sm flex flex-col overflow-hidden">
+              <div className={`w-80 border rounded-xl bg-card/60 backdrop-blur-sm flex flex-col overflow-hidden ${!formValues.mediaFile ? 'opacity-50 pointer-events-none' : ''}`}>
                 {/* Header */}
                 <div className="p-4 border-b border-border">
                   <div className="flex items-center justify-between mb-3">
@@ -653,18 +658,21 @@ const convertToWav = async (file: File): Promise<File> => {
                           e.preventDefault();
                         }
                       }}
-                      placeholder={isLoadingCategories ? 'Loading...' : 'Search categories...'}
+                      placeholder={isLoadingCategories ? 'Loading...' : !formValues.mediaFile ? 'Upload a file to search categories...' : 'Search categories...'}
                       className="w-full pl-10 pr-4 py-2 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
-                      disabled={isLoadingCategories || !form.getValues('mediaFile')}
+                      disabled={isLoadingCategories || !formValues.mediaFile}
                     />
                   </div>
                 </div>
 
                 {/* Tree View */}
                 <div className="flex-1 overflow-y-auto p-2">
-                  {!form.getValues('mediaFile') && (
+                  {!formValues.mediaFile && (
                     <div className="p-4 text-sm text-muted-foreground text-center">
-                      Attach a file to select service areas and meeting types.
+                      <div className="space-y-2">
+                        <Upload className="h-8 w-8 mx-auto text-gray-400" />
+                        <p>Upload a file first to access service areas and meeting types.</p>
+                      </div>
                     </div>
                   )}
 
@@ -698,7 +706,7 @@ const convertToWav = async (file: File): Promise<File> => {
                         {filteredRoots.map((category) => {
                           const categoryId = category.id;
                           const isExpanded = expandedCategories.has(categoryId);
-                          const isSelected = selectedCategory === categoryId;
+                          const isSelected = currentCategory === categoryId;
                           const subcats = getSubcategoriesForCategory(categoryId).sort((a, b) => a.name.localeCompare(b.name));
                           const childCats = (childrenByParent[categoryId] || []).filter(child => 
                             !normalizedSearch || child.name.toLowerCase().includes(normalizedSearch)
@@ -755,7 +763,7 @@ const convertToWav = async (file: File): Promise<File> => {
                                   {/* Child categories (folders) */}
                                   {childCats.map((child) => {
                                     const childId = child.id;
-                                    const isChildSelected = selectedCategory === childId;
+                                    const isChildSelected = currentCategory === childId;
                                     const isChildExpanded = expandedCategories.has(childId);
                                     const childSubcats = getSubcategoriesForCategory(childId).sort((a, b) => a.name.localeCompare(b.name));
 
@@ -802,7 +810,7 @@ const convertToWav = async (file: File): Promise<File> => {
                                           <div className="ml-4 mt-2 space-y-1">
                                             {childSubcats.map((subcategory) => {
                                               const subId = subcategory.id;
-                                              const isSubSelected = selectedSubcategory === subId;
+                                              const isSubSelected = currentSubcategory === subId;
 
                                               return (
                                                 <div
@@ -834,7 +842,7 @@ const convertToWav = async (file: File): Promise<File> => {
                                     <div className="space-y-1">
                                       {subcats.map((subcategory) => {
                                         const subId = subcategory.id;
-                                        const isSubSelected = selectedSubcategory === subId;
+                                        const isSubSelected = currentSubcategory === subId;
 
                                         return (
                                           <div
@@ -883,7 +891,16 @@ const convertToWav = async (file: File): Promise<File> => {
 
               {/* Main Content Area */}
               <div className="flex-1 h-[60vh] overflow-hidden">
-                {!selectedCategory && !selectedSubcategory && (
+                {!formValues.mediaFile && (
+                  <div className="h-full flex items-center justify-center border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
+                    <div className="text-center space-y-2">
+                      <Upload className="h-12 w-12 mx-auto text-gray-400" />
+                      <p className="text-gray-500 dark:text-gray-400">Upload a file first to select service areas and meeting types</p>
+                    </div>
+                  </div>
+                )}
+
+                {formValues.mediaFile && !currentCategory && !currentSubcategory && (
                   <div className="h-full flex items-center justify-center border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
                     <div className="text-center space-y-2">
                       <Folder className="h-12 w-12 mx-auto text-gray-400" />
@@ -892,7 +909,7 @@ const convertToWav = async (file: File): Promise<File> => {
                   </div>
                 )}
 
-                {selectedCategory && !selectedSubcategory && (
+                {formValues.mediaFile && currentCategory && !currentSubcategory && (
                   <div className="h-full flex items-center justify-center border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
                     <div className="text-center space-y-2">
                       <FileText className="h-12 w-12 mx-auto text-gray-400" />
@@ -901,7 +918,7 @@ const convertToWav = async (file: File): Promise<File> => {
                   </div>
                 )}
 
-                {selectedCategory && selectedSubcategory && (
+                {formValues.mediaFile && currentCategory && currentSubcategory && (
                   <div className="h-full border rounded-xl bg-card/60 backdrop-blur-sm p-6 flex flex-col">
                     <div className="flex-1 space-y-4 overflow-hidden">
                       <div>
@@ -909,11 +926,11 @@ const convertToWav = async (file: File): Promise<File> => {
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
                             <Folder className="h-4 w-4 text-gray-500" />
-                            <span className="text-sm"><strong>Service Area:</strong> {categories?.find(c => c.id === selectedCategory)?.name}</span>
+                            <span className="text-sm"><strong>Service Area:</strong> {categories?.find(c => c.id === currentCategory)?.name}</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <FileText className="h-4 w-4 text-primary" />
-                            <span className="text-sm"><strong>Meeting Type:</strong> {subcategories?.find(s => s.id === selectedSubcategory)?.name}</span>
+                            <span className="text-sm"><strong>Meeting Type:</strong> {subcategories?.find(s => s.id === currentSubcategory)?.name}</span>
                           </div>
                         </div>
                       </div>
@@ -954,7 +971,7 @@ const convertToWav = async (file: File): Promise<File> => {
           <div className="pt-4">
             <Button
               type="submit"
-              disabled={isUploading || isSubmitting || !form.getValues('mediaFile') || !selectedCategory || !selectedSubcategory || isConverting}
+              disabled={isUploading || isSubmitting || !formValues.mediaFile || !currentCategory || !currentSubcategory || isConverting}
               className="w-full h-14 text-base font-medium shadow-lg rounded-xl bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary focus-visible:ring-primary/50"
             >
               {(isUploading || isSubmitting) ? (

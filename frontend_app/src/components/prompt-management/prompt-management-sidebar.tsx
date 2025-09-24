@@ -400,6 +400,13 @@ export function PromptManagementSidebar({
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-48">
                         <DropdownMenuItem onClick={() => {
+                          setParentForNewCategory(categoryId);
+                          setShowNewCategoryDialog(true);
+                        }}>
+                          <Folder className="h-4 w-4 mr-2" />
+                          Add nested folder
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => {
                           setSelectedCategoryForSub(category);
                           setShowNewSubcategoryDialog(true);
                         }}>

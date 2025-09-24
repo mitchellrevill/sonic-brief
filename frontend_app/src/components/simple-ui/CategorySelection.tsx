@@ -50,18 +50,18 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
     getPromptManagementSubcategoriesQuery()
   );
 
+  // Filter subcategories for the selected category
+  const availableSubcategories = (subcategories?.filter(
+    (sub) => sub.category_id === selectedCategory?.id
+  ) || []).sort((a, b) => a.name.localeCompare(b.name));
+
   // Fetch detailed subcategory info for pre-session form
   const { data: subcategoryDetails } = useQuery({
     queryKey: ['subcategories-detailed'],
     queryFn: () => fetchSubcategories(),
     staleTime: 5 * 60 * 1000,
-    enabled: !!selectedSubcategory
+    enabled: availableSubcategories.length > 0
   });
-
-  // Filter subcategories for the selected category
-  const availableSubcategories = (subcategories?.filter(
-    (sub) => sub.category_id === selectedCategory?.id
-  ) || []).sort((a, b) => a.name.localeCompare(b.name));
 
   // Get current subcategory details for pre-session form
   const currentSubcategoryDetails = subcategoryDetails?.find(sub => sub.id === selectedSubcategory?.id);
@@ -138,7 +138,7 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
               {required && <span className="text-red-500">*</span>}
             </Label>
             {description && (
-              <p className="text-sm text-muted-foreground">{description}</p>
+              <p className="text-sm text-black">{description}</p>
             )}
             <Input
               id={fieldKey}
@@ -157,7 +157,7 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
               {required && <span className="text-red-500">*</span>}
             </Label>
             {description && (
-              <p className="text-sm text-muted-foreground">{description}</p>
+              <p className="text-sm text-black">{description}</p>
             )}
             <Input
               id={fieldKey}
@@ -176,7 +176,7 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
               {required && <span className="text-red-500">*</span>}
             </Label>
             {description && (
-              <p className="text-sm text-muted-foreground">{description}</p>
+              <p className="text-sm text-black">{description}</p>
             )}
             <Input
               id={fieldKey}
@@ -196,7 +196,7 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
               {required && <span className="text-red-500">*</span>}
             </Label>
             {description && (
-              <p className="text-sm text-muted-foreground">{description}</p>
+              <p className="text-sm text-black">{description}</p>
             )}
             <div className="border rounded-md">
               <MDEditor
@@ -226,7 +226,7 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
               </Label>
             </div>
             {description && (
-              <p className="text-sm text-muted-foreground ml-6">{description}</p>
+              <p className="text-sm text-black ml-6">{description}</p>
             )}
           </div>
         );
@@ -238,7 +238,7 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
               {required && <span className="text-red-500">*</span>}
             </Label>
             {description && (
-              <p className="text-sm text-muted-foreground">{description}</p>
+              <p className="text-sm text-black">{description}</p>
             )}
             <Select value={fieldValue} onValueChange={(value) => handleInputChange(fieldKey, value)}>
               <SelectTrigger>
@@ -262,7 +262,7 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
               {required && <span className="text-red-500">*</span>}
             </Label>
             {description && (
-              <p className="text-sm text-muted-foreground">{description}</p>
+              <p className="text-sm text-black">{description}</p>
             )}
             <Textarea
               id={fieldKey}
@@ -283,8 +283,8 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
         <Card className="w-full max-w-md border-0 shadow-xl">
           <CardContent className="pt-8 pb-8">
             <div className="text-center">
-              <div className="w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mx-auto mb-6">
-                <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-900/30 flex items-center justify-center mx-auto mb-6">
+                <div className="w-8 h-8 border-3 border-slate-500 border-t-transparent rounded-full animate-spin"></div>
               </div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
                 Loading Service Areas
@@ -431,8 +431,8 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
                         key={category.id} 
                         className={`group cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1 border-2 overflow-hidden animate-in fade-in-0 slide-in-from-bottom-4 ${
                           isSelected 
-                            ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-900/20 shadow-lg' 
-                            : 'border-gray-200 dark:border-gray-700 hover:border-blue-300'
+                            ? 'border-slate-500 bg-slate-50/50 dark:bg-slate-900/20 shadow-lg' 
+                            : 'border-gray-200 dark:border-gray-700 hover:border-slate-300'
                         }`}
                         style={{ animationDelay: `${index * 100}ms` }}
                         onClick={() => setSelectedCategory(category)}
@@ -507,8 +507,8 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
                                       }}
                                       className={`text-left p-3 rounded-lg border transition-all duration-200 ${
                                         childSelected 
-                                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' 
-                                          : 'border-gray-200 dark:border-gray-700 hover:border-blue-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                                          ? 'border-slate-500 bg-slate-50 dark:bg-slate-900/30' 
+                                          : 'border-gray-200 dark:border-gray-700 hover:border-slate-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                                       }`}
                                     >
                                       <p className="font-medium text-sm text-gray-900 dark:text-white">
@@ -595,8 +595,8 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
                               key={child.id}
                               className={`group cursor-pointer transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 border-2 animate-in fade-in-0 slide-in-from-bottom-4 ${
                                 childSelected
-                                  ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-900/20'
-                                  : 'border-gray-200 dark:border-gray-700 hover:border-blue-300'
+                                  ? 'border-slate-500 bg-slate-50/50 dark:bg-slate-900/20'
+                                  : 'border-gray-200 dark:border-gray-700 hover:border-slate-300'
                               }`}
                               style={{ animationDelay: `${index * 100}ms` }}
                               onClick={() => setSelectedCategory(child)}
@@ -607,8 +607,8 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
                                 <div className="flex items-center space-x-3">
                                   <div className={`flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
                                     childSelected 
-                                      ? 'bg-blue-500 text-white' 
-                                      : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 group-hover:bg-blue-200'
+                                      ? 'bg-slate-500 text-white' 
+                                      : 'bg-slate-100 dark:bg-slate-900/30 text-slate-600 dark:text-slate-400 group-hover:bg-slate-200'
                                   }`}>
                                     <Folder className="w-5 h-5" />
                                   </div>
@@ -737,11 +737,11 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
             </div>
 
             {/* Selection Summary Card */}
-            <Card className="border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
+            <Card className="border-2 border-slate-200 bg-gradient-to-r from-slate-50 to-gray-50 dark:from-slate-900/20 dark:to-gray-900/20">
               <CardContent className="p-6">
                 <div className="flex items-center space-x-4">
                   <div className="flex-shrink-0">
-                    <div className="w-12 h-12 rounded-xl bg-blue-500 flex items-center justify-center">
+                    <div className="w-12 h-12 rounded-xl bg-slate-500 flex items-center justify-center">
                       <CheckCircle className="w-6 h-6 text-white" />
                     </div>
                   </div>
@@ -818,7 +818,7 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
               <Button 
                 onClick={handleContinue} 
                 disabled={isSubmitting}
-                className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50"
+                className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-slate-600 to-gray-600 hover:from-slate-700 hover:to-gray-700 shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50"
                 size="lg"
               >
                 {isSubmitting ? (
