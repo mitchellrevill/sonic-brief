@@ -1,12 +1,25 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Body
-from typing import Dict, Any, List
+from fastapi import APIRouter, Depends, Body
+from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
 import logging
 
-from ...core.dependencies import get_current_user, get_job_sharing_service, get_job_service
+from ...core.dependencies import (
+    get_current_user,
+    get_job_sharing_service,
+    get_job_service,
+    get_error_handler,
+)
 from ...services.jobs.job_sharing_service import JobSharingService
 from ...services.jobs.job_permissions import JobPermissions
 from ...services.jobs import JobService
+from ...core.errors import (
+    ApplicationError,
+    ErrorCode,
+    ErrorHandler,
+    PermissionError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +29,24 @@ router = APIRouter(prefix="/api/jobs", tags=["job-sharing"])
 def get_job_permissions() -> JobPermissions:
     """Dependency provider for JobPermissions."""
     return JobPermissions()
+
+
+def _handle_internal_error(
+    error_handler: ErrorHandler,
+    action: str,
+    exc: Exception,
+    *,
+    error_code: ErrorCode = ErrorCode.INTERNAL_ERROR,
+    status_code: int = 500,
+    details: Optional[Dict[str, Any]] = None,
+) -> None:
+    error_handler.raise_internal(
+        action,
+        exc,
+        error_code=error_code,
+        status_code=status_code,
+        extra=details,
+    )
 
 
 class ShareRequest(BaseModel):
@@ -39,7 +70,8 @@ async def share_job(
     current_user: Any = Depends(get_current_user),
     sharing_service: JobSharingService = Depends(get_job_sharing_service),
     job_service: JobService = Depends(get_job_service),
-    permissions: JobPermissions = Depends(get_job_permissions)
+    permissions: JobPermissions = Depends(get_job_permissions),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Share a job with another user.
@@ -63,34 +95,33 @@ async def share_job(
 
         # Validate presence of email
         if not shared_user_email:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=[{"loc": ["body", "shared_user_email"], "msg": "Field required", "type": "value_error.missing"}]
+            raise ValidationError(
+                "shared_user_email is required",
+                field="shared_user_email",
+                details={"job_id": job_id},
             )
 
         # Fetch the job to check permissions
         job = await job_service.async_get_job(job_id)
         if not job:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Job not found"
-            )
+            raise ResourceNotFoundError("Job", job_id)
 
         # Check if user can share this job
         # Pass the full user object to the permissions helper so it can check ownership and shared entries
         has_access = await permissions.check_job_access(job, user_obj, "admin")
         if not has_access:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to share this job"
+            raise PermissionError(
+                "You don't have permission to share this job",
+                details={"job_id": job_id, "user_id": user_id},
             )
 
         # Validate permission level
         valid_permissions = ["view", "edit", "admin"]
         if permission_level not in valid_permissions:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid permission level. Must be one of: {valid_permissions}"
+            raise ValidationError(
+                "Invalid permission level",
+                field="permission_level",
+                details={"allowed": valid_permissions, "received": permission_level},
             )
 
         result = await sharing_service.share_job(
@@ -101,21 +132,28 @@ async def share_job(
         )
         
         if result["status"] == "error":
-            if "not found" in result["message"]:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=result["message"]
+            message = result.get("message", "Unable to share job")
+            lowered = message.lower()
+            details = {
+                "job_id": job_id,
+                "target_email": shared_user_email,
+                "permission_level": permission_level,
+            }
+            if "not found" in lowered:
+                raise ResourceNotFoundError("Job share target", shared_user_email, details)
+            if "already shared" in lowered:
+                raise ApplicationError(
+                    message,
+                    ErrorCode.RESOURCE_CONFLICT,
+                    status_code=409,
+                    details=details,
                 )
-            elif "already shared" in result["message"]:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=result["message"]
-                )
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=result["message"]
-                )
+            raise ApplicationError(
+                message,
+                ErrorCode.INVALID_INPUT,
+                status_code=400,
+                details=details,
+            )
         
         return {
             "status": "success",
@@ -124,13 +162,18 @@ async def share_job(
             "permission_level": permission_level
         }
         
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error sharing job {job_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "share job",
+            exc,
+            details={
+                "job_id": job_id,
+                "shared_with": share_request.get_shared_email(),
+                "permission_level": share_request.permission_level,
+            },
         )
 
 
@@ -141,7 +184,8 @@ async def unshare_job(
     current_user: Any = Depends(get_current_user),
     sharing_service: JobSharingService = Depends(get_job_sharing_service),
     job_service: JobService = Depends(get_job_service),
-    permissions: JobPermissions = Depends(get_job_permissions)
+    permissions: JobPermissions = Depends(get_job_permissions),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Remove sharing access for a user.
@@ -161,17 +205,14 @@ async def unshare_job(
         # Fetch the job to check permissions
         job = await job_service.async_get_job(job_id)
         if not job:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Job not found"
-            )
+            raise ResourceNotFoundError("Job", job_id)
 
         # Check if user can manage sharing for this job
         has_access = await permissions.check_job_access(job, user_obj, "admin")
         if not has_access:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to manage sharing for this job"
+            raise PermissionError(
+                "You don't have permission to manage sharing for this job",
+                details={"job_id": job_id, "user_id": user_id},
             )
         
         result = await sharing_service.unshare_job(
@@ -181,29 +222,37 @@ async def unshare_job(
         )
         
         if result["status"] == "error":
-            if "not found" in result["message"]:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=result["message"]
-                )
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=result["message"]
-                )
+            message = result.get("message", "Unable to unshare job")
+            lowered = message.lower()
+            details = {
+                "job_id": job_id,
+                "target_email": shared_user_email,
+            }
+            if "not found" in lowered:
+                raise ResourceNotFoundError("Job share", shared_user_email, details)
+            raise ApplicationError(
+                message,
+                ErrorCode.INVALID_INPUT,
+                status_code=400,
+                details=details,
+            )
         
         return {
             "status": "success",
             "message": f"Sharing removed for {shared_user_email}"
         }
         
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error unsharing job {job_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "unshare job",
+            exc,
+            details={
+                "job_id": job_id,
+                "shared_user_email": shared_user_email,
+            },
         )
 
 
@@ -213,7 +262,8 @@ async def get_job_sharing_info(
     current_user: Any = Depends(get_current_user),
     sharing_service: JobSharingService = Depends(get_job_sharing_service),
     job_service: JobService = Depends(get_job_service),
-    permissions: JobPermissions = Depends(get_job_permissions)
+    permissions: JobPermissions = Depends(get_job_permissions),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Get sharing information for a job.
@@ -234,33 +284,31 @@ async def get_job_sharing_info(
         # Fetch the job to check permissions
         job = await job_service.async_get_job(job_id)
         if not job:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Job not found"
-            )
+            raise ResourceNotFoundError("Job", job_id)
 
         # Check if user can view sharing info for this job
         has_access = await permissions.check_job_access(job, user_obj, "view")
         if not has_access:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to view this job"
+            raise PermissionError(
+                "You don't have permission to view this job",
+                details={"job_id": job_id, "user_id": user_id},
             )
 
         # Pass the current user's id into the service
         result = await sharing_service.get_job_sharing_info(job_id, user_id)
 
         if isinstance(result, dict) and result.get("status") == "error":
-            if "not found" in result.get("message", ""):
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=result.get("message")
-                )
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=result.get("message")
-                )
+            message = result.get("message", "Unable to fetch job sharing info")
+            lowered = message.lower()
+            details = {"job_id": job_id, "user_id": user_id}
+            if "not found" in lowered:
+                raise ResourceNotFoundError("Job", job_id, details)
+            raise ApplicationError(
+                message,
+                ErrorCode.INVALID_INPUT,
+                status_code=400,
+                details=details,
+            )
 
         # Expecting a dict-like sharing info on success
         sharing_info = result.get("sharing_info") if isinstance(result, dict) else {}
@@ -289,20 +337,25 @@ async def get_job_sharing_info(
             "total_shares": total_shares or 0
         }
 
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error getting sharing info for job {job_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "get job sharing info",
+            exc,
+            details={
+                "job_id": job_id,
+                "user_id": getattr(current_user, "id", current_user),
+            },
         )
 
 
 @router.get("/shared")
 async def get_shared_jobs(
     current_user: dict = Depends(get_current_user),
-    sharing_service: JobSharingService = Depends(get_job_sharing_service)
+    sharing_service: JobSharingService = Depends(get_job_sharing_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Get all jobs shared with the current user.
@@ -316,16 +369,18 @@ async def get_shared_jobs(
         user_id = current_user if isinstance(current_user, str) else current_user.get("id")
         jobs = await sharing_service.get_shared_jobs(user_id)
         if not isinstance(jobs, list):
-            # Defensive: if service returns an error dict, surface as HTTP 400
             if isinstance(jobs, dict) and jobs.get("status") == "error":
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=jobs.get("message", "Error fetching shared jobs")
+                raise ApplicationError(
+                    jobs.get("message", "Error fetching shared jobs"),
+                    ErrorCode.INVALID_INPUT,
+                    status_code=400,
+                    details={"user_id": user_id},
                 )
-            # Unexpected shape
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Unexpected response from sharing service"
+            raise ApplicationError(
+                "Unexpected response from sharing service",
+                ErrorCode.INTERNAL_ERROR,
+                status_code=500,
+                details={"user_id": user_id, "response_type": type(jobs).__name__},
             )
 
         return {
@@ -334,11 +389,12 @@ async def get_shared_jobs(
             "total_count": len(jobs)
         }
         
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error getting shared jobs for user {current_user}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "get shared jobs",
+            exc,
+            details={"user_id": user_id},
         )

@@ -1,13 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 import json
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 import logging
 
-from ...core.dependencies import get_current_user, get_analysis_refinement_service
+from ...core.dependencies import (
+    get_current_user,
+    get_analysis_refinement_service,
+    get_error_handler,
+)
 from ...services.jobs.analysis_refinement_service import AnalysisRefinementService
 from ...services.jobs.job_permissions import JobPermissions
+from ...core.errors import ApplicationError, ErrorCode, ErrorHandler, PermissionError, ResourceNotFoundError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +50,22 @@ def get_job_permissions() -> JobPermissions:
     return JobPermissions()
 
 
+def _handle_internal_error(
+    error_handler: ErrorHandler,
+    action: str,
+    exc: Exception,
+    *,
+    error_code: ErrorCode = ErrorCode.INTERNAL_ERROR,
+    details: Optional[Dict[str, Any]] = None,
+) -> None:
+    error_handler.raise_internal(
+        action,
+        exc,
+        error_code=error_code,
+        extra=details,
+    )
+
+
 @router.post("/{job_id}/refinements")
 async def create_refinement(
     job_id: str,
@@ -52,7 +73,8 @@ async def create_refinement(
     stream: bool = False,
     current_user: dict = Depends(get_current_user),
     refinement_service: AnalysisRefinementService = Depends(get_analysis_refinement_service),
-    permissions: JobPermissions = Depends(get_job_permissions)
+    permissions: JobPermissions = Depends(get_job_permissions),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Create a new analysis refinement for a job.
@@ -64,15 +86,12 @@ async def create_refinement(
         # Load the job early so permission checks can verify ownership/shared access
         job = await refinement_service.cosmos.get_job_by_id_async(job_id)
         if not job:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+            raise ResourceNotFoundError(f"Job {job_id} not found")
 
         # Check if user can read this job (pass job dict so owner checks work)
         has_access = await permissions.check_job_access(job, current_user, "read")
         if not has_access:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this job"
-            )
+            raise PermissionError("You don't have permission to access this job")
         
         # If client requested streaming, proxy the function response as SSE
         if stream:
@@ -143,20 +162,11 @@ async def create_refinement(
         
         if result["status"] == "error":
             if "not found" in result["message"]:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=result["message"]
-                )
+                raise ResourceNotFoundError(result["message"])
             elif "Access denied" in result["message"]:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=result["message"]
-                )
+                raise PermissionError(result["message"])
             else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=result["message"]
-                )
+                raise ValidationError(result["message"])
         
         from fastapi.responses import JSONResponse
         return JSONResponse(
@@ -170,13 +180,18 @@ async def create_refinement(
             }
         )
         
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error creating refinement for job {job_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "create analysis refinement",
+            exc,
+            details={
+                "job_id": job_id,
+                "user_id": current_user.get("id"),
+                "stream": stream,
+            },
         )
 
 
@@ -186,7 +201,8 @@ async def refine_analysis(
     request: RefinementRequest,
     current_user: dict = Depends(get_current_user),
     refinement_service: AnalysisRefinementService = Depends(get_analysis_refinement_service),
-    permissions: JobPermissions = Depends(get_job_permissions)
+    permissions: JobPermissions = Depends(get_job_permissions),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Legacy refinement endpoint. Use POST /api/jobs/{job_id}/refinements instead.
@@ -202,15 +218,12 @@ async def refine_analysis(
         # Load the job so permission logic can verify owner/shared access
         job = await refinement_service.cosmos.get_job_by_id_async(job_id)
         if not job:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+            raise ResourceNotFoundError(f"Job {job_id} not found")
 
         # Check if user can read this job
         has_access = await permissions.check_job_access(job, current_user, "read")
         if not has_access:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this job"
-            )
+            raise PermissionError("You don't have permission to access this job")
 
         result = await refinement_service.refine_analysis(
             job_id=job_id,
@@ -220,20 +233,11 @@ async def refine_analysis(
         
         if result["status"] == "error":
             if "not found" in result["message"]:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=result["message"]
-                )
+                raise ResourceNotFoundError(result["message"])
             elif "Access denied" in result["message"]:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=result["message"]
-                )
+                raise PermissionError(result["message"])
             else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=result["message"]
-                )
+                raise ValidationError(result["message"])
         
         return {
             "status": "success",
@@ -243,13 +247,17 @@ async def refine_analysis(
             "message": "Analysis refined successfully"
         }
         
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error refining analysis for job {job_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "refine analysis",
+            exc,
+            details={
+                "job_id": job_id,
+                "user_id": current_user.get("id"),
+            },
         )
 
 # Legacy endpoint /{job_id}/refine removed; use POST /api/jobs/{job_id}/refinements instead.
@@ -260,7 +268,8 @@ async def get_refinement_history(
     job_id: str,
     current_user: dict = Depends(get_current_user),
     refinement_service: AnalysisRefinementService = Depends(get_analysis_refinement_service),
-    permissions: JobPermissions = Depends(get_job_permissions)
+    permissions: JobPermissions = Depends(get_job_permissions),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Get refinement history for a job.
@@ -275,34 +284,22 @@ async def get_refinement_history(
         # Load job first so permission checks can validate ownership/shared access
         job = await refinement_service.cosmos.get_job_by_id_async(job_id)
         if not job:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+            raise ResourceNotFoundError(f"Job {job_id} not found")
 
         # Check if user can read this job
         has_access = await permissions.check_job_access(job, current_user, "read")
         if not has_access:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this job"
-            )
+            raise PermissionError("You don't have permission to access this job")
 
         result = await refinement_service.get_refinement_history(job_id, current_user["id"])
         
         if result["status"] == "error":
             if "not found" in result["message"]:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=result["message"]
-                )
+                raise ResourceNotFoundError(result["message"])
             elif "Access denied" in result["message"]:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=result["message"]
-                )
+                raise PermissionError(result["message"])
             else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=result["message"]
-                )
+                raise ValidationError(result["message"])
         
         return {
             "status": "success",
@@ -311,13 +308,17 @@ async def get_refinement_history(
             "total_refinements": result.get("total_refinements", 0)
         }
         
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error getting refinement history for job {job_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "get refinement history",
+            exc,
+            details={
+                "job_id": job_id,
+                "user_id": current_user.get("id"),
+            },
         )
 
 
@@ -326,7 +327,8 @@ async def get_refinement_suggestions(
     job_id: str,
     current_user: dict = Depends(get_current_user),
     refinement_service: AnalysisRefinementService = Depends(get_analysis_refinement_service),
-    permissions: JobPermissions = Depends(get_job_permissions)
+    permissions: JobPermissions = Depends(get_job_permissions),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Get suggested refinement questions for a job.
@@ -341,34 +343,22 @@ async def get_refinement_suggestions(
         # Load job first so permission checks can validate ownership/shared access
         job = await refinement_service.cosmos.get_job_by_id_async(job_id)
         if not job:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+            raise ResourceNotFoundError(f"Job {job_id} not found")
 
         # Check if user can read this job
         has_access = await permissions.check_job_access(job, current_user, "read")
         if not has_access:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this job"
-            )
+            raise PermissionError("You don't have permission to access this job")
 
         result = await refinement_service.get_refinement_suggestions(job_id, current_user["id"])
         
         if result["status"] == "error":
             if "not found" in result["message"]:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=result["message"]
-                )
+                raise ResourceNotFoundError(result["message"])
             elif "Access denied" in result["message"]:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=result["message"]
-                )
+                raise PermissionError(result["message"])
             else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=result["message"]
-                )
+                raise ValidationError(result["message"])
         
         return {
             "status": "success",
@@ -376,13 +366,17 @@ async def get_refinement_suggestions(
             "suggestions": result.get("suggestions", [])
         }
         
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error getting refinement suggestions for job {job_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "get refinement suggestions",
+            exc,
+            details={
+                "job_id": job_id,
+                "user_id": current_user.get("id"),
+            },
         )
 
 
@@ -392,7 +386,8 @@ async def update_analysis_document(
     request: DocumentUpdateRequest,
     current_user: dict = Depends(get_current_user),
     refinement_service: AnalysisRefinementService = Depends(get_analysis_refinement_service),
-    permissions: JobPermissions = Depends(get_job_permissions)
+    permissions: JobPermissions = Depends(get_job_permissions),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Update the analysis document for a job.
@@ -408,15 +403,12 @@ async def update_analysis_document(
         # Load job first so permission checks can validate ownership/shared access
         job = await refinement_service.cosmos.get_job_by_id_async(job_id)
         if not job:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+            raise ResourceNotFoundError(f"Job {job_id} not found")
 
         # Check if user can write to this job
         has_access = await permissions.check_job_access(job, current_user, "write")
         if not has_access:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to edit this job"
-            )
+            raise PermissionError("You don't have permission to edit this job")
 
         result = await refinement_service.update_analysis_document(
             job_id=job_id,
@@ -427,20 +419,11 @@ async def update_analysis_document(
         
         if result["status"] == "error":
             if "not found" in result["message"]:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=result["message"]
-                )
+                raise ResourceNotFoundError(result["message"])
             elif "Access denied" in result["message"]:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=result["message"]
-                )
+                raise PermissionError(result["message"])
             else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=result["message"]
-                )
+                raise ValidationError(result["message"])
         
         return {
             "status": "success",
@@ -449,11 +432,15 @@ async def update_analysis_document(
             "updated_at": result.get("updated_at")
         }
         
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error updating analysis document for job {job_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "update analysis document",
+            exc,
+            details={
+                "job_id": job_id,
+                "user_id": current_user.get("id"),
+            },
         )

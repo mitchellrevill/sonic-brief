@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
 from jose import jwt, JWTError
-from .config import get_config
+from app.core.config import get_config
 
 LEGACY_SUB_EMAIL = "legacy_email"
 

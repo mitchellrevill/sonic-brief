@@ -2,9 +2,8 @@
 Permissions Router - Permission and capability management
 Handles role assignments, custom capabilities, and permission queries
 """
-from typing import Dict, Any, List
-from fastapi import APIRouter, Depends, HTTPException, status, Body, Query
-from pydantic import BaseModel
+from typing import Dict, Any, List, Optional
+from fastapi import APIRouter, Depends, Body, Query
 import logging
 
 from ...core.dependencies import (
@@ -12,17 +11,71 @@ from ...core.dependencies import (
     get_cosmos_service,
     get_current_user,
     get_audit_service,
+    get_error_handler,
 )
 from ...services.monitoring.audit_logging_service import AuditLoggingService as AuditService
-from ...core.config import get_config
 from .user_management import require_admin_user, require_user_view_access, require_user_edit_access
-from ...models.permissions import PermissionLevel, PermissionCapability, get_user_capabilities, merge_custom_capabilities
+from ...models.permissions import PermissionLevel, PermissionCapability, get_user_capabilities
+from ...core.errors import (
+    ApplicationError,
+    ErrorCode,
+    ErrorHandler,
+    ValidationError,
+    PermissionError,
+    ResourceNotFoundError,
+)
 
 # Setup logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 router = APIRouter(prefix="", tags=["permissions"])
+
+def _handle_internal_error(
+    error_handler: ErrorHandler,
+    action: str,
+    exc: Exception,
+    *,
+    error_code: ErrorCode = ErrorCode.INTERNAL_ERROR,
+    status_code: int = 500,
+    message: str | None = None,
+    details: dict | None = None,
+) -> None:
+    error_handler.raise_internal(
+        action,
+        exc,
+        message=message,
+        error_code=error_code,
+        status_code=status_code,
+        extra=details,
+    )
+
+def _query_container(
+    container,
+    *,
+    action: str,
+    query: str,
+    parameters: Optional[List[Dict[str, Any]]] = None,
+    details: Optional[Dict[str, Any]] = None,
+    error_handler: ErrorHandler,
+) -> List[Dict[str, Any]]:
+    try:
+        return list(
+            container.query_items(
+                query=query,
+                parameters=parameters,
+                enable_cross_partition_query=True,
+            )
+        )
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        error_handler.raise_internal(
+            action,
+            exc,
+            error_code=ErrorCode.EXTERNAL_SERVICE_ERROR,
+            extra=details,
+        )
 
 
 async def require_analytics_access(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
@@ -36,16 +89,24 @@ async def require_analytics_access(current_user: Dict[str, Any] = Depends(get_cu
     effective_capabilities = get_user_capabilities(user_permission, custom_capabilities)
 
     # Check if user has analytics viewing access (admin or specific analytics capability)
-    if not (effective_capabilities.get(PermissionCapability.CAN_VIEW_ANALYTICS.value, False) or 
-            user_permission == PermissionLevel.ADMIN.value):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Analytics access required. You need admin permission or the 'can_view_analytics' capability."
+    if not (
+        effective_capabilities.get(PermissionCapability.CAN_VIEW_ANALYTICS.value, False)
+        or user_permission == PermissionLevel.ADMIN.value
+    ):
+        raise PermissionError(
+            "Analytics access required",
+            details={
+                "required_capability": PermissionCapability.CAN_VIEW_ANALYTICS.value,
+                "user_permission": user_permission,
+            },
         )
     return current_user
 
 @router.get("/users/me/permissions")
-async def get_my_permissions(current_user: Dict[str, Any] = Depends(get_current_user)):
+async def get_my_permissions(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    error_handler: ErrorHandler = Depends(get_error_handler),
+):
     """Return current user's permission level, custom capabilities and effective capabilities.
 
     This endpoint is used by the frontend to determine feature access. Previously missing,
@@ -55,9 +116,6 @@ async def get_my_permissions(current_user: Dict[str, Any] = Depends(get_current_
         user_permission = current_user.get("permission")
         custom_capabilities = current_user.get("custom_capabilities", {})
 
-        # Build full capability list from frontend types file to ensure all keys exist
-        # We'll derive capability keys by reading the Capability enum names from frontend types
-        # For now, use a conservative, hard-coded list matching the frontend expectations
         all_caps = [
             "can_view_own_jobs",
             "can_create_jobs",
@@ -92,19 +150,13 @@ async def get_my_permissions(current_user: Dict[str, Any] = Depends(get_current_
 
         from ...models.permissions import capabilities_for_permission
 
-        # Start with base mapping for the user's permission
         base_caps = capabilities_for_permission(user_permission, all_caps)
 
-        # Merge custom capabilities (override base mapping)
         effective_capabilities = base_caps.copy()
-        for k, v in custom_capabilities.items():
-            if k in effective_capabilities:
-                effective_capabilities[k] = bool(v)
-            else:
-                effective_capabilities[k] = bool(v)
+        for key, value in custom_capabilities.items():
+            effective_capabilities[key] = bool(value)
 
-        # Build response structure requested by frontend
-        response = {
+        return {
             "status": 200,
             "data": {
                 "user_id": current_user.get("id"),
@@ -114,46 +166,51 @@ async def get_my_permissions(current_user: Dict[str, Any] = Depends(get_current_
                 "custom_capabilities": custom_capabilities,
             },
         }
-        return response
-    except Exception as e:
-        logger.error(f"Error resolving current user permissions: {e}")
-        return {"status": 500, "message": f"Error resolving permissions: {e}"}
+    except ApplicationError:
+        raise
+    except Exception as exc:
+            _handle_internal_error(
+                error_handler,
+                "resolve current user permissions",
+                exc,
+                details={"user_id": current_user.get("id")},
+            )
 
 
 @router.get("/users/by-permission/{permission_level}")
 async def get_users_by_permission(
     permission_level: str,
     current_user: Dict[str, Any] = Depends(require_user_view_access),
-    cosmos_service: CosmosService = Depends(get_cosmos_service)
+    cosmos_service: CosmosService = Depends(get_cosmos_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """Get all users with a specific permission level (requires user viewing capability)."""
-    # Validate permission level
     try:
         PermissionLevel(permission_level)
-    except ValueError:
-        return {"status": 400, "message": f"Invalid permission level: {permission_level}"}
+    except ValueError as exc:
+        raise ValidationError(
+            f"Invalid permission level: {permission_level}",
+            details={"permission_level": permission_level},
+        ) from exc
 
-    try:
-        query = "SELECT * FROM c WHERE c.type = 'user' AND c.permission = @permission"
-        parameters = [{"name": "@permission", "value": permission_level}]
-        users = list(
-            cosmos_service.users_container.query_items(
-                query=query,
-                parameters=parameters,
-                enable_cross_partition_query=True,
-            )
-        )
-        for user in users:
-            user.pop("hashed_password", None)
-        return {
-            "status": 200,
-            "users": users,
-            "count": len(users),
-            "permission_level": permission_level,
-        }
-    except Exception as e:
-        logger.error(f"Error fetching users by permission: {e}", exc_info=True)
-        return {"status": 500, "message": f"Error fetching users: {e}"}
+    users = _query_container(
+        cosmos_service.users_container,
+        action="query users by permission",
+        query="SELECT * FROM c WHERE c.type = 'user' AND c.permission = @permission",
+        parameters=[{"name": "@permission", "value": permission_level}],
+        details={"permission_level": permission_level},
+        error_handler=error_handler,
+    )
+
+    for user in users:
+        user.pop("hashed_password", None)
+
+    return {
+        "status": 200,
+        "users": users,
+        "count": len(users),
+        "permission_level": permission_level,
+    }
 
 
 @router.patch("/users/{user_id}/permission")
@@ -162,129 +219,130 @@ async def update_user_permission(
     permission_data: Dict[str, str] = Body(...),
     current_user: Dict[str, Any] = Depends(require_admin_user),
     cosmos_service: CosmosService = Depends(get_cosmos_service),
-    audit_service: AuditService = Depends(get_audit_service)
+    audit_service: AuditService = Depends(get_audit_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Update a user's permission level. Admin only.
     """
+    new_permission = permission_data.get("permission")
+    if not new_permission:
+        raise ValidationError(
+            "Permission field is required",
+            field="permission",
+            details={"user_id": user_id},
+        )
+
     try:
-        new_permission = permission_data.get("permission")
-        if not new_permission:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Permission field is required"
-            )
+        PermissionLevel(new_permission)
+    except ValueError as exc:
+        raise ValidationError(
+            f"Invalid permission level: {new_permission}",
+            field="permission",
+            details={"user_id": user_id},
+        ) from exc
 
-        # Validate permission level
-        try:
-            PermissionLevel(new_permission)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid permission level: {new_permission}"
-            )
+    if user_id == current_user["id"]:
+        raise ApplicationError(
+            "Cannot change your own permission level",
+            ErrorCode.OPERATION_NOT_ALLOWED,
+            status_code=400,
+            details={"user_id": user_id},
+        )
 
-        # Prevent self-permission changes to avoid lockout
-        if user_id == current_user["id"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot change your own permission level"
-            )
+    from datetime import datetime, timezone
 
-        # Update user permission
-        from datetime import datetime, timezone
-        update_data = {
-            "permission": new_permission,
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }
+    update_data = {
+        "permission": new_permission,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    try:
         updated_user = await cosmos_service.update_user(user_id, update_data)
-
-        # Log audit entry for permission change
-        try:
-                # AuditService.log_administrative_action expects (action_type, admin_user_id,
-                # target_resource_type, target_resource_id, action_details)
-                action_details = {
-                    "old_permission": "unknown",  # Would need to fetch from DB first
-                    "new_permission": new_permission,
-                    "admin_email": current_user.get("email"),
-                    "target_user_email": updated_user.get("email"),
-                }
-                await audit_service.log_administrative_action(
-                    "permission_changed",
-                    current_user.get("id"),
-                    "user",
-                    user_id,
-                    action_details,
-                )
-        except Exception as e:
-            logger.warning(f"Failed to log permission change audit: {str(e)}")
-
-        logger.info(f"Permission changed for user {user_id} to {new_permission} by admin {current_user['id']}")
-
-        # Remove sensitive data
-        updated_user.pop("hashed_password", None)
-
-        return {
-            "status": "success",
-            "message": f"User permission updated to {new_permission}",
-            "user": updated_user
-        }
-
-    except HTTPException:
+    except ApplicationError:
         raise
-    except ValueError as e:
-        logger.error(f"User not found for permission update: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+    except ValueError as exc:
+        raise ResourceNotFoundError("user", user_id) from exc
+    except Exception as exc:
+        error_handler.raise_internal(
+            "update user permission",
+            exc,
+            error_code=ErrorCode.EXTERNAL_SERVICE_ERROR,
+            extra={"user_id": user_id},
         )
-    except Exception as e:
-        logger.error(f"Error updating user permission: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error updating permission: {str(e)}"
+
+    try:
+        action_details = {
+            "old_permission": "unknown",
+            "new_permission": new_permission,
+            "admin_email": current_user.get("email"),
+            "target_user_email": updated_user.get("email"),
+        }
+        await audit_service.log_administrative_action(
+            "permission_changed",
+            current_user.get("id"),
+            "user",
+            user_id,
+            action_details,
         )
+    except Exception as exc:
+        logger.warning(
+            "Failed to log permission change audit: %s",
+            str(exc),
+        )
+
+    logger.info(
+        "Permission changed for user %s to %s by admin %s",
+        user_id,
+        new_permission,
+        current_user["id"],
+    )
+
+    updated_user.pop("hashed_password", None)
+
+    return {
+        "status": "success",
+        "message": f"User permission updated to {new_permission}",
+        "user": updated_user,
+    }
 
 
 @router.get("/users/{user_id}/capabilities")
 async def get_user_capabilities_endpoint(
     user_id: str,
     current_user: Dict[str, Any] = Depends(require_user_view_access),
-    cosmos_service: CosmosService = Depends(get_cosmos_service)
+    cosmos_service: CosmosService = Depends(get_cosmos_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Get user's effective capabilities (base + custom). Admin only.
     """
     try:
-        # Get user
         user = await cosmos_service.get_user_by_id(user_id)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-
-        # Get effective capabilities
-        user_permission = user.get("permission")
-        custom_capabilities = user.get("custom_capabilities", {})
-        effective_capabilities = get_user_capabilities(user_permission, custom_capabilities)
-
-        return {
-            "status": "success",
-            "user_id": user_id,
-            "permission_level": user_permission,
-            "custom_capabilities": custom_capabilities,
-            "effective_capabilities": effective_capabilities
-        }
-
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error getting user capabilities: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error getting capabilities: {str(e)}"
+    except Exception as exc:
+        error_handler.raise_internal(
+            "fetch user for capability lookup",
+            exc,
+            error_code=ErrorCode.EXTERNAL_SERVICE_ERROR,
+            extra={"user_id": user_id},
         )
+
+    if not user:
+        raise ResourceNotFoundError("user", user_id)
+
+    user_permission = user.get("permission")
+    custom_capabilities = user.get("custom_capabilities", {})
+    effective_capabilities = get_user_capabilities(user_permission, custom_capabilities)
+
+    return {
+        "status": "success",
+        "user_id": user_id,
+        "permission_level": user_permission,
+        "custom_capabilities": custom_capabilities,
+        "effective_capabilities": effective_capabilities,
+    }
 
 
 @router.patch("/users/{user_id}/capabilities")
@@ -292,54 +350,50 @@ async def update_user_capabilities(
     user_id: str,
     capability_data: Dict[str, Any] = Body(...),
     current_user: Dict[str, Any] = Depends(require_user_edit_access),
-    cosmos_service: CosmosService = Depends(get_cosmos_service)
+    cosmos_service: CosmosService = Depends(get_cosmos_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Update user's custom capabilities. Admin only.
     """
+    custom_capabilities = capability_data.get("custom_capabilities", {})
+
+    valid_capabilities = {cap.value for cap in PermissionCapability}
+    invalid_capabilities = [cap for cap in custom_capabilities if cap not in valid_capabilities]
+    if invalid_capabilities:
+        raise ValidationError(
+            "Invalid capability provided",
+            details={"invalid_capabilities": invalid_capabilities, "user_id": user_id},
+        )
+
+    from datetime import datetime, timezone
+
+    update_data = {
+        "custom_capabilities": custom_capabilities,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
     try:
-        custom_capabilities = capability_data.get("custom_capabilities", {})
-
-        # Validate that all capability keys are valid
-        valid_capabilities = set(cap.value for cap in PermissionCapability)
-        for capability in custom_capabilities.keys():
-            if capability not in valid_capabilities:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid capability: {capability}"
-                )
-
-        # Update user capabilities
-        from datetime import datetime, timezone
-        update_data = {
-            "custom_capabilities": custom_capabilities,
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }
         updated_user = await cosmos_service.update_user(user_id, update_data)
-
-        logger.info(f"Capabilities updated for user {user_id} by admin {current_user['id']}")
-
-        # Remove sensitive data
-        updated_user.pop("hashed_password", None)
-
-        return {
-            "status": "success",
-            "message": "User capabilities updated successfully",
-            "user": updated_user,
-            "custom_capabilities": custom_capabilities
-        }
-
-    except HTTPException:
+    except ApplicationError:
         raise
-    except ValueError as e:
-        logger.error(f"User not found for capability update: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+    except ValueError as exc:
+        raise ResourceNotFoundError("user", user_id) from exc
+    except Exception as exc:
+        error_handler.raise_internal(
+            "update user capabilities",
+            exc,
+            error_code=ErrorCode.EXTERNAL_SERVICE_ERROR,
+            extra={"user_id": user_id},
         )
-    except Exception as e:
-        logger.error(f"Error updating user capabilities: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error updating capabilities: {str(e)}"
-        )
+
+    logger.info("Capabilities updated for user %s by admin %s", user_id, current_user["id"])
+
+    updated_user.pop("hashed_password", None)
+
+    return {
+        "status": "success",
+        "message": "User capabilities updated successfully",
+        "user": updated_user,
+        "custom_capabilities": custom_capabilities,
+    }

@@ -3,7 +3,7 @@ from typing import Dict, Any, List, Optional
 import logging
 import time
 import json
-from functools import wraps
+from functools import wraps, lru_cache
 
 logger = logging.getLogger(__name__)
 
@@ -134,34 +134,41 @@ class InMemoryPermissionCache(BasePermissionCache):
             return wrapper
         return decorator
 
-def get_permission_cache(settings=None) -> BasePermissionCache:
-    """
-    Get a permission cache instance based on configuration.
-    Falls back to in-memory cache if Redis is not available.
-    """
+def _create_permission_cache(settings) -> BasePermissionCache:
     try:
-        if settings is None:
-            # Import here to avoid circular imports
-            from app.core.config import get_config
-            settings = get_config()
-        
         cache_settings = settings.cache
-        
+
         if cache_settings.cache_type.lower() == "redis" and cache_settings.redis_url:
-            # Future implementation for Redis cache
             logger.warning("Redis cache requested but not implemented yet, falling back to in-memory cache")
             return InMemoryPermissionCache(
                 key_prefix=cache_settings.key_prefix,
                 default_ttl=cache_settings.default_ttl
             )
-        else:
-            return InMemoryPermissionCache(
-                key_prefix=cache_settings.key_prefix,
-                default_ttl=cache_settings.default_ttl
-            )
+
+        return InMemoryPermissionCache(
+            key_prefix=cache_settings.key_prefix,
+            default_ttl=cache_settings.default_ttl
+        )
     except Exception as e:
         logger.warning(f"Error initializing permission cache with settings: {e}, falling back to defaults")
         return InMemoryPermissionCache()
 
-# Global cache instance (for backwards compatibility)
-permission_cache = get_permission_cache()
+
+@lru_cache()
+def _default_permission_cache() -> BasePermissionCache:
+    from app.core.config import get_config
+
+    settings = get_config()
+    return _create_permission_cache(settings)
+
+
+def get_permission_cache(settings=None) -> BasePermissionCache:
+    """Return a permission cache instance respecting configuration."""
+    if settings is not None:
+        return _create_permission_cache(settings)
+    return _default_permission_cache()
+
+
+def reset_permission_cache() -> None:
+    """Reset the cached permission cache (useful in tests)."""
+    _default_permission_cache.cache_clear()

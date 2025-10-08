@@ -53,7 +53,7 @@ class AnalysisService:
 IMPORTANT FORMATTING REQUIREMENTS:
 - Do NOT use markdown formatting (no #, ##, *, -, etc.)
 - Use clear section headers followed by a colon
-- Use plain text with proper paragraph breaks
+- Use plain text with proper paragraph breaks only 1 hard break between paragraphs
 - For lists, use simple bullet points (•) or numbered lists without markdown
 - Structure your response with clear sections for easy document formatting
 - Write in a professional, clear style suitable for Word documents

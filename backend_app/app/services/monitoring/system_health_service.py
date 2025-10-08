@@ -7,11 +7,11 @@ import asyncio
 import logging
 import json
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from azure.cosmos import exceptions as cosmos_exceptions
 from ...core.config import get_config
 from ...core.dependencies import CosmosService
-from ...core.async_utils import run_sync
+from ...utils.async_utils import run_sync
 from ...models.analytics_models import SystemHealthMetrics, SystemHealthResponse
 
 # Optional psutil import
@@ -26,16 +26,14 @@ logger = logging.getLogger(__name__)
 
 class SystemHealthService:
     """System health service that only reports 3 real metrics: API response time, Database response time, Memory usage"""
-    
-    def __init__(self, cosmos_service: Optional[CosmosService] = None):
+
+    def __init__(self, cosmos_service: CosmosService):
         self.service_start_time = time.time()
+        self.cosmos_service = cosmos_service
         try:
+            self.config = cosmos_service.config
+        except AttributeError:
             self.config = get_config()
-            self.cosmos_service = cosmos_service or CosmosService(self.config)
-        except Exception as e:
-            logger.warning(f"Failed to initialize connections: {str(e)}")
-            self.config = None
-            self.cosmos_service = None
 
     async def get_system_health(self) -> SystemHealthResponse:
         """

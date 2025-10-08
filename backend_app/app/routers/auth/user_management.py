@@ -3,19 +3,27 @@ User Management Router - CRUD operations for users
 Handles user creation, retrieval, updates, and deletion
 """
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Body, Query
+from typing import Dict, Any, Optional
+from fastapi import APIRouter, Depends, Request, Body, Query
 from pydantic import BaseModel
 import logging
 import uuid
 
 from app.core.config import get_config
-from app.core.dependencies import get_current_user, get_cosmos_service
+from app.core.dependencies import get_current_user, get_cosmos_service, get_error_handler
 from app.routers.auth.authentication import get_password_hash
 from app.models.permissions import (
     PermissionLevel,
     has_permission_level,
     PERMISSION_HIERARCHY,
+)
+from app.core.errors import (
+    ApplicationError,
+    ErrorCode,
+    ErrorHandler,
+    ValidationError,
+    PermissionError,
+    ResourceNotFoundError,
 )
 
 # Setup logging
@@ -23,6 +31,25 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 router = APIRouter(prefix="", tags=["user-management"])
+
+def _handle_internal_error(
+    error_handler: ErrorHandler,
+    action: str,
+    exc: Exception,
+    *,
+    error_code: ErrorCode = ErrorCode.INTERNAL_ERROR,
+    status_code: int = 500,
+    message: str | None = None,
+    details: dict | None = None,
+) -> None:
+    error_handler.raise_internal(
+        action,
+        exc,
+        message=message,
+        error_code=error_code,
+        status_code=status_code,
+        extra=details,
+    )
 
 
 class UserBase(BaseModel):
@@ -53,9 +80,9 @@ async def require_admin_user(current_user: Dict[str, Any] = Depends(get_current_
     except Exception:
         user_level = PERMISSION_HIERARCHY.get(PermissionLevel.USER.value, 0)
     if user_level < PERMISSION_HIERARCHY.get(PermissionLevel.ADMIN.value, 0):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
+        raise PermissionError(
+            "Admin access required",
+            details={"required_permission": PermissionLevel.ADMIN.value, "user_permission": user_permission},
         )
     return current_user
 
@@ -69,9 +96,9 @@ async def require_user_view_access(current_user: Dict[str, Any] = Depends(get_cu
     
     # Check permission level - only editors and admins can view users
     if not has_permission_level(user_permission, PermissionLevel.EDITOR):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Editor permission or higher required to view users."
+        raise PermissionError(
+            "Editor permission or higher required to view users",
+            details={"required_permission": PermissionLevel.EDITOR.value, "user_permission": user_permission},
         )
     return current_user
 
@@ -85,9 +112,9 @@ async def require_user_edit_access(current_user: Dict[str, Any] = Depends(get_cu
     
     # Check permission level - only admins can edit users
     if not has_permission_level(user_permission, PermissionLevel.ADMIN):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Admin permission required to edit users."
+        raise PermissionError(
+            "Admin permission required to edit users",
+            details={"required_permission": PermissionLevel.ADMIN.value, "user_permission": user_permission},
         )
     return current_user
 
@@ -95,85 +122,132 @@ async def require_user_edit_access(current_user: Dict[str, Any] = Depends(get_cu
 @router.get("/users")
 async def get_all_users(
     current_user: Dict[str, Any] = Depends(require_user_view_access),
-    cosmos_service = Depends(get_cosmos_service)
+    cosmos_service = Depends(get_cosmos_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Get all users (requires user viewing capability)
     """
     try:
         users = await cosmos_service.get_all_users()
-        for user in users:
-            user.pop("hashed_password", None)
-        return {"status": 200, "users": users}
-    except Exception as e:
-        logger.error(f"Error fetching users: {str(e)}", exc_info=True)
-        return {"status": 500, "message": f"Error fetching users: {str(e)}"}
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "fetch all users",
+            exc,
+            error_code=ErrorCode.EXTERNAL_SERVICE_ERROR,
+        )
+
+    for user in users:
+        user.pop("hashed_password", None)
+
+    return {"status": 200, "users": users}
 
 
 @router.get("/users/{user_id}")
 async def get_user_by_id(
     user_id: str,
     current_user: Dict[str, Any] = Depends(require_user_view_access),
-    cosmos_service = Depends(get_cosmos_service)
+    cosmos_service = Depends(get_cosmos_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Get a specific user by ID (requires user viewing capability)
     """
     try:
         user = await cosmos_service.get_user_by_id(user_id)
-        if not user:
-            return {"status": 404, "message": f"User with ID {user_id} not found"}
-        user.pop("hashed_password", None)
-        return {"status": 200, "user": user}
-    except Exception as e:
-        logger.error(f"Error fetching user by ID: {str(e)}", exc_info=True)
-        return {"status": 500, "message": f"Error fetching user: {str(e)}"}
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "fetch user by id",
+            exc,
+            error_code=ErrorCode.EXTERNAL_SERVICE_ERROR,
+            details={"user_id": user_id},
+        )
+
+    if not user:
+        raise ResourceNotFoundError("user", user_id)
+
+    user.pop("hashed_password", None)
+    return {"status": 200, "user": user}
 
 
 @router.get("/users/by-email")
 async def get_user_by_email(
     email: str = Query(..., description="User's email address"), 
     current_user: Dict[str, Any] = Depends(require_user_view_access),
-    cosmos_service = Depends(get_cosmos_service)
+    cosmos_service = Depends(get_cosmos_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     try:
         user = await cosmos_service.get_user_by_email(email)
-        if not user:
-            return {"status": 404, "message": f"User with email {email} not found"}
-        user.pop("hashed_password", None)
-        return {"status": 200, "user": user}
-    except Exception as e:
-        logger.error(f"Error fetching user by email: {str(e)}", exc_info=True)
-        return {"status": 500, "message": f"Error fetching user: {str(e)}"}
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "fetch user by email",
+            exc,
+            error_code=ErrorCode.EXTERNAL_SERVICE_ERROR,
+            details={"email": email},
+        )
+
+    if not user:
+        raise ResourceNotFoundError("user", email)
+
+    user.pop("hashed_password", None)
+    return {"status": 200, "user": user}
 
 
 @router.post("/register")
 async def register_user(
     request: Request, 
     current_user: Dict[str, Any] = Depends(require_admin_user),
-    cosmos_service = Depends(get_cosmos_service)
+    cosmos_service = Depends(get_cosmos_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
+    email: Optional[str] = None
     try:
-        # Parse incoming JSON
         data = await request.json()
         email = data.get("email")
         password = data.get("password")
 
-        if not email or not password:
-            logger.warning("Registration attempt with missing email or password")
-            return {"status": 400, "message": "Email and password are required"}
+        missing_fields = [
+            field for field, value in {"email": email, "password": password}.items() if not value
+        ]
+        if missing_fields:
+            logger.warning("Registration attempt with missing fields: %s", missing_fields)
+            raise ValidationError(
+                "Email and password are required",
+                details={"missing_fields": missing_fields},
+            )
 
-        # Check existing user
         try:
             existing_user = await cosmos_service.get_user_by_email(email)
-            if existing_user:
-                logger.warning(f"Registration attempt for existing email: {email}")
-                return {"status": 400, "message": "Email already registered"}
-        except Exception as e:
-            logger.error(f"Error checking existing user: {e}", exc_info=True)
-            return {"status": 500, "message": f"Error checking user existence: {e}"}
+        except ApplicationError:
+            raise
+        except Exception as exc:
+            _handle_internal_error(
+                error_handler,
+                "check existing user",
+                exc,
+                error_code=ErrorCode.EXTERNAL_SERVICE_ERROR,
+                details={"email": email},
+            )
 
-        # Create user document
+        if existing_user:
+            logger.warning("Registration attempt for existing email: %s", email)
+            raise ApplicationError(
+                "Email already registered",
+                ErrorCode.RESOURCE_CONFLICT,
+                status_code=409,
+                details={"email": email},
+            )
+
         timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
         user_data = {
             "id": f"user_{timestamp}",
@@ -187,15 +261,25 @@ async def register_user(
 
         try:
             created_user = await cosmos_service.create_user(user_data)
-            logger.info(f"User created with ID: {created_user['id']}")
-            return {"status": 200, "message": f"User {email} created successfully"}
-        except Exception as e:
-            logger.error(f"Error creating user: {e}", exc_info=True)
-            return {"status": 500, "message": f"Error creating user: {e}"}
+        except ApplicationError:
+            raise
+        except Exception as exc:
+            _handle_internal_error(
+                error_handler,
+                "create user",
+                exc,
+                error_code=ErrorCode.EXTERNAL_SERVICE_ERROR,
+                details={"email": email},
+            )
 
-    except Exception as e:
-        logger.error(f"Unexpected error during registration: {e}", exc_info=True)
-        return {"status": 500, "message": f"An unexpected error occurred: {e}"}
+        logger.info("User created with ID: %s", created_user["id"])
+        return {"status": 200, "message": f"User {email} created successfully"}
+
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        details = {"email": email} if email else None
+        error_handler.raise_internal("register user", exc, extra=details)
 
 
 @router.patch("/users/{user_id}")
@@ -203,18 +287,26 @@ async def update_user(
     user_id: str, 
     update_data: dict = Body(...), 
     current_user: Dict[str, Any] = Depends(require_admin_user),
-    cosmos_service = Depends(get_cosmos_service)
+    cosmos_service = Depends(get_cosmos_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     try:
         updated_user = await cosmos_service.update_user(user_id, update_data)
-        updated_user.pop("hashed_password", None)
-        return {"status": 200, "user": updated_user}
-    except ValueError as e:
-        logger.error(f"User not found: {str(e)}", exc_info=True)
-        return {"status": 404, "message": str(e)}
-    except Exception as e:
-        logger.error(f"Error updating user: {str(e)}", exc_info=True)
-        return {"status": 500, "message": f"Error updating user: {str(e)}"}
+    except ApplicationError:
+        raise
+    except ValueError as exc:
+        raise ResourceNotFoundError("user", user_id) from exc
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "update user",
+            exc,
+            error_code=ErrorCode.EXTERNAL_SERVICE_ERROR,
+            details={"user_id": user_id},
+        )
+
+    updated_user.pop("hashed_password", None)
+    return {"status": 200, "user": updated_user}
 
 
 @router.patch("/users/{user_id}/password")
@@ -222,81 +314,90 @@ async def change_user_password(
     user_id: str,
     password_data: ChangePasswordRequest = Body(...),
     current_user: Dict[str, Any] = Depends(require_admin_user),
-    cosmos_service = Depends(get_cosmos_service)
+    cosmos_service = Depends(get_cosmos_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Change user password. Admin only.
     """
+    hashed_password = get_password_hash(password_data.new_password)
+
+    update_data = {
+        "hashed_password": hashed_password,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+
     try:
-        # Hash the new password
-        hashed_password = get_password_hash(password_data.new_password)
-        
-        # Update user password
-        update_data = {
-            "hashed_password": hashed_password,
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }
-        updated_user = await cosmos_service.update_user(user_id, update_data)
-        
-        logger.info(f"Password changed for user {user_id} by admin {current_user['id']}")
-        return {
-            "status": "success",
-            "message": "Password changed successfully"
-        }
-        
-    except ValueError as e:
-        logger.error(f"User not found for password change: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+        await cosmos_service.update_user(user_id, update_data)
+    except ApplicationError:
+        raise
+    except ValueError as exc:
+        raise ResourceNotFoundError("user", user_id) from exc
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "change user password",
+            exc,
+            error_code=ErrorCode.EXTERNAL_SERVICE_ERROR,
+            details={"user_id": user_id},
         )
-    except Exception as e:
-        logger.error(f"Error changing password for user {user_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error changing password: {str(e)}"
-        )
+
+    logger.info("Password changed for user %s by admin %s", user_id, current_user["id"])
+    return {
+        "status": "success",
+        "message": "Password changed successfully"
+    }
 
 
 @router.delete("/users/{user_id}")
 async def delete_user(
     user_id: str,
     current_user: Dict[str, Any] = Depends(require_admin_user),
-    cosmos_service = Depends(get_cosmos_service)
+    cosmos_service = Depends(get_cosmos_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Delete a user account. Admin only.
     """
-    try:
-        # Prevent self-deletion
-        if user_id == current_user["id"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot delete your own account"
-            )
-        
-        # Check if user exists
-        user = await cosmos_service.get_user_by_id(user_id)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-        
-        # Delete user
-        await cosmos_service.delete_user(user_id)
-        
-        logger.info(f"User {user_id} deleted by admin {current_user['id']}")
-        return {
-            "status": "success",
-            "message": f"User {user.get('email', user_id)} deleted successfully"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error deleting user {user_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error deleting user: {str(e)}"
+    if user_id == current_user["id"]:
+        raise ApplicationError(
+            "Cannot delete your own account",
+            ErrorCode.OPERATION_NOT_ALLOWED,
+            status_code=400,
+            details={"user_id": user_id},
         )
+
+    try:
+        user = await cosmos_service.get_user_by_id(user_id)
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "fetch user before deletion",
+            exc,
+            error_code=ErrorCode.EXTERNAL_SERVICE_ERROR,
+            details={"user_id": user_id},
+        )
+
+    if not user:
+        raise ResourceNotFoundError("user", user_id)
+
+    try:
+        await cosmos_service.delete_user(user_id)
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "delete user",
+            exc,
+            error_code=ErrorCode.EXTERNAL_SERVICE_ERROR,
+            details={"user_id": user_id},
+        )
+
+    logger.info("User %s deleted by admin %s", user_id, current_user["id"])
+    return {
+        "status": "success",
+        "message": f"User {user.get('email', user_id)} deleted successfully"
+    }

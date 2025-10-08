@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, Query
 from typing import Dict, Any, List, Optional
 import logging
 
-from ...core.dependencies import get_current_user, get_job_management_service
+from ...core.dependencies import get_current_user, get_job_management_service, get_error_handler
 from ...services.jobs.job_management_service import JobManagementService
 from ...services.jobs.job_permissions import JobPermissions
+from ...core.errors import ApplicationError, ErrorCode, ErrorHandler, PermissionError, ResourceNotFoundError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -16,20 +17,44 @@ def get_job_permissions() -> JobPermissions:
     return JobPermissions()
 
 
+def _handle_internal_error(
+    error_handler: ErrorHandler,
+    action: str,
+    exc: Exception,
+    *,
+    error_code: ErrorCode = ErrorCode.INTERNAL_ERROR,
+    details: Optional[Dict[str, Any]] = None,
+) -> None:
+    error_handler.raise_internal(
+        action,
+        exc,
+        error_code=error_code,
+        extra=details,
+    )
+
+
 async def verify_admin_access(
     current_user: str = Depends(get_current_user),
-    permissions: JobPermissions = Depends(get_job_permissions)
+    permissions: JobPermissions = Depends(get_job_permissions),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """Verify that the current user has admin privileges."""
-    # This would typically check against a user roles/permissions system
-    # For now, we'll implement a basic check
-    is_admin = await permissions.check_user_admin_privileges(current_user)
-    if not is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required"
+    try:
+        is_admin = await permissions.check_user_admin_privileges(current_user)
+        if not is_admin:
+            raise PermissionError("Admin privileges required")
+        return current_user
+    except ApplicationError:
+        raise
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "verify admin access",
+            exc,
+            details={"user": getattr(current_user, "id", current_user)},
         )
-    return current_user
 
 
 
@@ -39,7 +64,8 @@ async def verify_admin_access(
 async def restore_job(
     job_id: str,
     current_user: str = Depends(verify_admin_access),
-    management_service: JobManagementService = Depends(get_job_management_service)
+    management_service: JobManagementService = Depends(get_job_management_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Restore a soft-deleted job (admin only).
@@ -55,25 +81,33 @@ async def restore_job(
 
         if result["status"] == "error":
             if "not found" in result["message"]:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=result["message"])
+                raise ResourceNotFoundError(result["message"])
             if "Access denied" in result.get("message", ""):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=result["message"])
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"])
+                raise PermissionError(result["message"])
+            raise ValidationError(result["message"])
 
         return {"status": "success", "message": f"Job {job_id} restored successfully", "job_id": job_id}
 
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error restoring job {job_id}: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "admin restore job",
+            exc,
+            details={
+                "job_id": job_id,
+                "user": getattr(current_user, "id", current_user),
+            },
+        )
 
 
 @router.delete("/{job_id}/permanent")
 async def permanent_delete_job(
     job_id: str,
     current_user: str = Depends(verify_admin_access),
-    management_service: JobManagementService = Depends(get_job_management_service)
+    management_service: JobManagementService = Depends(get_job_management_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Permanently delete a job and all associated data (admin only).
@@ -89,18 +123,25 @@ async def permanent_delete_job(
 
         if result["status"] == "error":
             if "not found" in result["message"]:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=result["message"])
+                raise ResourceNotFoundError(result["message"])
             if "Access denied" in result.get("message", ""):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=result["message"])
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"])
+                raise PermissionError(result["message"])
+            raise ValidationError(result["message"])
 
         return {"status": "success", "message": f"Job {job_id} permanently deleted", "job_id": job_id}
 
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error permanently deleting job {job_id}: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "admin permanent delete job",
+            exc,
+            details={
+                "job_id": job_id,
+                "user": getattr(current_user, "id", current_user),
+            },
+        )
 
 
 @router.get("")
@@ -109,7 +150,8 @@ async def get_all_jobs(
     management_service: JobManagementService = Depends(get_job_management_service),
     limit: int = Query(50, description="Maximum number of jobs to return"),
     offset: int = Query(0, description="Number of jobs to skip"),
-    include_deleted: bool = Query(False, description="Include soft-deleted jobs")
+    include_deleted: bool = Query(False, description="Include soft-deleted jobs"),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Get all jobs (admin only).
@@ -118,7 +160,7 @@ async def get_all_jobs(
         result = await management_service.get_all_jobs(limit=limit, offset=offset, include_deleted=include_deleted)
 
         if result.get("error"):
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=result.get("error"))
+            raise ValidationError(result.get("error"))
 
         return {
             "status": "success",
@@ -129,11 +171,19 @@ async def get_all_jobs(
             "include_deleted": include_deleted
         }
 
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error getting all jobs: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "admin get all jobs",
+            exc,
+            details={
+                "limit": limit,
+                "offset": offset,
+                "include_deleted": include_deleted,
+            },
+        )
 
 
 @router.get("/deleted")
@@ -141,7 +191,8 @@ async def get_deleted_jobs(
     current_user: str = Depends(verify_admin_access),
     management_service: JobManagementService = Depends(get_job_management_service),
     limit: int = Query(50, description="Maximum number of jobs to return"),
-    offset: int = Query(0, description="Number of jobs to skip")
+    offset: int = Query(0, description="Number of jobs to skip"),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Get all soft-deleted jobs (admin only).
@@ -158,8 +209,8 @@ async def get_deleted_jobs(
 
         if result.get("status") == "error":
             if "Access denied" in result.get("message", ""):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=result.get("message"))
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("message"))
+                raise PermissionError(result.get("message"))
+            raise ValidationError(result.get("message"))
 
         return {
             "status": "success",
@@ -169,18 +220,26 @@ async def get_deleted_jobs(
             "offset": offset
         }
 
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error getting deleted jobs: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "admin get deleted jobs",
+            exc,
+            details={
+                "limit": limit,
+                "offset": offset,
+            },
+        )
 
 
 @router.post("/{job_id}/reprocess")
 async def trigger_analysis_processing(
     job_id: str,
     current_user: str = Depends(verify_admin_access),
-    management_service: JobManagementService = Depends(get_job_management_service)
+    management_service: JobManagementService = Depends(get_job_management_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Trigger reprocessing of job analysis (admin only).
@@ -196,18 +255,25 @@ async def trigger_analysis_processing(
 
         if result["status"] == "error":
             if "not found" in result["message"]:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=result["message"])
+                raise ResourceNotFoundError(result["message"])
             if "Access denied" in result.get("message", ""):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=result["message"])
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"])
+                raise PermissionError(result["message"])
+            raise ValidationError(result["message"])
 
         return {"status": "success", "message": f"Analysis processing triggered for job {job_id}", "job_id": job_id, "processing_id": result.get("processing_id")}
 
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error triggering analysis processing for job {job_id}: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "admin trigger analysis processing",
+            exc,
+            details={
+                "job_id": job_id,
+                "user": getattr(current_user, "id", current_user),
+            },
+        )
 
 
 @router.get("/user/{user_id}")
@@ -217,7 +283,8 @@ async def get_user_jobs(
     management_service: JobManagementService = Depends(get_job_management_service),
     limit: int = Query(50, description="Maximum number of jobs to return"),
     offset: int = Query(0, description="Number of jobs to skip"),
-    include_deleted: bool = Query(False, description="Include soft-deleted jobs")
+    include_deleted: bool = Query(False, description="Include soft-deleted jobs"),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Get all jobs for a specific user (admin only).
@@ -239,10 +306,7 @@ async def get_user_jobs(
         )
         
         if result["status"] == "error":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result["message"]
-            )
+            raise ValidationError(result["message"])
         
         return {
             "status": "success",
@@ -254,20 +318,27 @@ async def get_user_jobs(
             "include_deleted": include_deleted
         }
         
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error getting jobs for user {user_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "admin get user jobs",
+            exc,
+            details={
+                "target_user_id": user_id,
+                "limit": limit,
+                "offset": offset,
+                "include_deleted": include_deleted,
+            },
         )
 
 
 @router.get("/stats")
 async def get_job_statistics(
     current_user: str = Depends(verify_admin_access),
-    management_service: JobManagementService = Depends(get_job_management_service)
+    management_service: JobManagementService = Depends(get_job_management_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Get system-wide job statistics (admin only).
@@ -291,9 +362,12 @@ async def get_job_statistics(
             "message": "Job statistics endpoint - implementation pending"
         }
         
-    except Exception as e:
-        logger.error(f"Error getting job statistics: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "admin get job statistics",
+            exc,
+            details={"user": getattr(current_user, "id", current_user)},
         )

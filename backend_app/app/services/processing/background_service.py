@@ -118,12 +118,18 @@ class CircuitBreaker:
 class BackgroundProcessingService:
     """Service for handling background processing with retry logic and circuit breaker patterns."""
     
-    def __init__(self, storage_service: StorageService, cosmos_service: CosmosService):
+    def __init__(
+        self,
+        storage_service: StorageService,
+        cosmos_service: CosmosService,
+        analytics_service: AnalyticsService,
+    ):
         self.storage_service = storage_service
         self.cosmos_service = cosmos_service
         self.config = cosmos_service.config
         self.tasks: Dict[str, BackgroundTask] = {}
         self.circuit_breaker = CircuitBreaker()
+        self.analytics_service = analytics_service
         # Normalize azure functions base url across different config shapes
         # Older AppConfig stores azure_functions as a dict with key 'base_url'
         # Newer or alternate shapes may expose azure_functions_base_url directly.
@@ -142,7 +148,7 @@ class BackgroundProcessingService:
 
         # Fallback to localhost function host for dev if nothing provided
         self.azure_functions_base_url = base_url or "http://localhost:7071"
-        
+
     async def submit_task(
         self, 
         task_id: str, 
@@ -348,8 +354,6 @@ class BackgroundProcessingService:
             
             # Track job completion analytics
             try:
-                analytics_service = AnalyticsService(cosmos_db)
-                
                 # Include audio duration in completion analytics if available
                 completion_metadata = {
                     "duration_seconds": duration_seconds,
@@ -363,7 +367,7 @@ class BackgroundProcessingService:
                     completion_metadata["audio_duration_seconds"] = job["audio_duration_seconds"]
                     completion_metadata["audio_duration_minutes"] = job.get("audio_duration_minutes", job["audio_duration_seconds"] / 60.0)
                 
-                await analytics_service.track_job_event(
+                await self.analytics_service.track_job_event(
                     job_id=job_id,
                     user_id=job.get("user_id"),
                     event_type="job_completed",
@@ -506,25 +510,3 @@ class BackgroundProcessingService:
             "recovery_timeout": self.circuit_breaker.recovery_timeout
         }
 
-# Global service instance
-_background_service: Optional[BackgroundProcessingService] = None
-
-def get_background_service() -> BackgroundProcessingService:
-    """Get the global background processing service instance."""
-    global _background_service
-    if _background_service is None:
-        raise RuntimeError("Background service not initialized. Call initialize_background_service() first.")
-    return _background_service
-
-def initialize_background_service(storage_service: StorageService, config: AppConfig):
-    """Initialize the global background processing service."""
-    global _background_service
-    _background_service = BackgroundProcessingService(storage_service, config)
-    logger.info("Background processing service initialized")
-
-async def cleanup_background_service():
-    """Cleanup background service resources."""
-    global _background_service
-    if _background_service:
-        _background_service.cleanup_old_tasks()
-        logger.info("Background processing service cleaned up")

@@ -1,168 +1,23 @@
-"""
-Session Tracking Middleware - Lightweight HTTP coordination layer
+"""Session tracking middleware wired through dependency injection.
 
-This middleware handles ONLY HTTP request coordination:
-- Extracting user information from requests
-- Coordinating with dedicated services
-- Managing request/response flow
-
-All business logic is delegated to specialized services:
-- SessionTrackingService: Session lifecycle management
-- AuditLoggingService: Security audit logging
-- AuthenticationService: JWT token handling
+This module exposes a single middleware class that requires fully constructed
+service dependencies at initialization time. The FastAPI application should
+resolve those dependencies (typically through providers in
+``app.core.dependencies``) and supply them via ``app.add_middleware``.
 """
 
-import logging
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Dict, Any, TYPE_CHECKING
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
-
-from ..services.monitoring.audit_logging_service import AuditLoggingService
-from ..services.monitoring.session_tracking_service import SessionTrackingService
-from ..services.auth.authentication_service import AuthenticationService
 from ..utils.logging_config import get_logger
 
-
-class LazySessionTrackingMiddleware(BaseHTTPMiddleware):
-    """
-    Lazy-loading session tracking middleware that gets services from app.state.
-    
-    This middleware can be added during FastAPI app creation and automatically
-    discovers services from app.state during request processing.
-    """
-    
-    def __init__(self, app: ASGIApp):
-        super().__init__(app)
-        self.logger = get_logger(__name__)
-        
-        self.logger.info("🔍 Lazy session tracking middleware created (will discover services from app.state)")
-
-    async def dispatch(self, request: Request, call_next):
-        """
-        Main middleware coordination logic with automatic service discovery.
-        
-        If services are not available in app.state, requests pass through without session tracking.
-        """
-        start_time = datetime.now(timezone.utc)
-        
-        # Get services from app.state (available after startup)
-        app_state = getattr(request.app, 'state', None)
-        if not app_state:
-            self.logger.debug("No app.state available, passing request through")
-            response = await call_next(request)
-            return response
-            
-        session_service = getattr(app_state, 'session_tracking_service', None)
-        audit_service = getattr(app_state, 'audit_logging_service', None)
-        auth_service = getattr(app_state, 'authentication_service', None)
-        
-        # If services not configured yet, pass through without session tracking
-        missing = []
-        if not session_service:
-            missing.append("session_tracking_service")
-        if not audit_service:
-            missing.append("audit_logging_service")
-        if not auth_service:
-            missing.append("authentication_service")
-
-        if missing:
-            # Attempt to show what's available in app.state for debugging
-            try:
-                available = [k for k in dir(app_state) if not k.startswith("_")]
-            except Exception:
-                available = []
-            self.logger.debug(
-                "Session tracking services not configured on app.state; missing=%s; available_state_attrs=%s",
-                missing,
-                available,
-            )
-            response = await call_next(request)
-            return response
-        
-        user_info = None
-        session_id = None
-        
-        try:
-            # Extract user information using AuthenticationService
-            user_info = await auth_service.extract_user_from_request(request)
-            
-            if user_info:
-                # Normalize user id from common claim shapes
-                user_id = (
-                    user_info.get("id") or user_info.get("user_id") or user_info.get("userId") or user_info.get("sub")
-                )
-                # Extract request metadata
-                ip_address = auth_service.extract_ip_address(request)
-                user_agent = auth_service.extract_user_agent(request)
-                request_path = str(request.url.path)
-
-                # Track session activity using SessionTrackingService
-                try:
-                    session_id = await session_service.get_or_create_session(
-                        user_id=user_id,
-                        ip_address=ip_address,
-                        user_agent=user_agent,
-                        request_path=request_path,
-                    )
-                except Exception as e:
-                    session_id = None
-                    self.logger.error(
-                        "SessionTrackingService.get_or_create_session failed for user_id=%s: %s",
-                        user_id,
-                        e,
-                        exc_info=True,
-                    )
-
-                # Log security audit event (non-fatal if audit fails)
-                try:
-                    await audit_service.log_user_activity(
-                        user_id=user_id,
-                        session_id=session_id,
-                        action="request",
-                        resource=request_path,
-                        ip_address=ip_address,
-                        user_agent=user_agent,
-                        additional_context={
-                            "method": request.method,
-                            "query_params": dict(request.query_params),
-                        },
-                    )
-                except Exception as e:
-                    self.logger.debug("Audit log failed in middleware (non-fatal): %s", e)
-            
-            # Process the request
-            response = await call_next(request)
-            
-            # Update session if we had a session
-            if session_id and session_service:
-                try:
-                    updated = await session_service.update_heartbeat(
-                        session_id=session_id,
-                        user_id=user_id,
-                        request_path=str(request.url.path),
-                        user_agent=user_agent,
-                        ip_address=ip_address,
-                        timestamp=datetime.now(timezone.utc),
-                    )
-                    if not updated:
-                        self.logger.debug(
-                            "SessionTrackingService.update_heartbeat returned False for session_id=%s user_id=%s",
-                            session_id,
-                            user_id,
-                        )
-                except Exception as e:
-                    self.logger.error("Session heartbeat update failed (non-fatal): %s", e, exc_info=True)
-            
-            return response
-            
-        except Exception as e:
-            self.logger.error(f"Session tracking middleware error: {str(e)}")
-            # Always ensure request is processed even if session tracking fails
-            response = await call_next(request)
-            return response
+if TYPE_CHECKING:
+    from ..services.monitoring.audit_logging_service import AuditLoggingService
+    from ..services.monitoring.session_tracking_service import SessionTrackingService
+    from ..services.auth.authentication_service import AuthenticationService
 
 
 class SessionTrackingMiddleware(BaseHTTPMiddleware):
@@ -188,9 +43,9 @@ class SessionTrackingMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
         app: ASGIApp,
-        session_service: SessionTrackingService,
-        audit_service: AuditLoggingService,
-        auth_service: AuthenticationService
+        session_service: "SessionTrackingService",
+        audit_service: "AuditLoggingService",
+        auth_service: "AuthenticationService",
     ):
         super().__init__(app)
         self.logger = get_logger(__name__)
@@ -248,7 +103,7 @@ class SessionTrackingMiddleware(BaseHTTPMiddleware):
             return response
             
         except Exception as e:
-            self.logger.error(f"Session tracking middleware error: {str(e)}")
+            self.logger.error("Session tracking middleware error: %s", e, exc_info=True)
             # Don't let middleware errors break the application
             return await call_next(request)
 

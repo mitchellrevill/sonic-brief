@@ -2,10 +2,12 @@ import uuid
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, List
+from azure.cosmos.exceptions import CosmosHttpResponseError, CosmosResourceNotFoundError
 
 from ...utils.logging_config import get_logger
-from ...core.async_utils import run_sync
+from ...utils.async_utils import run_sync
 from ...core.dependencies import CosmosService
+from ...core.errors import QueryError, DatabaseConnectionError
 
 
 logger = logging.getLogger(__name__)
@@ -26,7 +28,6 @@ class AnalyticsService:
         self._analytics_container_available = hasattr(self.cosmos_db, 'analytics_container') and self.cosmos_db.analytics_container is not None
         self._events_container_available = hasattr(self.cosmos_db, 'events_container') and self.cosmos_db.events_container is not None
 
-        self.logger.info("AnalyticsService initialized")
 
     def close(self):
         """Graceful shutdown hook (no-op for now)."""
@@ -56,9 +57,31 @@ class AnalyticsService:
             # SDK create_item is synchronous; run in thread if needed by caller
             await run_sync(lambda: self.cosmos_db.events_container.create_item(body=event))
             return event_id
+        except CosmosHttpResponseError as e:
+            # Log specific Cosmos errors with context
+            self.logger.error(
+                "Failed to store analytics event in Cosmos",
+                exc_info=True,
+                extra={
+                    "event_id": event_id,
+                    "event_type": event_type,
+                    "user_id": user_id,
+                    "status_code": e.status_code,
+                    "error_message": str(e)
+                }
+            )
+            return ""
         except Exception as e:
-            # Do not emit full exception stacktrace for missing containers or transient errors
-            self.logger.warning(f"Failed to store analytics event (id={event_id}): {e}")
+            # Catch-all for unexpected errors
+            self.logger.error(
+                "Unexpected error storing analytics event",
+                exc_info=True,
+                extra={
+                    "event_id": event_id,
+                    "event_type": event_type,
+                    "user_id": user_id
+                }
+            )
             return ""
 
     async def track_job_event(self, job_id: str, user_id: str, event_type: str, metadata: Optional[Dict[str, Any]] = None) -> str:
@@ -108,12 +131,40 @@ class AnalyticsService:
 
                 try:
                     await run_sync(lambda: self.cosmos_db.analytics_container.create_item(body=analytics_doc))
+                except CosmosHttpResponseError as e:
+                    self.logger.warning(
+                        "Failed to store analytics document in analytics_container",
+                        extra={
+                            "analytics_id": analytics_id,
+                            "job_id": job_id,
+                            "user_id": user_id,
+                            "status_code": e.status_code
+                        }
+                    )
                 except Exception as e:
-                    self.logger.warning(f"Failed to store analytics document in analytics_container: {e}")
+                    self.logger.error(
+                        "Unexpected error storing analytics document",
+                        exc_info=True,
+                        extra={"analytics_id": analytics_id, "job_id": job_id}
+                    )
 
-        except Exception:
+        except CosmosHttpResponseError as e:
             # Non-fatal; we already created the lightweight event
-            self.logger.exception("Error while creating legacy analytics document")
+            self.logger.warning(
+                "CosmosDB error while creating legacy analytics document",
+                extra={
+                    "job_id": job_id,
+                    "user_id": user_id,
+                    "status_code": e.status_code
+                }
+            )
+        except Exception as e:
+            # Non-fatal; we already created the lightweight event
+            self.logger.error(
+                "Unexpected error creating legacy analytics document",
+                exc_info=True,
+                extra={"job_id": job_id, "user_id": user_id}
+            )
 
         return event_id
 
@@ -134,8 +185,21 @@ class AnalyticsService:
                     if isinstance(m, (int, float)):
                         minutes_total += float(m)
                         jobs_count += 1
-            except Exception:
-                pass
+            except CosmosHttpResponseError as e:
+                self.logger.warning(
+                    "Failed to query analytics container for user analytics",
+                    extra={
+                        "user_id": user_id,
+                        "days": days,
+                        "status_code": e.status_code
+                    }
+                )
+            except Exception as e:
+                self.logger.error(
+                    "Unexpected error querying user analytics",
+                    exc_info=True,
+                    extra={"user_id": user_id, "days": days}
+                )
 
         if jobs_count == 0 and hasattr(self.cosmos_db, 'jobs_container'):
             try:
@@ -149,8 +213,21 @@ class AnalyticsService:
                     if isinstance(m, (int, float)):
                         minutes_total += float(m)
                         jobs_count += 1
-            except Exception:
-                pass
+            except CosmosHttpResponseError as e:
+                self.logger.warning(
+                    "Failed to query jobs container for user analytics fallback",
+                    extra={
+                        "user_id": user_id,
+                        "days": days,
+                        "status_code": e.status_code
+                    }
+                )
+            except Exception as e:
+                self.logger.error(
+                    "Unexpected error in jobs container fallback query",
+                    exc_info=True,
+                    extra={"user_id": user_id, "days": days}
+                )
 
         avg = (minutes_total / jobs_count) if jobs_count > 0 else 0.0
         return {
@@ -200,9 +277,22 @@ class AnalyticsService:
                             "prompt_subcategory_id": it.get("prompt_subcategory_id"),
                         }
                     )
-            except Exception:
+            except CosmosHttpResponseError as e:
                 # If analytics container query fails, return empty records (no jobs fallback)
-                pass
+                self.logger.warning(
+                    "Failed to query analytics container for user minutes records",
+                    extra={
+                        "user_id": user_id,
+                        "days": days,
+                        "status_code": e.status_code
+                    }
+                )
+            except Exception as e:
+                self.logger.error(
+                    "Unexpected error querying user minutes records",
+                    exc_info=True,
+                    extra={"user_id": user_id, "days": days}
+                )
 
         total_minutes = sum(r.get("audio_duration_minutes", 0.0) for r in records)
         records.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
@@ -245,9 +335,21 @@ class AnalyticsService:
                     records.append(record)
                     total_minutes += float(minutes)
                     total_jobs += 1
-        except Exception:
+        except CosmosHttpResponseError as e:
             # Non-fatal: we'll try fallback below
-            pass
+            self.logger.warning(
+                "Failed to query analytics container for system analytics",
+                extra={
+                    "days": days,
+                    "status_code": e.status_code
+                }
+            )
+        except Exception as e:
+            self.logger.error(
+                "Unexpected error querying system analytics",
+                exc_info=True,
+                extra={"days": days}
+            )
 
         # Fallback to jobs container if we found no records
         if not records and hasattr(self.cosmos_db, 'jobs_container'):
@@ -276,8 +378,20 @@ class AnalyticsService:
                     records.append(record)
                     total_minutes += float(minutes)
                     total_jobs += 1
-            except Exception:
-                pass
+            except CosmosHttpResponseError as e:
+                self.logger.warning(
+                    "Failed to query jobs container for system analytics fallback",
+                    extra={
+                        "days": days,
+                        "status_code": e.status_code
+                    }
+                )
+            except Exception as e:
+                self.logger.error(
+                    "Unexpected error in jobs container fallback for system analytics",
+                    exc_info=True,
+                    extra={"days": days}
+                )
 
         # Sort records ascending by timestamp
         records.sort(key=lambda r: r.get('timestamp') or "")
@@ -294,11 +408,27 @@ class AnalyticsService:
                         status = s.get('status')
                         if uid and (status is None or str(status).lower() == 'active'):
                             active_user_set.add(uid)
-                    except Exception:
+                    except Exception as e:
+                        self.logger.debug(
+                            "Failed to process session record for active user",
+                            extra={"error": str(e)}
+                        )
                         continue
-        except Exception:
+        except CosmosHttpResponseError as e:
             # Non-fatal; leave active_user_set empty
-            pass
+            self.logger.warning(
+                "Failed to query sessions for active users",
+                extra={
+                    "days": days,
+                    "status_code": e.status_code
+                }
+            )
+        except Exception as e:
+            self.logger.error(
+                "Unexpected error querying active users",
+                exc_info=True,
+                extra={"days": days}
+            )
 
         active_users = len(active_user_set)
 
@@ -324,12 +454,28 @@ class AnalyticsService:
                             continue
                         bucket = ts.strftime('%Y-%m-%dT%H:00')
                         bucket_counts.setdefault(bucket, set()).add(uid)
-                    except Exception:
+                    except Exception as e:
+                        self.logger.debug(
+                            "Failed to process session bucket for peak active users",
+                            extra={"error": str(e)}
+                        )
                         continue
                 if bucket_counts:
                     peak_active_users = max(len(v) for v in bucket_counts.values())
-        except Exception:
-            pass
+        except CosmosHttpResponseError as e:
+            self.logger.warning(
+                "Failed to calculate peak active users",
+                extra={
+                    "days": days,
+                    "status_code": e.status_code
+                }
+            )
+        except Exception as e:
+            self.logger.error(
+                "Unexpected error calculating peak active users",
+                exc_info=True,
+                extra={"days": days}
+            )
 
         return {
             'period_days': days,
@@ -364,6 +510,21 @@ class AnalyticsService:
                 results.append(it)
                 if len(results) >= limit:
                     break
-        except Exception:
+        except CosmosHttpResponseError as e:
+            self.logger.warning(
+                "Failed to query recent jobs",
+                extra={
+                    "limit": limit,
+                    "prompt_id": prompt_id,
+                    "status_code": e.status_code
+                }
+            )
+            return []
+        except Exception as e:
+            self.logger.error(
+                "Unexpected error querying recent jobs",
+                exc_info=True,
+                extra={"limit": limit, "prompt_id": prompt_id}
+            )
             return []
         return results

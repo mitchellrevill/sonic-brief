@@ -4,7 +4,7 @@ import logging
 import tempfile
 import os
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
@@ -13,16 +13,24 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
 logger = logging.getLogger(__name__)
-from ...core.async_utils import run_sync
+from ...utils.async_utils import run_sync
 from ...core.dependencies import CosmosService
+
+if TYPE_CHECKING:
+    from .analytics_service import AnalyticsService
 
 
 class ExportService:
     """Service for exporting user data and analytics to various formats"""
-    
-    def __init__(self, cosmos_service: CosmosService):
+
+    def __init__(
+        self,
+        cosmos_service: CosmosService,
+        analytics_service: "AnalyticsService",
+    ):
         self.cosmos_db = cosmos_service
         self.logger = logging.getLogger(__name__)
+        self.analytics_service = analytics_service
 
     async def export_users_csv(self, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -124,10 +132,7 @@ class ExportService:
             # Get analytics if requested
             analytics = None
             if include_analytics:
-                # explicit package import
-                from app.services.analytics.analytics_service import AnalyticsService
-                analytics_service = AnalyticsService(self.cosmos_db)
-                analytics_data = await analytics_service.get_user_analytics(user_id, days=days)
+                analytics_data = await self.analytics_service.get_user_analytics(user_id, days=days)
                 analytics = analytics_data.get('analytics', {})
             
             # Create temporary file
@@ -232,10 +237,7 @@ class ExportService:
 
                 # Include detailed per-job minutes if available
                 try:
-                    # explicit package import
-                    from app.services.analytics.analytics_service import AnalyticsService
-                    analytics_service = AnalyticsService(self.cosmos_db)
-                    minutes_data = await analytics_service.get_user_minutes_records(user.get('id'), days=30)
+                    minutes_data = await self.analytics_service.get_user_minutes_records(user.get('id'), days=30)
                     records = minutes_data.get('records', [])
                     if records:
                         story.append(Paragraph("Per-Job Duration Records", styles['Heading3']))

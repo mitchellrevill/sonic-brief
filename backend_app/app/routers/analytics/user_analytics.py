@@ -6,9 +6,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, List
 from fastapi import (
     APIRouter,
-    HTTPException,
     Depends,
-    status,
     Query,
     Response,
 )
@@ -20,8 +18,10 @@ from ...core.dependencies import (
     require_analytics_access,
     require_admin,
     get_cosmos_service,
-    CosmosService
+    CosmosService,
+    get_error_handler,
 )
+from ...core.errors import ApplicationError, ErrorCode, ErrorHandler
 from ...services.analytics import AnalyticsService
 from ...services.analytics import ExportService
 from ...models.analytics_models import (
@@ -41,12 +41,58 @@ logger.setLevel(logging.DEBUG)
 router = APIRouter(prefix="", tags=["user-analytics"])
 
 
+def _handle_internal_error(
+    error_handler: ErrorHandler,
+    action: str,
+    exc: Exception,
+    *,
+    error_code: ErrorCode = ErrorCode.INTERNAL_ERROR,
+    status_code: int = 500,
+    details: Optional[Dict[str, Any]] = None,
+) -> None:
+    error_handler.raise_internal(
+        action,
+        exc,
+        error_code=error_code,
+        status_code=status_code,
+        extra=details,
+    )
+
+
+def _query_container(
+    container,
+    *,
+    action: str,
+    query: str,
+    parameters: Optional[List[Dict[str, Any]]] = None,
+    details: Optional[Dict[str, Any]] = None,
+    error_handler: ErrorHandler,
+):
+    try:
+        return list(
+            container.query_items(
+                query=query,
+                parameters=parameters,
+                enable_cross_partition_query=True,
+            )
+        )
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            action,
+            exc,
+            error_code=ErrorCode.EXTERNAL_SERVICE_ERROR,
+            details=details,
+        )
+
+
 @router.get("/users/{user_id}/analytics", response_model=UserAnalyticsResponse)
 async def get_user_analytics(
     user_id: str,
     days: int = Query(30, ge=1, le=365),
     current_user: Dict[str, Any] = Depends(require_analytics_access),
-    cosmos_service: CosmosService = Depends(get_cosmos_service)
+    cosmos_service: CosmosService = Depends(get_cosmos_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """Get analytics for a specific user (Admin only)"""
     try:
@@ -60,19 +106,14 @@ async def get_user_analytics(
             {"name": "@start_time", "value": start_time.isoformat()}
         ]
         
-        try:
-            items_iter = cosmos_service.analytics_container.query_items(
-                query=query,
-                parameters=parameters,
-                enable_cross_partition_query=True,
-            )
-            items = list(items_iter)
-        except Exception as e:
-            logger.error(f"Error querying analytics container: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error querying analytics data: {str(e)}"
-            )
+        items = _query_container(
+            cosmos_service.analytics_container,
+            action="query user analytics",
+            query=query,
+            parameters=parameters,
+            details={"user_id": user_id, "days": days},
+            error_handler=error_handler,
+        )
         
         # Calculate analytics
         total_minutes = 0.0
@@ -105,13 +146,14 @@ async def get_user_analytics(
             analytics=analytics_data
         )
         
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error getting user analytics: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error getting user analytics: {str(e)}"
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "get user analytics",
+            exc,
+            details={"user_id": user_id, "days": days},
         )
 
 
@@ -120,7 +162,8 @@ async def get_user_session_summary(
     user_id: str,
     days: int = Query(default=30, description="Number of days to analyze"),
     current_user: Dict[str, Any] = Depends(require_admin),
-    cosmos_service: CosmosService = Depends(get_cosmos_service)
+    cosmos_service: CosmosService = Depends(get_cosmos_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """Get high-level session summary for a user"""
     try:
@@ -141,11 +184,14 @@ async def get_user_session_summary(
             {"name": "@cutoff_time", "value": cutoff_time.isoformat()}
         ]
         
-        sessions = list(cosmos_service.sessions_container.query_items(
+        sessions = _query_container(
+            cosmos_service.sessions_container,
+            action="query user session summary",
             query=query,
             parameters=parameters,
-            enable_cross_partition_query=True
-        ))
+            details={"user_id": user_id, "days": days},
+            error_handler=error_handler,
+        )
         
         # Calculate summary statistics
         total_sessions = len(sessions)
@@ -180,11 +226,14 @@ async def get_user_session_summary(
             "query_timestamp": datetime.now(timezone.utc).isoformat()
         }
         
-    except Exception as e:
-        logger.error(f"Error getting user session summary: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error getting user session summary: {str(e)}"
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "get user session summary",
+            exc,
+            details={"user_id": user_id, "days": days},
         )
 
 
@@ -193,7 +242,8 @@ async def get_user_session_analytics(
     user_id: str,
     days: int = Query(default=30, description="Number of days to analyze"),
     current_user: Dict[str, Any] = Depends(require_admin),
-    cosmos_service: CosmosService = Depends(get_cosmos_service)
+    cosmos_service: CosmosService = Depends(get_cosmos_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """Get comprehensive session analytics for a user"""
     try:
@@ -214,11 +264,14 @@ async def get_user_session_analytics(
             {"name": "@cutoff_time", "value": cutoff_time.isoformat()}
         ]
         
-        sessions = list(cosmos_service.sessions_container.query_items(
+        sessions = _query_container(
+            cosmos_service.sessions_container,
+            action="query user session analytics",
             query=query,
             parameters=parameters,
-            enable_cross_partition_query=True
-        ))
+            details={"user_id": user_id, "days": days},
+            error_handler=error_handler,
+        )
         
         # Initialize comprehensive analytics structure
         analytics = {
@@ -381,11 +434,14 @@ async def get_user_session_analytics(
         
         return analytics
         
-    except Exception as e:
-        logger.error(f"Error getting user session analytics: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error getting user session analytics: {str(e)}"
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "get user session analytics",
+            exc,
+            details={"user_id": user_id, "days": days},
         )
 
 
@@ -396,7 +452,8 @@ async def get_user_detailed_sessions(
     limit: int = Query(default=50, description="Maximum number of sessions to return"),
     include_audit: bool = Query(default=True, description="Include audit log entries"),
     current_user: Dict[str, Any] = Depends(require_admin),
-    cosmos_service: CosmosService = Depends(get_cosmos_service)
+    cosmos_service: CosmosService = Depends(get_cosmos_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """Get detailed session information for a user with audit trail"""
     try:
@@ -419,11 +476,14 @@ async def get_user_detailed_sessions(
             {"name": "@limit", "value": limit}
         ]
         
-        sessions = list(cosmos_service.sessions_container.query_items(
+        sessions = _query_container(
+            cosmos_service.sessions_container,
+            action="query user detailed sessions",
             query=query,
             parameters=parameters,
-            enable_cross_partition_query=True
-        ))
+            details={"user_id": user_id, "days": days, "limit": limit},
+            error_handler=error_handler,
+        )
         
         # Process sessions for detailed view
         detailed_sessions = []
@@ -463,43 +523,71 @@ async def get_user_detailed_sessions(
         
         # Get audit logs if requested
         audit_timeline = []
-        if include_audit and hasattr(cosmos_service, 'audit_container'):
-            try:
-                audit_query = """
-                SELECT *
-                FROM c 
-                WHERE c.type = 'audit' 
-                AND c.user_id = @user_id 
-                AND c.timestamp >= @cutoff_time
-                ORDER BY c.timestamp DESC
-                OFFSET 0 LIMIT 100
-                """
-                
-                audit_logs = list(cosmos_service.audit_container.query_items(
-                    query=audit_query,
-                    parameters=parameters[:2],  # user_id and cutoff_time
-                    enable_cross_partition_query=True
-                ))
-                
-                # Process audit logs for timeline
-                for audit in audit_logs:
-                    try:
-                        audit_entry = {
-                            "id": audit.get("id"),
-                            "timestamp": audit.get("timestamp"),
-                            "event_type": audit.get("event_type"),
-                            "resource": audit.get("resource"),
-                            "details": audit.get("details", {}),
-                            "ip_address": audit.get("ip_address"),
-                            "user_agent": audit.get("user_agent")
-                        }
-                        audit_timeline.append(audit_entry)
-                    except Exception as audit_error:
-                        logger.warning(f"Error parsing audit log: {audit_error}")
-                        continue
-                        
-            except Exception as audit_query_error:
-                logger.warning(f"Could not fetch audit logs: {audit_query_error}")
+        if include_audit and hasattr(cosmos_service, "audit_container"):
+            audit_container = getattr(cosmos_service, "audit_container", None)
+            if audit_container is None:
+                logger.debug(
+                    "Audit container attribute present but value is None; skipping audit lookup",
+                    extra={"context": {"user_id": user_id, "days": days}},
+                )
+            else:
+                try:
+                    audit_query = """
+                    SELECT *
+                    FROM c 
+                    WHERE c.type = 'audit' 
+                    AND c.user_id = @user_id 
+                    AND c.timestamp >= @cutoff_time
+                    ORDER BY c.timestamp DESC
+                    OFFSET 0 LIMIT 100
+                    """
+
+                    audit_logs = _query_container(
+                        audit_container,
+                        action="query user audit logs",
+                        query=audit_query,
+                        parameters=parameters[:2],  # user_id and cutoff_time
+                        details={"user_id": user_id, "days": days},
+                        error_handler=error_handler,
+                    )
+
+                    # Process audit logs for timeline
+                    for audit in audit_logs:
+                        try:
+                            audit_entry = {
+                                "id": audit.get("id"),
+                                "timestamp": audit.get("timestamp"),
+                                "event_type": audit.get("event_type"),
+                                "resource": audit.get("resource"),
+                                "details": audit.get("details", {}),
+                                "ip_address": audit.get("ip_address"),
+                                "user_agent": audit.get("user_agent"),
+                            }
+                            audit_timeline.append(audit_entry)
+                        except Exception as audit_error:
+                            logger.warning(
+                                "Error parsing audit log",
+                                extra={
+                                    "context": {
+                                        "user_id": user_id,
+                                        "days": days,
+                                        "error": str(audit_error),
+                                    }
+                                },
+                            )
+                            continue
+                except ApplicationError as audit_query_error:
+                    logger.warning(
+                        "Could not fetch audit logs",
+                        extra={
+                            "context": {
+                                "user_id": user_id,
+                                "days": days,
+                                "limit": limit,
+                                "error": str(audit_query_error),
+                            }
+                        },
+                    )
         
         return {
             "user_id": user_id,
@@ -517,11 +605,14 @@ async def get_user_detailed_sessions(
             }
         }
         
-    except Exception as e:
-        logger.error(f"Error getting detailed sessions: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error getting detailed sessions: {str(e)}"
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "get user detailed sessions",
+            exc,
+            details={"user_id": user_id, "days": days, "limit": limit},
         )
 
 
@@ -530,7 +621,8 @@ async def get_user_minutes(
     user_id: str,
     days: int = Query(30, ge=1, le=365),
     current_user: Dict[str, Any] = Depends(require_analytics_access),
-    cosmos_service: CosmosService = Depends(get_cosmos_service)
+    cosmos_service: CosmosService = Depends(get_cosmos_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """Get total minutes processed by a user (Admin only)"""
     try:
@@ -543,42 +635,63 @@ async def get_user_minutes(
         items = []
         
         # Try analytics container first with correct timestamp field
-        try:
-            query = "SELECT * FROM c WHERE c.user_id = @user_id AND c.timestamp >= @start_time"
-            parameters = [
-                {"name": "@user_id", "value": user_id},
-                {"name": "@start_time", "value": start_time.isoformat()}
-            ]
-            
-            items_iter = cosmos_service.analytics_container.query_items(
-                query=query,
-                parameters=parameters,
-                enable_cross_partition_query=True,
-            )
-            items = list(items_iter)
-        except Exception as e:
-            logger.warning(f"Error querying analytics container: {str(e)}")
-            items = []
+        analytics_container = getattr(cosmos_service, "analytics_container", None)
+        if analytics_container is not None:
+            try:
+                items = _query_container(
+                    analytics_container,
+                    action="query user minutes analytics",
+                    query="SELECT * FROM c WHERE c.user_id = @user_id AND c.timestamp >= @start_time",
+                    parameters=[
+                        {"name": "@user_id", "value": user_id},
+                        {"name": "@start_time", "value": start_time.isoformat()},
+                    ],
+                    details={"user_id": user_id, "days": days},
+                    error_handler=error_handler,
+                )
+            except ApplicationError as analytics_error:
+                logger.warning(
+                    "Error querying analytics container for user minutes",
+                    extra={
+                        "context": {
+                            "user_id": user_id,
+                            "days": days,
+                            "error": str(analytics_error),
+                        }
+                    },
+                )
+                items = []
+
         
         # If no data in analytics container, try jobs container as fallback
         if not items:
-            try:
-                query = "SELECT * FROM c WHERE c.user_id = @user_id AND c.created_at >= @start_time AND c.type = 'job'"
-                parameters = [
-                    {"name": "@user_id", "value": user_id},
-                    {"name": "@start_time", "value": start_time.isoformat()}
-                ]
-                
-                items_iter = cosmos_service.jobs_container.query_items(
-                    query=query,
-                    parameters=parameters,
-                    enable_cross_partition_query=True,
-                )
-                items = list(items_iter)
-                logger.info(f"Found {len(items)} items in jobs container for user {user_id}")
-            except Exception as e:
-                logger.error(f"Error querying jobs container: {str(e)}")
-                items = []
+            jobs_container = getattr(cosmos_service, "jobs_container", None)
+            if jobs_container is not None:
+                try:
+                    items = _query_container(
+                        jobs_container,
+                        action="query user minutes jobs",
+                        query="SELECT * FROM c WHERE c.user_id = @user_id AND c.created_at >= @start_time AND c.type = 'job'",
+                        parameters=[
+                            {"name": "@user_id", "value": user_id},
+                            {"name": "@start_time", "value": start_time.isoformat()},
+                        ],
+                        details={"user_id": user_id, "days": days},
+                        error_handler=error_handler,
+                    )
+                    logger.info("Found %d items in jobs container for user %s", len(items), user_id)
+                except ApplicationError as jobs_error:
+                    logger.error(
+                        "Error querying jobs container for user minutes",
+                        extra={
+                            "context": {
+                                "user_id": user_id,
+                                "days": days,
+                                "error": str(jobs_error),
+                            }
+                        },
+                    )
+                    items = []
         
         # Calculate total minutes and build records
         for item in items:
@@ -615,13 +728,14 @@ async def get_user_minutes(
             records=records
         )
         
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.error(f"Error getting user minutes: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error getting user minutes: {str(e)}"
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "get user minutes",
+            exc,
+            details={"user_id": user_id, "days": days},
         )
 
 
@@ -629,7 +743,8 @@ async def get_user_minutes(
 async def get_system_analytics(
     days: int = Query(30, ge=1, le=365),
     current_user: Dict[str, Any] = Depends(require_admin),
-    cosmos_service: CosmosService = Depends(get_cosmos_service)
+    cosmos_service: CosmosService = Depends(get_cosmos_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """Get system-wide analytics (Admin only)"""
     try:
@@ -665,14 +780,25 @@ async def get_system_analytics(
         try:
             # Get analytics records
             analytics_container = cosmos_service.get_container("analytics")
-            analytics_items = list(analytics_container.query_items(
+            analytics_items = _query_container(
+                analytics_container,
+                action="query system analytics records",
                 query=analytics_query,
                 parameters=parameters,
-                enable_cross_partition_query=True,
-            ))
+                details={"days": days},
+                error_handler=error_handler,
+            )
             logger.debug("System analytics: fetched %d analytics records", len(analytics_items))
-        except Exception as e:
-            logger.warning(f"Error querying analytics container: {str(e)}")
+        except ApplicationError as analytics_error:
+            logger.warning(
+                "Error querying analytics container",
+                extra={
+                    "context": {
+                        "days": days,
+                        "error": str(analytics_error),
+                    }
+                },
+            )
             analytics_items = []
         
         # Calculate total minutes and jobs
@@ -699,15 +825,21 @@ async def get_system_analytics(
 
             try:
                 sessions_container = cosmos_service.get_container("user_sessions")
-                active_sessions = list(sessions_container.query_items(
+                active_sessions = _query_container(
+                    sessions_container,
+                    action="query active user sessions",
                     query=session_query,
                     parameters=session_parameters,
-                    enable_cross_partition_query=True,
-                ))
+                    details={"days": days},
+                    error_handler=error_handler,
+                )
                 active_users = len(active_sessions)
                 logger.debug("System analytics: found %d active session rows", len(active_sessions))
-            except Exception as container_error:
-                logger.warning(f"Sessions container not available for active user count: {str(container_error)}")
+            except ApplicationError as container_error:
+                logger.warning(
+                    "Sessions container not available for active user count",
+                    extra={"context": {"days": days, "error": str(container_error)}}
+                )
                 active_users = 0
         except Exception as e:
             logger.warning(f"Error getting active users: {str(e)}")
@@ -725,9 +857,12 @@ async def get_system_analytics(
             }
         }
         
-    except Exception as e:
-        logger.error(f"Error getting system analytics: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error getting system analytics: {str(e)}"
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "get system analytics",
+            exc,
+            details={"days": days},
         )

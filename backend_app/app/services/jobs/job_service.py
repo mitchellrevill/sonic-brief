@@ -7,7 +7,7 @@ from ...core.config import get_config
 from ...core.dependencies import CosmosService
 from ..storage.blob_service import StorageService
 import uuid
-from ...core.async_utils import run_sync
+from ...utils.async_utils import run_sync
 
 logger = logging.getLogger(__name__)
 

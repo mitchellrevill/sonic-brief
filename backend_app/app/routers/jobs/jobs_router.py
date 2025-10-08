@@ -1,20 +1,22 @@
 from typing import Optional, Dict, Any
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from datetime import datetime, timezone
 import logging
 from pydantic import BaseModel
 
 from ...core.dependencies import (
-    get_current_user, 
-    get_analytics_service, 
-    get_job_service, 
-    get_job_management_service, 
+    get_current_user,
+    get_analytics_service,
+    get_job_service,
+    get_job_management_service,
     get_job_sharing_service,
     get_storage_service,
     get_config,
-    AppConfig
+    AppConfig,
+    get_error_handler,
 )
+from ...core.errors import ApplicationError, ErrorCode, ErrorHandler, PermissionError, ResourceNotFoundError, ResourceNotReadyError, ValidationError
 from ...services.jobs import JobService
 from ...services.jobs import check_job_access
 from ...services.jobs.job_management_service import JobManagementService
@@ -38,6 +40,22 @@ class JobUpdateRequest(BaseModel):
     displayname: str
 
 
+def _handle_internal_error(
+    error_handler: ErrorHandler,
+    action: str,
+    exc: Exception,
+    *,
+    error_code: ErrorCode = ErrorCode.INTERNAL_ERROR,
+    details: Optional[Dict[str, Any]] = None,
+) -> None:
+    error_handler.raise_internal(
+        action,
+        exc,
+        error_code=error_code,
+        extra=details,
+    )
+
+
 @router.get("/jobs")
 async def get_jobs(
     job_id: Optional[str] = Query(None),
@@ -46,6 +64,7 @@ async def get_jobs(
     offset: int = Query(0, ge=0),
     current_user: Dict[str, Any] = Depends(get_current_user),
     job_svc: JobService = Depends(get_job_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ) -> Dict[str, Any]:
     # Build a minimal query using provided filters. This keeps behaviour close to legacy.
     try:
@@ -93,9 +112,20 @@ async def get_jobs(
             job_svc.enrich_job_file_urls(job)
 
         return {"status": 200, "count": total, "jobs": jobs}
-    except Exception as e:
-        logger.exception("Error in get_jobs v2")
-        raise HTTPException(status_code=500, detail=str(e))
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "list jobs",
+            exc,
+            details={
+                "user_id": current_user.get("id"),
+                "filters": {"job_id": job_id, "status": status},
+                "limit": limit,
+                "offset": offset,
+            },
+        )
 
 
 @router.get("/jobs/{job_id}")
@@ -103,17 +133,35 @@ async def get_job_by_id(
     job_id: str,
     current_user: Dict[str, Any] = Depends(get_current_user),
     job_svc: JobService = Depends(get_job_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ) -> Dict[str, Any]:
-    job = job_svc.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if not check_job_access(job, current_user, "view"):
-        raise HTTPException(status_code=403, detail="Access denied")
-    job["is_owned"] = job.get("user_id") == current_user["id"]
-    job["user_permission"] = job_svc.cosmos.get_user_permission(job.get("user_id")) if hasattr(job_svc.cosmos, 'get_user_permission') else None
-    job["shared_with_count"] = len(job.get("shared_with", []))
-    job_svc.enrich_job_file_urls(job)
-    return {"status": 200, "job": job}
+    try:
+        job = job_svc.get_job(job_id)
+        if not job:
+            raise ResourceNotFoundError(f"Job {job_id} not found")
+        if not check_job_access(job, current_user, "view"):
+            raise PermissionError("Access denied to job")
+        job["is_owned"] = job.get("user_id") == current_user["id"]
+        job["user_permission"] = (
+            job_svc.cosmos.get_user_permission(job.get("user_id"))
+            if hasattr(job_svc.cosmos, "get_user_permission")
+            else None
+        )
+        job["shared_with_count"] = len(job.get("shared_with", []))
+        job_svc.enrich_job_file_urls(job)
+        return {"status": 200, "job": job}
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "get job",
+            exc,
+            details={
+                "job_id": job_id,
+                "user_id": current_user.get("id"),
+            },
+        )
 
 
 @router.get("/jobs/{job_id}/transcription")
@@ -122,28 +170,46 @@ async def get_job_transcription(
     current_user: Dict[str, Any] = Depends(get_current_user),
     job_svc: JobService = Depends(get_job_service),
     storage_service: StorageServiceInterface = Depends(get_storage_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
-    job = job_svc.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if not check_job_access(job, current_user, "view"):
-        raise HTTPException(status_code=403, detail="Access denied")
+    try:
+        job = job_svc.get_job(job_id)
+        if not job:
+            raise ResourceNotFoundError("Job", job_id)
+        if not check_job_access(job, current_user, "view"):
+            raise PermissionError("Access denied to job")
 
-    # Prefer inline text content
-    if job.get("text_content"):
-        def stream_text():
-            yield job["text_content"].encode('utf-8')
-        return StreamingResponse(stream_text(), media_type="text/plain")
+        # Prefer inline text content
+        if job.get("text_content"):
+            def stream_text():
+                yield job["text_content"].encode("utf-8")
 
-    transcription_url = job.get("transcription_file_path")
-    if not transcription_url:
-        raise HTTPException(status_code=404, detail="Transcription not available")
+            return StreamingResponse(stream_text(), media_type="text/plain")
 
-    stream = storage_service.stream_blob_content(transcription_url)
-    return StreamingResponse(stream, media_type="text/plain")
+        transcription_url = job.get("transcription_file_path")
+        if not transcription_url:
+            raise ResourceNotReadyError(
+                "Transcription not available for job",
+                {"job_id": job_id, "job_status": job.get("status")}
+            )
+
+        stream = storage_service.stream_blob_content(transcription_url)
+        return StreamingResponse(stream, media_type="text/plain")
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "get job transcription",
+            exc,
+            details={
+                "job_id": job_id,
+                "user_id": current_user.get("id"),
+            },
+        )
 
 
-# Legacy endpoint get_job_transcription_legacy removed; use GET /api/jobs/{job_id}/transcription
+
 
 
 
@@ -157,6 +223,7 @@ async def create_job(
     current_user: Dict[str, Any] = Depends(get_current_user),
     job_svc: JobService = Depends(get_job_service),
     analytics_service: AnalyticsServiceInterface = Depends(get_analytics_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """Create a new job by uploading a media file.
     
@@ -237,6 +304,18 @@ async def create_job(
             content=created_job,
             headers={"Location": f"/api/jobs/{created_job['id']}"}
         )
+    except ApplicationError:
+        raise
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "create job",
+            exc,
+            details={
+                "filename": getattr(file, "filename", None),
+                "user_id": current_user.get("id"),
+            },
+        )
     finally:
         try:
             # schedule cleanup
@@ -254,6 +333,7 @@ async def update_job(
     update_request: JobUpdateRequest,
     current_user: Dict[str, Any] = Depends(get_current_user),
     job_svc: JobService = Depends(get_job_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """Update job properties like displayname.
     
@@ -263,9 +343,9 @@ async def update_job(
         # Get the job and verify access
         job = job_svc.get_job(job_id)
         if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
+            raise ResourceNotFoundError(f"Job {job_id} not found")
         if not check_job_access(job, current_user, "edit"):
-            raise HTTPException(status_code=403, detail="Access denied")
+            raise PermissionError("Access denied to job")
         
         # Update the displayname
         job["displayname"] = update_request.displayname.strip()
@@ -278,11 +358,18 @@ async def update_job(
         job_svc.enrich_job_file_urls(updated_job)
         return {"status": 200, "job": updated_job}
         
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.exception(f"Error updating job {job_id}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "update job",
+            exc,
+            details={
+                "job_id": job_id,
+                "user_id": current_user.get("id"),
+            },
+        )
 
 
 @router.delete("/jobs/{job_id}")
@@ -291,6 +378,7 @@ async def delete_job(
     current_user: Dict[str, Any] = Depends(get_current_user),
     job_svc: JobService = Depends(get_job_service),
     management_service: JobManagementService = Depends(get_job_management_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Soft-delete a job for its owner (or admin). This provides a non-admin
@@ -308,18 +396,25 @@ async def delete_job(
         if result.get("status") == "error":
             msg = result.get("message", "Error deleting job")
             if "not found" in msg:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=msg)
+                raise ResourceNotFoundError(msg)
             if "Access denied" in msg:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=msg)
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+                raise PermissionError(msg)
+            raise ValidationError(msg)
 
         return {"status": "success", "message": f"Job {job_id} soft deleted", "job_id": job_id}
 
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.exception(f"Error deleting job {job_id}: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "delete job",
+            exc,
+            details={
+                "job_id": job_id,
+                "user_id": current_user.get("id") if isinstance(current_user, dict) else current_user,
+            },
+        )
 
 
 @router.post("/jobs/{job_id}/restore")
@@ -327,6 +422,7 @@ async def restore_job(
     job_id: str,
     current_user: Dict[str, Any] = Depends(get_current_user),
     management_service: JobManagementService = Depends(get_job_management_service),
+    error_handler: ErrorHandler = Depends(get_error_handler),
 ):
     """
     Restore a soft-deleted job (admin only) via public jobs path.
@@ -343,25 +439,32 @@ async def restore_job(
         is_admin = await permissions.check_user_admin_privileges(current_user)
 
         if not is_admin:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required")
+            raise PermissionError("Admin privileges required")
 
         result = await management_service.restore_job(job_id, user_id, is_admin=is_admin)
 
         if result.get("status") == "error":
             msg = result.get("message", "Error restoring job")
             if "not found" in msg:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=msg)
+                raise ResourceNotFoundError(msg)
             if "Access denied" in msg:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=msg)
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+                raise PermissionError(msg)
+            raise ValidationError(msg)
 
         return {"status": "success", "message": f"Job {job_id} restored", "job_id": job_id}
 
-    except HTTPException:
+    except ApplicationError:
         raise
-    except Exception as e:
-        logger.exception(f"Error restoring job {job_id}: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+    except Exception as exc:
+        _handle_internal_error(
+            error_handler,
+            "restore job",
+            exc,
+            details={
+                "job_id": job_id,
+                "user_id": current_user.get("id") if isinstance(current_user, dict) else current_user,
+            },
+        )
 
 
 # Note: legacy /upload endpoint removed on request; use POST /api/jobs instead.

@@ -139,11 +139,6 @@ class AuditLogger:
             performed_by=performed_by,
             metadata={"reason": reason} if reason else None
         )
-
-# Global audit logger instance
-audit_logger = AuditLogger()
-
-def set_audit_logger_db(cosmos_db):
-    """Set the database for the global audit logger"""
-    global audit_logger
-    audit_logger.cosmos_db = cosmos_db
+def create_audit_logger(cosmos_db=None) -> AuditLogger:
+    """Factory helper to create an audit logger with optional Cosmos binding"""
+    return AuditLogger(cosmos_db)

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import uuid
 
 from ...core.dependencies import CosmosService
-from ...core.async_utils import run_sync
+from ...utils.async_utils import run_sync
 
 logger = logging.getLogger(__name__)
 

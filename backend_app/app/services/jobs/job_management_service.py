@@ -5,8 +5,7 @@ import uuid
 
 from ...core.config import get_config, DatabaseError
 from ...core.dependencies import CosmosService
-from ..storage.blob_service import StorageService
-from ...core.async_utils import run_sync
+from ...utils.async_utils import run_sync
 from .job_service import JobService
 
 logger = logging.getLogger(__name__)
@@ -14,10 +13,10 @@ logger = logging.getLogger(__name__)
 
 class JobManagementService:
     """Service for job lifecycle management operations (soft delete, restore, admin operations)."""
-    
-    def __init__(self, cosmos_service: CosmosService, storage_service: StorageService):
+
+    def __init__(self, cosmos_service: CosmosService, job_service: JobService):
         self.cosmos = cosmos_service
-        self.job_service = JobService(cosmos_service, storage_service)
+        self.job_service = job_service
 
     async def soft_delete_job(self, job_id: str, user_id: str, is_admin: bool = False) -> Dict[str, Any]:
         """

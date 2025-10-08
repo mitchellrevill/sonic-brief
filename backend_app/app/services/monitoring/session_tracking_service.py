@@ -15,10 +15,12 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, TYPE_CHECKING
 
+from azure.cosmos.exceptions import CosmosHttpResponseError, CosmosResourceNotFoundError
+
 if TYPE_CHECKING:
     from ...core.dependencies import CosmosService
 
-from ...core.async_utils import run_sync
+from ...utils.async_utils import run_sync
 from ...utils.logging_config import get_logger
 from ...config.audit_config import DEFAULT_SESSION_TIMEOUT_MINUTES, DEFAULT_HEARTBEAT_INTERVAL_MINUTES
 
@@ -137,8 +139,24 @@ class SessionTrackingService:
             
             return session_id
             
+        except CosmosHttpResponseError as e:
+            self.logger.error(
+                "Failed to create/get session in Cosmos DB",
+                exc_info=True,
+                extra={
+                    "user_id": user_id,
+                    "user_email": user_email,
+                    "status_code": e.status_code,
+                    "error_message": str(e)
+                }
+            )
+            return None
         except Exception as e:
-            self.logger.error(f"Failed to create/get session for user {user_id}: {str(e)}")
+            self.logger.error(
+                "Unexpected error creating/getting session",
+                exc_info=True,
+                extra={"user_id": user_id, "user_email": user_email}
+            )
             return None
 
     async def update_heartbeat(
@@ -216,8 +234,24 @@ class SessionTrackingService:
             self.logger.debug(f"Updated heartbeat for session {session_id}")
             return True
             
+        except CosmosHttpResponseError as e:
+            self.logger.error(
+                "Failed to update session heartbeat in Cosmos DB",
+                exc_info=True,
+                extra={
+                    "session_id": session_id,
+                    "user_id": user_id,
+                    "status_code": e.status_code,
+                    "error_message": str(e)
+                }
+            )
+            return False
         except Exception as e:
-            self.logger.error(f"Failed to update heartbeat for session {session_id}: {str(e)}")
+            self.logger.error(
+                "Unexpected error updating session heartbeat",
+                exc_info=True,
+                extra={"session_id": session_id, "user_id": user_id}
+            )
             return False
 
     async def _find_active_session(self, user_id: str, current_time: datetime) -> Optional[str]:
@@ -258,8 +292,22 @@ class SessionTrackingService:
                     last_heartbeat = datetime.fromisoformat(session["last_heartbeat"].replace('Z', '+00:00'))
                     if last_heartbeat > cutoff_time:
                         valid_sessions.append(session)
+                except (ValueError, KeyError) as e:
+                    self.logger.warning(
+                        "Error parsing session timestamp",
+                        extra={
+                            "session_id": session.get("id"),
+                            "last_heartbeat": session.get("last_heartbeat"),
+                            "error": str(e)
+                        }
+                    )
+                    continue
                 except Exception as e:
-                    self.logger.debug(f"Error parsing session timestamp: {e}")
+                    self.logger.error(
+                        "Unexpected error parsing session data",
+                        exc_info=True,
+                        extra={"session_id": session.get("id")}
+                    )
                     continue
             
             if valid_sessions:
@@ -271,8 +319,22 @@ class SessionTrackingService:
             self.logger.debug(f"No active sessions found for user {user_id} (found {len(results)} total, {len(valid_sessions)} valid)")
             return None
             
+        except CosmosHttpResponseError as e:
+            self.logger.warning(
+                "Error querying active sessions from Cosmos DB",
+                extra={
+                    "user_id": user_id,
+                    "status_code": e.status_code,
+                    "error_message": str(e)
+                }
+            )
+            return None
         except Exception as e:
-            self.logger.debug(f"Error finding active session for user {user_id}: {str(e)}")
+            self.logger.error(
+                "Unexpected error finding active session",
+                exc_info=True,
+                extra={"user_id": user_id}
+            )
             return None
 
     async def _deactivate_old_sessions(self, user_id: str, current_time: datetime) -> None:
@@ -303,11 +365,38 @@ class SessionTrackingService:
                     
                     await run_sync(lambda s=session: self._cosmos.sessions_container.upsert_item(s))
                     self.logger.debug(f"Deactivated old session {session['id']} for user {user_id}")
+                except CosmosHttpResponseError as e:
+                    self.logger.warning(
+                        "Failed to deactivate old session in Cosmos DB",
+                        extra={
+                            "session_id": session.get('id'),
+                            "user_id": user_id,
+                            "status_code": e.status_code,
+                            "error_message": str(e)
+                        }
+                    )
                 except Exception as e:
-                    self.logger.warning(f"Failed to deactivate old session {session.get('id')}: {e}")
+                    self.logger.error(
+                        "Unexpected error deactivating old session",
+                        exc_info=True,
+                        extra={"session_id": session.get('id'), "user_id": user_id}
+                    )
                     
+        except CosmosHttpResponseError as e:
+            self.logger.warning(
+                "Error querying/deactivating old sessions in Cosmos DB",
+                extra={
+                    "user_id": user_id,
+                    "status_code": e.status_code,
+                    "error_message": str(e)
+                }
+            )
         except Exception as e:
-            self.logger.warning(f"Error deactivating old sessions for user {user_id}: {e}")
+            self.logger.error(
+                "Unexpected error deactivating old sessions",
+                exc_info=True,
+                extra={"user_id": user_id}
+            )
 
     async def deactivate_session(self, session_id: str) -> bool:
         """
@@ -342,8 +431,23 @@ class SessionTrackingService:
             self.logger.debug(f"Deactivated session {session_id}")
             return True
             
+        except CosmosHttpResponseError as e:
+            self.logger.error(
+                "Failed to deactivate session in Cosmos DB",
+                exc_info=True,
+                extra={
+                    "session_id": session_id,
+                    "status_code": e.status_code,
+                    "error_message": str(e)
+                }
+            )
+            return False
         except Exception as e:
-            self.logger.error(f"Failed to deactivate session {session_id}: {str(e)}")
+            self.logger.error(
+                "Unexpected error deactivating session",
+                exc_info=True,
+                extra={"session_id": session_id}
+            )
             return False
 
     async def _cleanup_duplicate_sessions(self, user_id: str, preferred_session_id: str, timestamp: datetime) -> None:
@@ -387,11 +491,41 @@ class SessionTrackingService:
                         await run_sync(lambda s=session: self._cosmos.sessions_container.upsert_item(s))
                         self.logger.debug(f"Cleaned up duplicate session {session['id']} for user {user_id}")
                         
+                    except CosmosHttpResponseError as e:
+                        self.logger.error(
+                            "Failed to cleanup duplicate session in Cosmos DB",
+                            exc_info=True,
+                            extra={
+                                "session_id": session['id'],
+                                "user_id": user_id,
+                                "status_code": e.status_code,
+                                "error_message": str(e)
+                            }
+                        )
                     except Exception as e:
-                        self.logger.error(f"Failed to cleanup duplicate session {session['id']}: {str(e)}")
+                        self.logger.error(
+                            "Unexpected error cleaning up duplicate session",
+                            exc_info=True,
+                            extra={"session_id": session.get('id'), "user_id": user_id}
+                        )
                         
+        except CosmosHttpResponseError as e:
+            self.logger.error(
+                "Error querying duplicate sessions from Cosmos DB",
+                exc_info=True,
+                extra={
+                    "user_id": user_id,
+                    "preferred_session_id": preferred_session_id,
+                    "status_code": e.status_code,
+                    "error_message": str(e)
+                }
+            )
         except Exception as e:
-            self.logger.error(f"Error during duplicate session cleanup for user {user_id}: {str(e)}")
+            self.logger.error(
+                "Unexpected error during duplicate session cleanup",
+                exc_info=True,
+                extra={"user_id": user_id, "preferred_session_id": preferred_session_id}
+            )
 
     async def cleanup_user_sessions(self, user_id: str) -> Dict[str, Any]:
         """
@@ -447,8 +581,23 @@ class SessionTrackingService:
                     await run_sync(lambda s=session: self._cosmos.sessions_container.upsert_item(s))
                     cleaned_count += 1
                     
+                except CosmosHttpResponseError as e:
+                    self.logger.error(
+                        "Failed to cleanup session in Cosmos DB during manual cleanup",
+                        exc_info=True,
+                        extra={
+                            "session_id": session['id'],
+                            "user_id": user_id,
+                            "status_code": e.status_code,
+                            "error_message": str(e)
+                        }
+                    )
                 except Exception as e:
-                    self.logger.error(f"Failed to cleanup session {session['id']}: {str(e)}")
+                    self.logger.error(
+                        "Unexpected error cleaning up session during manual cleanup",
+                        exc_info=True,
+                        extra={"session_id": session.get('id'), "user_id": user_id}
+                    )
             
             return {
                 "message": f"Cleaned up {cleaned_count} duplicate sessions",
@@ -459,6 +608,21 @@ class SessionTrackingService:
                 "cleaned_sessions": [s["id"] for s in close_sessions[:cleaned_count]]
             }
             
+        except CosmosHttpResponseError as e:
+            self.logger.error(
+                "Error during manual session cleanup in Cosmos DB",
+                exc_info=True,
+                extra={
+                    "user_id": user_id,
+                    "status_code": e.status_code,
+                    "error_message": str(e)
+                }
+            )
+            return {"error": str(e)}
         except Exception as e:
-            self.logger.error(f"Error during manual session cleanup for user {user_id}: {str(e)}")
+            self.logger.error(
+                "Unexpected error during manual session cleanup",
+                exc_info=True,
+                extra={"user_id": user_id}
+            )
             return {"error": str(e)}

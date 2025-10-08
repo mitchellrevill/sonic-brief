@@ -18,7 +18,7 @@ from typing import Dict, Any, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from ...core.dependencies import CosmosService
 
-from ...core.async_utils import run_sync
+from ...utils.async_utils import run_sync
 from ...utils.logging_config import get_logger
 from ...config.audit_config import AUDIT_ENDPOINTS, METHOD_SPECIFIC_AUDIT_ENDPOINTS, SENSITIVE_ENDPOINTS
 
