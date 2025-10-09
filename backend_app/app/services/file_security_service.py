@@ -1,14 +1,15 @@
 import hashlib
 import re
 from typing import Dict, Any
+
 from fastapi import UploadFile, HTTPException
 
 from app.core.config import get_config
 
 try:
-    import magic
-except Exception:
-    magic = None  # magic may not be available in all environments; fallback will be used
+    import magic  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    magic = None
 
 
 class FileSecurityService:
@@ -20,7 +21,7 @@ class FileSecurityService:
         b"<?php",
         b"eval(",
         b"exec(",
-        b"MZ\x90\x00",  # PE header
+        b"mz\x90\x00",  # PE header (lowercase)
     ]
 
     def __init__(self):
@@ -87,4 +88,23 @@ class FileSecurityService:
         name = re.sub(r'[^A-Za-z0-9_.-]', '', name)
         if not name or name.startswith('.'):
             return ''
-        return name[:255]
+        
+        # Preserve extension when truncating
+        if len(name) > 255:
+            # Find the last dot to preserve extension
+            last_dot = name.rfind('.')
+            if last_dot > 0:
+                # We have an extension, preserve it
+                ext = name[last_dot:]
+                max_base_len = 255 - len(ext)
+                if max_base_len > 0:
+                    base = name[:last_dot][:max_base_len]
+                    name = base + ext
+                else:
+                    # Extension alone is too long, truncate it
+                    name = name[:255]
+            else:
+                # No extension, just truncate
+                name = name[:255]
+        
+        return name

@@ -1,0 +1,131 @@
+{
+  "indexingMode": "consistent",
+  "automatic": true,
+  "includedPaths": [
+    {
+      "path": "/type/?"
+    },
+    {
+      "path": "/user_id/?"
+    },
+    {
+      "path": "/status/?"
+    },
+    {
+      "path": "/created_at/?"
+    },
+    {
+      "path": "/updated_at/?"
+    },
+    {
+      "path": "/is_deleted/?"
+    },
+    {
+      "path": "/prompt_category_id/?"
+    },
+    {
+      "path": "/prompt_subcategory_id/?"
+    },
+    {
+      "path": "/microsoft_oid/?"
+    },
+    {
+      "path": "/*"
+    }
+  ],
+  "excludedPaths": [
+    {
+      "path": "/\"_etag\"/?"
+    },
+    {
+      "path": "/transcription/*"
+    },
+    {
+      "path": "/analysis/*"
+    }
+  ],
+  "compositeIndexes": [
+    [
+      {
+        "path": "/type",
+        "order": "ascending"
+      },
+      {
+        "path": "/user_id",
+        "order": "ascending"
+      }
+    ],
+    [
+      {
+        "path": "/type",
+        "order": "ascending"
+      },
+      {
+        "path": "/status",
+        "order": "ascending"
+      }
+    ],
+    [
+      {
+        "path": "/type",
+        "order": "ascending"
+      },
+      {
+        "path": "/user_id",
+        "order": "ascending"
+      },
+      {
+        "path": "/created_at",
+        "order": "descending"
+      }
+    ],
+    [
+      {
+        "path": "/user_id",
+        "order": "ascending"
+      },
+      {
+        "path": "/status",
+        "order": "ascending"
+      },
+      {
+        "path": "/created_at",
+        "order": "descending"
+      }
+    ],
+    [
+      {
+        "path": "/type",
+        "order": "ascending"
+      },
+      {
+        "path": "/deleted",
+        "order": "ascending"
+      },
+      {
+        "path": "/created_at",
+        "order": "descending"
+      }
+    ],
+    [
+      {
+        "path": "/type",
+        "order": "ascending"
+      },
+      {
+        "path": "/microsoft_oid",
+        "order": "ascending"
+      }
+    ],
+    [
+      {
+        "path": "/user_id",
+        "order": "ascending"
+      },
+      {
+        "path": "/deleted",
+        "order": "ascending"
+      }
+    ]
+  ]
+}

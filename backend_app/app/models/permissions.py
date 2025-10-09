@@ -4,15 +4,17 @@ from typing import List
 
 class PermissionLevel(str, Enum):
     """Permission levels in hierarchical order"""
+    PUBLIC = "Public"
     USER = "User"
     EDITOR = "Editor"
     ADMIN = "Admin"
 
 # Permission hierarchy (higher number = more permissions)
 PERMISSION_HIERARCHY = {
-    PermissionLevel.USER.value: 1,    # "User": 1
-    PermissionLevel.EDITOR.value: 2,  # "Editor": 2
-    PermissionLevel.ADMIN.value: 3,   # "Admin": 3
+    PermissionLevel.PUBLIC.value: 0,   # "Public": 0
+    PermissionLevel.USER.value: 1,     # "User": 1
+    PermissionLevel.EDITOR.value: 2,   # "Editor": 2
+    PermissionLevel.ADMIN.value: 3,    # "Admin": 3
 }
 
 def get_permission_level(permission_string: str) -> int:
@@ -38,13 +40,17 @@ def has_permission_level(user_permission: str, required_permission: str) -> bool
     Returns:
         bool: True if user has sufficient permissions, False otherwise
     """
-    user_level = get_permission_level(user_permission)
-    required_level = get_permission_level(required_permission)
+    # Case-insensitive comparison
+    user_level = get_permission_level(user_permission.title())
+    required_level = get_permission_level(required_permission.title())
     return user_level >= required_level
 
 
 # Default capability lists (keep concise; frontend files enumerate expected keys)
 DEFAULT_CAPABILITIES: Dict[str, List[str]] = {
+    PermissionLevel.PUBLIC.value: [
+        # Public has minimal capabilities
+    ],
     PermissionLevel.USER.value: [
         "can_view_prompts",
         "can_create_prompts",
@@ -70,10 +76,16 @@ def capabilities_for_permission(permission: str, all_capabilities: List[str]) ->
     - Editor: defaults from DEFAULT_CAPABILITIES[Editor]
     - User: defaults from DEFAULT_CAPABILITIES[User]
     """
-    if permission == PermissionLevel.ADMIN.value:
+    if not permission:
+        # No permission means no capabilities
+        return {cap: False for cap in all_capabilities}
+    
+    # Case-insensitive comparison
+    permission_title = permission.title()
+    if permission_title == PermissionLevel.ADMIN.value:
         return {cap: True for cap in all_capabilities}
 
-    enabled = set(DEFAULT_CAPABILITIES.get(permission, []))
+    enabled = set(DEFAULT_CAPABILITIES.get(permission_title, []))
     return {cap: (cap in enabled) for cap in all_capabilities}
 
 

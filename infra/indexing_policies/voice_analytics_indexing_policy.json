@@ -1,0 +1,130 @@
+{
+  "indexingMode": "consistent",
+  "automatic": true,
+  "includedPaths": [
+    {
+      "path": "/type/?"
+    },
+    {
+      "path": "/user_id/?"
+    },
+    {
+      "path": "/event_type/?"
+    },
+    {
+      "path": "/created_at/?"
+    },
+    {
+      "path": "/timestamp/?"
+    },
+    {
+      "path": "/session_id/?"
+    },
+    {
+      "path": "/job_id/?"
+    },
+    {
+      "path": "/action/?"
+    },
+    {
+      "path": "/*"
+    }
+  ],
+  "excludedPaths": [
+    {
+      "path": "/\"_etag\"/?"
+    },
+    {
+      "path": "/metadata/*"
+    },
+    {
+      "path": "/details/*"
+    }
+  ],
+  "compositeIndexes": [
+    [
+      {
+        "path": "/type",
+        "order": "ascending"
+      },
+      {
+        "path": "/user_id",
+        "order": "ascending"
+      },
+      {
+        "path": "/created_at",
+        "order": "descending"
+      }
+    ],
+    [
+      {
+        "path": "/type",
+        "order": "ascending"
+      },
+      {
+        "path": "/event_type",
+        "order": "ascending"
+      },
+      {
+        "path": "/created_at",
+        "order": "descending"
+      }
+    ],
+    [
+      {
+        "path": "/user_id",
+        "order": "ascending"
+      },
+      {
+        "path": "/event_type",
+        "order": "ascending"
+      },
+      {
+        "path": "/timestamp",
+        "order": "descending"
+      }
+    ],
+    [
+      {
+        "path": "/type",
+        "order": "ascending"
+      },
+      {
+        "path": "/session_id",
+        "order": "ascending"
+      },
+      {
+        "path": "/created_at",
+        "order": "descending"
+      }
+    ],
+    [
+      {
+        "path": "/type",
+        "order": "ascending"
+      },
+      {
+        "path": "/job_id",
+        "order": "ascending"
+      },
+      {
+        "path": "/created_at",
+        "order": "descending"
+      }
+    ],
+    [
+      {
+        "path": "/type",
+        "order": "ascending"
+      },
+      {
+        "path": "/action",
+        "order": "ascending"
+      },
+      {
+        "path": "/created_at",
+        "order": "descending"
+      }
+    ]
+  ]
+}

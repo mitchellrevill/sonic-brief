@@ -1,0 +1,30 @@
+# Testing Dependencies for Sonic Brief Backend
+# Install with: pip install -r requirements-test.txt
+
+# Core testing framework
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-mock==3.12.0
+pytest-cov==4.1.0
+
+# HTTP testing
+httpx==0.25.2
+
+# JWT for authentication testing
+python-jose[cryptography]==3.3.0
+
+# Azure SDK mocking (already in main requirements but listed for clarity)
+azure-cosmos==4.8.0
+azure-storage-blob==12.19.0
+
+# Runtime/development helpers used during tests
+fastapi==0.100.0
+# On Windows, python-magic-bin bundles libmagic. On Linux/macOS, use python-magic.
+python-magic-bin==0.4.27
+
+# Code coverage reporting
+coverage[toml]==7.3.2
+
+# Additional test utilities
+faker==20.1.0  # For generating test data
+freezegun==1.4.0  # For time-based testing

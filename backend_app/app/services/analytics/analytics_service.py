@@ -203,7 +203,15 @@ class AnalyticsService:
 
         if jobs_count == 0 and hasattr(self.cosmos_db, 'jobs_container'):
             try:
-                q2 = "SELECT c.audio_duration_minutes, c.audio_duration_seconds FROM c WHERE c.user_id = @user_id AND c.created_at >= @start_ms"
+                # Optimized query: filter soft-deleted jobs at database level
+                q2 = """
+                    SELECT c.audio_duration_minutes, c.audio_duration_seconds 
+                    FROM c 
+                    WHERE c.type = 'job'
+                    AND c.user_id = @user_id 
+                    AND c.created_at >= @start_ms
+                    AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)
+                """
                 params2 = [{"name": "@user_id", "value": user_id}, {"name": "@start_ms", "value": int(start_dt.timestamp() * 1000)}]
                 items = await run_sync(lambda: list(self.cosmos_db.jobs_container.query_items(query=q2, parameters=params2, enable_cross_partition_query=True)))
                 for it in items:
@@ -354,7 +362,14 @@ class AnalyticsService:
         # Fallback to jobs container if we found no records
         if not records and hasattr(self.cosmos_db, 'jobs_container'):
             try:
-                job_q = "SELECT c.id, c.user_id, c.created_at, c.audio_duration_minutes, c.audio_duration_seconds, c.file_name FROM c WHERE c.type = 'job' AND c.created_at >= @start_ms"
+                # Optimized query: filter soft-deleted jobs at database level
+                job_q = """
+                    SELECT c.id, c.user_id, c.created_at, c.audio_duration_minutes, c.audio_duration_seconds, c.file_name 
+                    FROM c 
+                    WHERE c.type = 'job' 
+                    AND c.created_at >= @start_ms
+                    AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)
+                """
                 params2 = [{"name": "@start_ms", "value": int(start_dt.timestamp() * 1000)}]
                 for it in self.cosmos_db.jobs_container.query_items(query=job_q, parameters=params2, enable_cross_partition_query=True):
                     minutes = it.get('audio_duration_minutes')
@@ -499,17 +514,20 @@ class AnalyticsService:
         if not hasattr(self.cosmos_db, 'analytics_container'):
             return results
         try:
-            query = "SELECT * FROM c WHERE c.type = 'job'"
+            # Optimized query with database-level LIMIT and soft-delete filter
+            query = f"""
+                SELECT * FROM c 
+                WHERE c.type = 'job'
+                AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)
+            """
             params = []
             if prompt_id:
                 query += " AND c.prompt_id = @prompt_id"
                 params.append({"name": "@prompt_id", "value": prompt_id})
-            query += " ORDER BY c.created_at DESC"
+            query += f" ORDER BY c.created_at DESC OFFSET 0 LIMIT {limit}"
             items = await run_sync(lambda: list(self.cosmos_db.analytics_container.query_items(query=query, parameters=params, enable_cross_partition_query=True)))
             for it in items:
                 results.append(it)
-                if len(results) >= limit:
-                    break
         except CosmosHttpResponseError as e:
             self.logger.warning(
                 "Failed to query recent jobs",

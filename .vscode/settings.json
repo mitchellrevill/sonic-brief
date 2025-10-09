@@ -10,5 +10,10 @@
     "chat.agent.maxRequests": 9999,              // let Agent mode run a lot of steps
     "github.copilot.chat.agent.autoFix": true,   // try auto‑fixing failed edits
     "chat.tools.autoApprove": true,              // skip the “approve tool?” prompts
-    "chat.extensionTools.enabled": true          // allow tools contributed by extensions
+    "chat.extensionTools.enabled": true,
+    "python.testing.pytestArgs": [
+        "backend_app"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true // allow tools contributed by extensions
 }

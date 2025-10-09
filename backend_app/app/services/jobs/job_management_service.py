@@ -176,12 +176,23 @@ class JobManagementService:
             if not is_admin:
                 return {"status": "error", "message": "Access denied: admin privileges required", "deleted_jobs": [], "total_count": 0}
 
-            # Query for all deleted jobs
-            query = """
+            # First get total count
+            count_query = "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'job' AND c.deleted = true"
+            count_items = await run_sync(lambda: list(
+                self.cosmos.jobs_container.query_items(
+                    query=count_query,
+                    enable_cross_partition_query=True,
+                )
+            ))
+            total = count_items[0] if count_items else 0
+            
+            # Query for deleted jobs with database-level pagination
+            query = f"""
             SELECT * FROM c 
             WHERE c.type = 'job' 
             AND c.deleted = true
             ORDER BY c.deleted_at DESC
+            OFFSET {offset} LIMIT {limit}
             """
 
             items = await run_sync(lambda: list(
@@ -190,13 +201,10 @@ class JobManagementService:
                     enable_cross_partition_query=True,
                 )
             ))
-
-            total = len(items)
-            sliced = items[offset: offset + limit]
             
             # Enrich deleted jobs with display names and file URLs
             enriched_jobs = []
-            for job in sliced:
+            for job in items:
                 enriched_job = self.job_service.enrich_job_file_urls(job)
                 enriched_jobs.append(enriched_job)
 
@@ -301,7 +309,20 @@ class JobManagementService:
         Returns a dict with 'jobs' and 'total_count'.
         """
         try:
-            # Build base query
+            # First get total count
+            count_query = "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'job'"
+            if not include_deleted:
+                count_query += " AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+            
+            count_items = await run_sync(lambda: list(
+                self.cosmos.jobs_container.query_items(
+                    query=count_query,
+                    enable_cross_partition_query=True,
+                )
+            ))
+            total = count_items[0] if count_items else 0
+            
+            # Build optimized query with database-level pagination
             query = """
             SELECT * FROM c
             WHERE c.type = 'job'
@@ -310,21 +331,19 @@ class JobManagementService:
                 query += "\nAND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
 
             query += "\nORDER BY c.created_at DESC"
+            query += f"\nOFFSET {offset} LIMIT {limit}"
 
-            # Cosmos SDK doesn't support OFFSET directly; use continuation or manual slicing
+            # Fetch only the requested page
             items = await run_sync(lambda: list(
                 self.cosmos.jobs_container.query_items(
                     query=query,
                     enable_cross_partition_query=True,
                 )
             ))
-
-            total = len(items)
-            sliced = items[offset: offset + limit]
             
             # Enrich jobs with display names and file URLs
             enriched_jobs = []
-            for job in sliced:
+            for job in items:
                 enriched_job = self.job_service.enrich_job_file_urls(job)
                 enriched_jobs.append(enriched_job)
 
