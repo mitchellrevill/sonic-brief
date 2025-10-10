@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { sharingToasts } from "@/lib/toast-utils";
 import {
   Dialog,
   DialogContent,
@@ -68,15 +68,16 @@ export function JobShareDialog({
     },
   });
   const shareJobMutation = useMutation({
-    mutationFn: (data: JobShareFormData) => shareJob(jobId, data),    onSuccess: () => {
-      toast.success(`${jobTitle} shared successfully!`);      queryClient.invalidateQueries({ queryKey: ["jobSharingInfo", jobId] });
+    mutationFn: (data: JobShareFormData) => shareJob(jobId, data),    onSuccess: (_, variables) => {
+      sharingToasts.granted(variables.target_user_email, jobTitle);
+      queryClient.invalidateQueries({ queryKey: ["jobSharingInfo", jobId] });
       queryClient.invalidateQueries({ queryKey: ["sharedJobs"] });
       queryClient.invalidateQueries({ queryKey: ["audioRecordings"] });
       form.reset();
       onOpenChange(false);
     },
-    onError: (error) => {
-      toast.error(`Failed to share ${jobTitle}: ${error.message}`);
+    onError: (error, variables) => {
+      sharingToasts.failed(variables.target_user_email, error.message);
     },
   });
 

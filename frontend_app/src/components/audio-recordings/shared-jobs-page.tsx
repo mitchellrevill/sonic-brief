@@ -17,11 +17,11 @@ import {
   Calendar,
   User,
   ArrowRight,
-  Loader2,
 } from "lucide-react";
 import { getSharedJobs } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { RecordingCardSkeletonGrid } from "@/components/ui/recording-card-skeleton";
 
 export function SharedJobsPage() {
   const breadcrumbs = useBreadcrumbs();
@@ -40,10 +40,23 @@ export function SharedJobsPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-background to-muted/20">
         <div className="container mx-auto px-4 py-6">
-          <div className="flex items-center justify-center min-h-[400px]">
-            <div className="text-center">
-              <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
-              <p className="text-muted-foreground">Loading shared recordings...</p>
+          <div className="mb-6 flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-zinc-200/70 text-zinc-700 dark:bg-zinc-700/60 dark:text-zinc-100">
+              <Share2 className="h-6 w-6" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold">Shared Recordings</h1>
+              <p className="text-muted-foreground">Loading...</p>
+            </div>
+          </div>
+          <div className="space-y-8">
+            <div>
+              <h2 className="text-xl font-semibold mb-4">Shared With Me</h2>
+              <RecordingCardSkeletonGrid count={6} />
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold mb-4">My Shared Recordings</h2>
+              <RecordingCardSkeletonGrid count={6} />
             </div>
           </div>
         </div>
@@ -73,14 +86,14 @@ export function SharedJobsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-muted/20">      {/* Header */}
-      <div className="border-b border-border/50 bg-card/50 backdrop-blur-sm">
+      <div>
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10 text-primary">
+            <div className="p-2 rounded-lg bg-zinc-200/70 text-zinc-700 dark:bg-zinc-700/60 dark:text-zinc-100">
               <Share2 className="h-6 w-6" />
             </div>
             <div className="space-y-1">
-              <h1 className="text-2xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
+              <h1 className="text-2xl font-bold bg-gradient-to-r from-zinc-800 to-zinc-600 dark:from-zinc-200 dark:to-zinc-400 bg-clip-text text-transparent">
                 Shared Recordings
               </h1>
               <SmartBreadcrumb items={breadcrumbs} />
@@ -98,7 +111,7 @@ export function SharedJobsPage() {
           {/* Recordings Shared With Me */}
           <section>
             <div className="flex items-center gap-2 mb-4">
-              <Users className="h-5 w-5 text-primary" />
+              <Users className="h-5 w-5 text-zinc-600 dark:text-zinc-400" />
               <h2 className="text-xl font-semibold">
                 Shared With Me ({sharedJobs.length})
               </h2>
@@ -126,7 +139,7 @@ export function SharedJobsPage() {
           {/* My Recordings Shared With Others */}
           <section>
             <div className="flex items-center gap-2 mb-4">
-              <Share2 className="h-5 w-5 text-primary" />
+              <Share2 className="h-5 w-5 text-zinc-600 dark:text-zinc-400" />
               <h2 className="text-xl font-semibold">
                 My Shared Recordings ({ownedSharedJobs.length})
               </h2>
@@ -172,7 +185,7 @@ function SharedJobCard({ job, isOwner }: SharedJobCardProps) {
   const sharingMessage = !isOwner ? userShare?.message : null;
 
   return (
-    <Card className="hover:shadow-md transition-shadow duration-200">
+    <Card className="bg-card/90 border border-border/60 hover:border-border hover:shadow-lg transition-all duration-200 backdrop-blur-sm">
       <CardContent className="p-4">
         <div className="space-y-3">
           {/* Header */}

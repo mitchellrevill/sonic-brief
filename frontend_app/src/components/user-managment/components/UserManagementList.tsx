@@ -2,9 +2,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Users, Settings } from "lucide-react";
 import { PermissionLevel } from "@/types/permissions";
+import { formatDate } from "@/lib/date-utils";
 import type { User } from "@/lib/api";
 
 interface UserManagementListProps {
@@ -77,8 +79,18 @@ export function UserManagementList({
         </div>
         {usersLoading ? (
           <div className="space-y-2">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="h-16 bg-muted rounded-lg animate-pulse" />
+            {[...Array(8)].map((_, i) => (
+              <div key={i} className="flex items-center justify-between p-3 border rounded-lg">
+                <div className="space-y-2 flex-1">
+                  <Skeleton className="h-5 w-48" />
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-3 w-40" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-6 w-16 rounded-full" />
+                  <Skeleton className="h-8 w-8 rounded" />
+                </div>
+              </div>
             ))}
           </div>
         ) : (
@@ -95,7 +107,7 @@ export function UserManagementList({
                     <div className="text-sm text-muted-foreground">{user.name}</div>
                   )}
                   <div className="text-xs text-muted-foreground">
-                    Created: {user.date ? new Date(user.date).toLocaleDateString() : 'N/A'}
+                    Created: {user.date ? formatDate(user.date) : 'N/A'}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">

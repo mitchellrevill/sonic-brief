@@ -13,6 +13,7 @@ import {
   Eye
 } from 'lucide-react';
 import { getUserSessionSummary, getUserActivityPatterns, type UserSessionSummaryResponse, type UserActivityPatternsResponse } from '@/lib/api';
+import { formatDate } from '@/lib/date-utils';
 import { toast } from 'sonner';
 
 interface UserActiveSessionsProps {
@@ -75,13 +76,13 @@ export function UserActiveSessions({ userId, days }: UserActiveSessionsProps) {
 
   const getPeakHour = () => {
     if (!activityPatterns?.activity_patterns.peak_hours) return null;
-    
+
     const hours = activityPatterns.activity_patterns.peak_hours;
-    const peakHour = Object.entries(hours).reduce((max, [hour, count]) => 
-      count > max.count ? { hour: parseInt(hour), count } : max, 
+    const peakHour = Object.entries(hours).reduce((max, [hour, count]) =>
+      (count as number) > max.count ? { hour: parseInt(hour), count: count as number } : max,
       { hour: 0, count: 0 }
     );
-    
+
     return peakHour.count > 0 ? peakHour.hour : null;
   };
 
@@ -250,7 +251,7 @@ export function UserActiveSessions({ userId, days }: UserActiveSessionsProps) {
                 return (
                   <div className="space-y-3">
                     {Object.entries(browserUsage)
-                      .sort(([,a], [,b]) => b - a)
+                      .sort(([,a], [,b]) => (b as number) - (a as number))
                       .map(([browser, count]) => {
                         const total = Object.values(browserUsage as Record<string, number>).reduce((sum, c) => sum + c, 0);
                         const percentage = total > 0 ? (Number(count) / total) * 100 : 0;
@@ -336,7 +337,7 @@ export function UserActiveSessions({ userId, days }: UserActiveSessionsProps) {
                     <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30">
                       <span className="text-sm font-medium">Most Active Day</span>
                       <Badge variant="outline">
-                        {new Date(sessionSummary.session_summary.most_active_day).toLocaleDateString()}
+                        {formatDate(sessionSummary.session_summary.most_active_day)}
                       </Badge>
                     </div>
                   )}
@@ -366,18 +367,14 @@ export function UserActiveSessions({ userId, days }: UserActiveSessionsProps) {
                 .sort(([a], [b]) => new Date(b).getTime() - new Date(a).getTime())
                 .slice(0, 14) // Show last 14 days
                 .map(([date, count]) => {
-                  const maxCount = Math.max(...Object.values(dailyActivity));
+                  const maxCount = Math.max(...Object.values(dailyActivity).map(v => Number(v)));
                   const percentage = maxCount > 0 ? (Number(count) / maxCount) * 100 : 0;
                   
                   return (
                     <div key={date} className="space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium">
-                          {new Date(date).toLocaleDateString(undefined, { 
-                            weekday: 'short', 
-                            month: 'short', 
-                            day: 'numeric' 
-                          })}
+                          {formatDate(date)}
                         </span>
                         <span className="text-sm text-muted-foreground">
                           {count} sessions

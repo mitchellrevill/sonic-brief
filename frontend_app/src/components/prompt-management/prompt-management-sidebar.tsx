@@ -5,6 +5,7 @@ import { useCapabilityGuard } from "@/hooks/usePermissions";
 import { Capability } from "@/types/permissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -210,13 +211,19 @@ export function PromptManagementSidebar({
 
   if (loading) {
     return (
-      <div className="p-4 space-y-2">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="animate-pulse">
-            <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
-            <div className="ml-4 space-y-1">
-              <div className="h-6 bg-gray-100 dark:bg-gray-600 rounded"></div>
-              <div className="h-6 bg-gray-100 dark:bg-gray-600 rounded"></div>
+      <div className="p-4 space-y-3">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="space-y-2">
+            {/* Category */}
+            <div className="flex items-center gap-2 p-2">
+              <Skeleton className="h-4 w-4" />
+              <Skeleton className="h-5 w-32" />
+            </div>
+            {/* Subcategories */}
+            <div className="ml-6 space-y-1.5">
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="h-4 w-36" />
+              <Skeleton className="h-4 w-44" />
             </div>
           </div>
         ))}

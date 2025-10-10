@@ -10,11 +10,12 @@ import {
 } from "@/components/ui/select";
 import { Mic, Bot, Loader2, Settings } from "lucide-react";
 import { toast } from "sonner";
+import { settingsToasts } from "@/lib/toast-utils";
 import { updateUserTranscriptionMethod } from "@/lib/api";
-import type { UserPermissions } from "@/hooks/usePermissions";
+import type { FrontendUser } from "@/hooks/usePermissions";
 
 interface TranscriptionMethodCardProps {
-  user: UserPermissions;
+  user: FrontendUser;
 }
 
 export function TranscriptionMethodCard({ user }: TranscriptionMethodCardProps) {
@@ -30,11 +31,12 @@ export function TranscriptionMethodCard({ user }: TranscriptionMethodCardProps) 
     setIsUpdating(true);
     try {
       await updateUserTranscriptionMethod(user.user_id, transcriptionMethod);
-      toast.success("Transcription method updated successfully");
-      // In a real implementation, we would update the local state or refetch user data
+      settingsToasts.saved("Transcription method");
     } catch (error) {
       console.error("Error updating transcription method:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to update transcription method");
+      const errorMessage = error instanceof Error ? error.message : "Failed to update transcription method";
+      settingsToasts.failed("transcription method");
+      toast.error(errorMessage, { description: "Please try again" });
     } finally {
       setIsUpdating(false);
     }

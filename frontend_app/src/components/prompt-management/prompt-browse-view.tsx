@@ -2,6 +2,7 @@ import { Edit, Download, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { formatDate } from "@/lib/date-utils";
 import MDPreview from "@uiw/react-markdown-preview";
 
 interface PromptBrowseViewProps {
@@ -135,7 +136,7 @@ export function PromptBrowseView({
                     <span className="font-medium text-blue-600 dark:text-blue-400">Last Modified:</span>
                     <p className="text-foreground">
                       {selectedSubcategory.updated_at 
-                        ? new Date(selectedSubcategory.updated_at * 1000).toLocaleDateString()
+                        ? formatDate(selectedSubcategory.updated_at * 1000)
                         : 'Unknown'
                       }
                     </p>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { fileToasts } from "@/lib/toast-utils";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -33,7 +34,7 @@ export function JobDeleteDialog({
   const deleteJobMutation = useMutation({
     mutationFn: () => softDeleteJob(jobId),
     onSuccess: () => {
-      toast.success(`${jobTitle} deleted successfully!`);
+      fileToasts.deleted(jobTitle);
       queryClient.invalidateQueries({ queryKey: ["audioRecordings"] });
       queryClient.invalidateQueries({ queryKey: ["sharedJobs"] });
       // Ensure dialog is closed after successful deletion
@@ -45,7 +46,9 @@ export function JobDeleteDialog({
       }
     },
     onError: (error) => {
-      toast.error(`Failed to delete ${jobTitle}: ${error.message}`);
+      toast.error(`Failed to delete ${jobTitle}`, {
+        description: error.message
+      });
       // Make sure we reset the deleting state in case of error
       setIsDeleting(false);
     },

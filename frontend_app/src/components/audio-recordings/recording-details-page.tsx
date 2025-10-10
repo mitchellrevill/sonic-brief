@@ -12,11 +12,14 @@ import { getAudioTranscriptionQuery } from "@/queries/audio-recordings.query";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { fileToasts } from "@/lib/toast-utils";
 import { AnalysisDocumentViewer } from "@/components/analysis/analysis-document-viewer";
 import { fetchCategories, fetchSubcategories } from "@/api/prompt-management";
 import { updateAnalysisDocument } from "@/lib/api";
 import { isAudioFile, getAudioDurationFromUrl } from "@/lib/file-utils";
 import { getDisplayName } from "@/lib/display-name-utils";
+import { formatDate } from "@/lib/date-utils";
+import { differenceInDays } from "date-fns";
 import { EditableDisplayName } from "@/components/ui/editable-display-name";
 import { useState, useEffect } from "react";
 import {
@@ -77,10 +80,10 @@ interface RecordingDetailsPageProps {
 const copyToClipboard = async (text: string, label: string = "Text") => {
   try {
     await navigator.clipboard.writeText(text);
-    toast.success(`${label} copied to clipboard!`);
+    fileToasts.copied(label);
   } catch (err) {
     console.error('Failed to copy text: ', err);
-    toast.error(`Failed to copy ${label.toLowerCase()}`);
+    fileToasts.copyFailed(label);
   }
 };
 
@@ -152,15 +155,23 @@ export function RecordingDetailsPage({ recording: initialRecording }: RecordingD
     getAudioTranscriptionQuery(recording.id),
   );
 
-  // Check if we're retrying due to 404 (transcription not ready)
+  // Check if we're retrying due to 404 (transcription not ready) or 409 (conflict/rate limit)
   const isTranscriptionProcessing = (isLoadingTranscription || isFetchingTranscription) || 
     (isTranscriptionError && transcriptionError?.status === 404) ||
-    (isTranscriptionError && transcriptionError?.response?.status === 404);
+    (isTranscriptionError && transcriptionError?.response?.status === 404) ||
+    (isTranscriptionError && transcriptionError?.status === 409) ||
+    (isTranscriptionError && transcriptionError?.response?.status === 409);
 
-  // Only show actual errors for non-404 cases
+  // Only show actual errors for non-404 and non-409 cases
   const shouldShowTranscriptionError = isTranscriptionError && 
     transcriptionError?.status !== 404 && 
-    transcriptionError?.response?.status !== 404;
+    transcriptionError?.response?.status !== 404 &&
+    transcriptionError?.status !== 409 &&
+    transcriptionError?.response?.status !== 409;
+
+  // Check if recording is recent (within 10 days) for contextual messaging
+  const isRecentRecording = recording.created_at && 
+    differenceInDays(new Date(), new Date(recording.created_at)) <= 10;
 
   // Fetch categories and subcategories for friendly name lookup
   const { data: categories = [] } = useQuery({
@@ -192,9 +203,9 @@ export function RecordingDetailsPage({ recording: initialRecording }: RecordingD
   const handleDownload = (url: string, fileName: string) => {
     try {
       window.open(url, "_blank");
-      toast.success(`${fileName} download started`);
+      fileToasts.downloaded(fileName);
     } catch (error) {
-      toast.error(`Failed to download ${fileName}`);
+      fileToasts.downloadFailed(fileName);
     }
   };
 
@@ -213,14 +224,18 @@ export function RecordingDetailsPage({ recording: initialRecording }: RecordingD
           analysis_file_path: response.document_url || prevRecording.analysis_file_path
         }));
         
-        toast.success('Analysis document updated successfully');
+        toast.success('Analysis document updated successfully', {
+          description: 'Your changes have been saved'
+        });
       } else {
         throw new Error(response.message || 'Failed to update analysis document');
       }
     } catch (error) {
       console.error('Error saving analysis:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to save changes';
-      toast.error(errorMessage);
+      toast.error('Failed to save analysis', {
+        description: errorMessage
+      });
       throw error; // Re-throw to let the component handle the error state
     }
   };
@@ -460,7 +475,10 @@ export function RecordingDetailsPage({ recording: initialRecording }: RecordingD
                         <div className="text-center space-y-2">
                           <h3 className="font-medium">Processing transcription...</h3>
                           <p className="text-sm text-muted-foreground">
-                            Our AI is carefully converting speech to text
+                            {isRecentRecording 
+                              ? "Our AI is carefully converting speech to text. Please check back in a few minutes."
+                              : "This recording is being processed. Transcription may take longer for older recordings."
+                            }
                           </p>
                           {/* Removed confusing "Processing attempt" line per UX feedback */}
                         </div>
@@ -669,39 +687,13 @@ export function RecordingDetailsPage({ recording: initialRecording }: RecordingD
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Created:</span>
                       <span className="font-mono">
-                        {(() => {
-                          const parseDate = (input: any) => {
-                            if (input === undefined || input === null || input === "") return null;
-                            if (typeof input === "number") return input < 1e12 ? new Date(input * 1000) : new Date(input);
-                            if (/^\d+$/.test(String(input))) {
-                              const n = parseInt(String(input), 10);
-                              return n < 1e12 ? new Date(n * 1000) : new Date(n);
-                            }
-                            const d = new Date(String(input));
-                            return isNaN(d.getTime()) ? null : d;
-                          };
-                          const d = parseDate(recording.created_at);
-                          return d ? d.toLocaleDateString() : "-";
-                        })()}
+                        {formatDate(recording.created_at)}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Updated:</span>
                       <span className="font-mono">
-                        {(() => {
-                          const parseDate = (input: any) => {
-                            if (input === undefined || input === null || input === "") return null;
-                            if (typeof input === "number") return input < 1e12 ? new Date(input * 1000) : new Date(input);
-                            if (/^\d+$/.test(String(input))) {
-                              const n = parseInt(String(input), 10);
-                              return n < 1e12 ? new Date(n * 1000) : new Date(n);
-                            }
-                            const d = new Date(String(input));
-                            return isNaN(d.getTime()) ? null : d;
-                          };
-                          const d = parseDate(recording.updated_at);
-                          return d ? d.toLocaleDateString() : "-";
-                        })()}
+                        {formatDate(recording.updated_at)}
                       </span>
                     </div>
                   </div>

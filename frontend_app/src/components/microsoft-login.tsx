@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { PublicClientApplication } from "@azure/msal-browser";
 import { msalConfig, loginRequest } from "../msalConfig";
+import { authToasts } from "@/lib/toast-utils";
 import { toast } from "sonner";
 import { MicrosoftIcon } from "./MicrosoftIcon";
 import { microsoftSsoLogin } from "@/lib/api";
@@ -24,7 +25,9 @@ export default function MicrosoftLogin() {
       } catch (error: any) {
         console.error("MSAL initialization failed:", error);
         setErrorMessage(error?.message || String(error));
-        toast.error("Authentication service initialization failed");
+        toast.error("Authentication service initialization failed", {
+          description: "Please refresh the page and try again"
+        });
       }
     };
     initializeMsal();
@@ -52,7 +55,9 @@ export default function MicrosoftLogin() {
 
   const handleLogin = async () => {
     if (!isInitialized) {
-      toast.error("Authentication service is still initializing. Please wait.");
+      toast.warning("Authentication service is still initializing", {
+        description: "Please wait a moment and try again"
+      });
       return;
     }
     setLoading(true);
@@ -72,17 +77,17 @@ export default function MicrosoftLogin() {
         if (data.permission) {
           localStorage.setItem("permission", data.permission);
         }
-        toast.success("Login successful!");
+        authToasts.loginSuccess();
         router.navigate({ to: "/simple-upload" });
       } else {
         setErrorMessage("Login failed");
         console.error("Microsoft login error: Login failed");
-        toast.error("Login failed");
+        authToasts.loginFailed(() => handleLogin());
       }
     } catch (err: any) {
       console.error("Microsoft login error:", err);
       setErrorMessage(err?.message || String(err));
-      toast.error("Microsoft login failed. Please try again.");
+      authToasts.loginFailed(() => handleLogin());
     } finally {
       setLoading(false);
     }

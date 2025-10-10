@@ -22,12 +22,13 @@ interface BackendUser {
 }
 
 // Frontend user interface  
-interface FrontendUser {
+export interface FrontendUser {
   user_id: string;
   email: string;
   permission: PermissionLevel;
   capabilities: UserCapabilities;
   effective_capabilities: UserCapabilities;
+  transcription_method?: "AZURE_AI_SPEECH" | "GPT4O_AUDIO";
 }
 
 interface PermissionStats {

@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -10,6 +11,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { formatDate, formatTime } from "@/lib/date-utils";
 import { EditableDisplayName } from "@/components/ui/editable-display-name";
 import { 
   Eye, 
@@ -46,7 +48,7 @@ export interface AudioRecordingCardProps {
   className?: string;
 }
 
-export function AudioRecordingCard({
+const AudioRecordingCardComponent = ({
   recording,
   onViewDetails,
   onPlay,
@@ -55,32 +57,10 @@ export function AudioRecordingCard({
   onShare,
   onDelete,
   className,
-}: AudioRecordingCardProps) {
+}: AudioRecordingCardProps) => {
 
-  // Local date parsing helper to support numeric timestamps and ISO strings
-  function parseDateLocal(input: string | number | undefined | null): Date | null {
-    if (input === undefined || input === null || input === "") return null;
-    if (typeof input === "number") {
-      if (input < 1e12) return new Date(input * 1000);
-      return new Date(input);
-    }
-    if (/^\d+$/.test(String(input))) {
-      const n = parseInt(String(input), 10);
-      if (n < 1e12) return new Date(n * 1000);
-      return new Date(n);
-    }
-    const d = new Date(String(input));
-    return isNaN(d.getTime()) ? null : d;
-  }
-
-  const _date = parseDateLocal(recording.created_at);
-  const formattedDate = _date
-    ? _date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-    : "-";
-
-  const formattedTime = _date
-    ? _date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
-    : "-";
+  const formattedDate = formatDate(recording.created_at);
+  const formattedTime = formatTime(recording.created_at);
 
   return (
     <Card className={cn(
@@ -214,4 +194,19 @@ export function AudioRecordingCard({
       </CardContent>
     </Card>
   );
-}
+};
+
+// Memoize the component to prevent unnecessary re-renders
+export const AudioRecordingCard = memo(AudioRecordingCardComponent, (prevProps, nextProps) => {
+  // Custom comparison function for better performance
+  return (
+    prevProps.recording.id === nextProps.recording.id &&
+    prevProps.recording.status === nextProps.recording.status &&
+    prevProps.recording.displayname === nextProps.recording.displayname &&
+    prevProps.recording.display_name === nextProps.recording.display_name &&
+    prevProps.recording.file_name === nextProps.recording.file_name &&
+    prevProps.recording.created_at === nextProps.recording.created_at &&
+    prevProps.className === nextProps.className
+    // Note: function props (callbacks) are not compared for performance
+  );
+});

@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Download, ArrowLeft } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import type { User } from "@/lib/api";
 
 interface UserDetailsHeaderProps {
@@ -11,6 +12,8 @@ interface UserDetailsHeaderProps {
 }
 
 export function UserDetailsHeader({ user, exportLoading, onExportPDF, getUserInitials }: UserDetailsHeaderProps) {
+  const navigate = useNavigate();
+
   return (
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-4">
@@ -18,7 +21,7 @@ export function UserDetailsHeader({ user, exportLoading, onExportPDF, getUserIni
           variant="outline"
           size="sm"
           onClick={() => {
-            window.location.href = '/admin/user-management';
+            navigate({ to: '/admin/user-management' });
           }}
         >
           <ArrowLeft className="mr-2 h-4 w-4" />

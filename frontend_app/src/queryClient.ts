@@ -34,6 +34,20 @@ export const queryClient: QueryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnReconnect: () => !queryClient.isMutating(),
+      // Default stale time of 30 seconds to reduce unnecessary refetches
+      staleTime: 30 * 1000,
+      // Keep inactive queries in cache for 5 minutes
+      gcTime: 5 * 60 * 1000,
+      // Retry failed requests with exponential backoff
+      retry: (failureCount, error: any) => {
+        // Don't retry on 4xx errors (client errors)
+        if (error?.response?.status >= 400 && error?.response?.status < 500) {
+          return false;
+        }
+        // Retry up to 2 times for other errors
+        return failureCount < 2;
+      },
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
     },
   },
   queryCache: new QueryCache({

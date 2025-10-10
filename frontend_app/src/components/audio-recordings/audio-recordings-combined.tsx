@@ -1,10 +1,11 @@
 import type { AudioListValues } from "@/schema/audio-list.schema";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
 import { isAudioFile, isWellSupportedAudioFormat } from "@/lib/file-utils";
 import { getDisplayName } from "@/lib/display-name-utils";
+import { formatDate, formatTime } from "@/lib/date-utils";
 import { EditableDisplayName } from "@/components/ui/editable-display-name";
 import {
   DropdownMenu,
@@ -32,6 +33,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RecordingCardSkeletonGrid } from "@/components/ui/recording-card-skeleton";
+import { RecordingTableSkeletonRows } from "@/components/ui/recording-table-skeleton";
 import {
   Table,
   TableBody,
@@ -70,35 +73,6 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import { useForm } from "react-hook-form";
-
-// Helper: parse different created_at formats (number in ms/s, ISO string)
-function parseDate(input: string | number | undefined | null): Date | null {
-  if (input === undefined || input === null || input === "") return null;
-
-  // If it's already a number
-  if (typeof input === "number") {
-    // If looks like seconds (10 digits), convert to ms
-    if (input < 1e12) return new Date(input * 1000);
-    return new Date(input);
-  }
-
-  // If it's a numeric string, try to parse as int
-  if (/^\d+$/.test(String(input))) {
-    const n = parseInt(String(input), 10);
-    if (n < 1e12) return new Date(n * 1000);
-    return new Date(n);
-  }
-
-  // Fall back to Date parsing for ISO strings
-  const d = new Date(String(input));
-  return isNaN(d.getTime()) ? null : d;
-}
-
-function formatDate(input: string | number | undefined | null) {
-  const d = parseDate(input);
-  if (!d) return "-";
-  return d.toLocaleDateString();
-}
 
 export function AudioRecordingsCombined({
   initialFilters,
@@ -172,12 +146,11 @@ export function AudioRecordingsCombined({
     router.navigate({
       to: "/audio-recordings",
       search: (prev) => ({ 
-        ...prev, 
-        page: newPage,
-        per_page: RECORDS_PER_PAGE,
-        job_id: watchedFilters.job_id || undefined,
-        status: watchedFilters.status === "all" ? undefined : watchedFilters.status,
-        created_at: watchedFilters.created_at || undefined,
+  ...prev, 
+  page: newPage,
+  per_page: RECORDS_PER_PAGE,
+  status: watchedFilters.status === "all" ? undefined : watchedFilters.status,
+  created_at: watchedFilters.created_at || undefined,
       }),
       replace: true,
     });
@@ -190,21 +163,21 @@ export function AudioRecordingsCombined({
 
   // Reset button handler - clears filters and resets to page 1
   const handleReset = () => {
-    form.reset({ job_id: "", status: "all", created_at: "" });
+  form.reset({ status: "all", created_at: "" });
     setCurrentPage(1);
     router.navigate({
       to: "/audio-recordings",
-      search: { page: 1, per_page: RECORDS_PER_PAGE },
+  search: { page: 1, per_page: RECORDS_PER_PAGE },
       replace: true,
     });
   };
-  const handleViewDetails = (recording: any) => {
+  const handleViewDetails = useCallback((recording: any) => {
     localStorage.setItem("current_recording_id", recording.id);
     // Use the named param route so the router can resolve child route correctly
     router.navigate({ to: "/audio-recordings/$id", params: { id: recording.id } });
-  };
+  }, [router]);
 
-  const handlePlayAudio = (recording: any) => {
+  const handlePlayAudio = useCallback((recording: any) => {
     if (isAudioFile(recording.file_path)) {
       // Check if it's a commonly supported format
       if (isWellSupportedAudioFormat(recording.file_path)) {
@@ -219,28 +192,28 @@ export function AudioRecordingsCombined({
       // Non-audio files open directly in a new tab
       window.open(recording.file_path, "_blank");
     }
-  };
+  }, []);
 
-  const handleDownloadAudio = (recording: any) => {
+  const handleDownloadAudio = useCallback((recording: any) => {
     window.open(recording.file_path, "_blank");
-  };
+  }, []);
 
-  const handleRetryProcessing = (recording: any) => {
+  const handleRetryProcessing = useCallback((recording: any) => {
     // TODO: Implement retry processing logic
     console.log("Retry processing for:", recording.id);
-  };
+  }, []);
 
   // Handler to open share dialog
-  const handleShare = (recording: any) => {
+  const handleShare = useCallback((recording: any) => {
     setShareRecording(recording);
     setShareDialogOpen(true);
-  };
+  }, []);
 
   // Handler to open delete dialog
-  const handleDelete = (recording: any) => {
+  const handleDelete = useCallback((recording: any) => {
     setDeleteRecording(recording);
     setDeleteDialogOpen(true);
-  };
+  }, []);
 
   return (
     <>
@@ -270,7 +243,7 @@ export function AudioRecordingsCombined({
                     recordings
                   </span>
                   <span className="w-1 h-1 bg-muted-foreground rounded-full" />
-                  <span>Last updated: {new Date().toLocaleTimeString()}</span>
+                  <span>Last updated: {formatTime(Date.now())}</span>
                 </div>
               )}
             </div>
@@ -491,32 +464,7 @@ export function AudioRecordingsCombined({
           {/* Mobile Card View (Always visible on mobile, toggleable on desktop) */}
           <div className={cn("block", viewMode === "table" ? "lg:hidden" : "")}>
             {isLoading ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {Array.from({ length: 6 }).map((_, index) => (
-                  <Card key={`skeleton-${index}`} className="p-4">
-                    <div className="space-y-3">
-                      <div className="flex items-start justify-between">
-                        <div className="space-y-2 flex-1">
-                          <Skeleton className="h-4 w-3/4" />
-                          <Skeleton className="h-3 w-1/2" />
-                        </div>
-                        <Skeleton className="h-6 w-16 rounded-md" />
-                      </div>
-                      <div className="space-y-2">
-                        <Skeleton className="h-3 w-1/3" />
-                        <Skeleton className="h-3 w-1/4" />
-                      </div>
-                      <div className="flex items-center justify-between pt-2">
-                        <div className="flex gap-2">
-                          <Skeleton className="h-8 w-16" />
-                          <Skeleton className="h-8 w-16" />
-                        </div>
-                        <Skeleton className="h-8 w-8 rounded" />
-                      </div>
-                    </div>
-                  </Card>
-                ))}
-              </div>
+              <RecordingCardSkeletonGrid count={RECORDS_PER_PAGE} />
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-fr animate-in fade-in duration-300">
                 {audioRecordings && audioRecordings.length > 0 ? (
@@ -587,15 +535,7 @@ export function AudioRecordingsCombined({
                 </TableHeader>
                 {isLoading ? (
                   <TableBody>
-                    {Array.from({ length: 8 }).map((_, index) => (
-                      <TableRow key={`table-skeleton-${index}`} className="border-border/50">
-                        <TableCell><Skeleton className="h-5 w-24" /></TableCell>
-                        <TableCell><Skeleton className="h-5 w-48" /></TableCell>
-                        <TableCell><Skeleton className="h-6 w-24" /></TableCell>
-                        <TableCell><Skeleton className="h-5 w-28" /></TableCell>
-                        <TableCell><Skeleton className="h-8 w-8 rounded ml-auto" /></TableCell>
-                      </TableRow>
-                    ))}
+                    <RecordingTableSkeletonRows count={RECORDS_PER_PAGE} />
                   </TableBody>
                 ) : (
                   <TableBody>

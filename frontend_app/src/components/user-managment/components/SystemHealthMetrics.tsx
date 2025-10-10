@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Activity, Server, Database, Cpu } from "lucide-react";
+import { formatDateTime } from "@/lib/date-utils";
 import type { SystemHealthResponse } from "@/lib/api";
 
 interface SystemHealthMetricsProps {
@@ -145,7 +146,7 @@ export function SystemHealthMetrics({ systemHealth, healthLoading }: SystemHealt
             </div>
             
             <div className="mt-4 text-xs text-muted-foreground">
-              Last updated: {new Date(lastTimestamp).toLocaleString()}
+              Last updated: {formatDateTime(lastTimestamp)}
               <br />
               <span className="text-xs text-muted-foreground/80">
                 Note: Only API, Database, and Memory metrics provide real data. Other metrics are not monitored.

@@ -42,6 +42,7 @@ import { getDeletedJobs, restoreJob, permanentDeleteJob, fetchAllUsers } from "@
 import { formatDistanceToNow } from "date-fns";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EnhancedPagination } from "@/components/ui/pagination";
+import { RecordingCardSkeletonGrid } from "@/components/ui/recording-card-skeleton";
 import { toast } from "sonner";
 import { useState, useMemo, useEffect } from "react";
 
@@ -213,12 +214,11 @@ export function AdminDeletedJobsPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-background to-muted/20">
         <div className="container mx-auto px-4 py-6">
-          <div className="flex items-center justify-center min-h-[400px]">
-            <div className="text-center">
-              <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
-              <p className="text-muted-foreground">Loading deleted recordings...</p>
-            </div>
+          <div className="mb-6">
+            <h1 className="text-3xl font-bold mb-2">Deleted Recordings</h1>
+            <p className="text-muted-foreground">Loading...</p>
           </div>
+          <RecordingCardSkeletonGrid count={9} />
         </div>
       </div>
     );
@@ -247,10 +247,10 @@ export function AdminDeletedJobsPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-muted/20">
       {/* Header */}
-      <div className="border-b border-border/50 bg-card/50 backdrop-blur-sm">
+      <div>
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-destructive/10 text-destructive">
+            <div className="p-2 rounded-lg bg-zinc-200/70 text-zinc-700 dark:bg-zinc-700/60 dark:text-zinc-100">
               <Trash2 className="h-6 w-6" />
             </div>
             <div className="space-y-1">
@@ -268,6 +268,7 @@ export function AdminDeletedJobsPage() {
 
       {/* Filters */}
       <div className="container mx-auto px-4 py-6">
+        <div className="rounded-2xl border border-border/60 bg-card/80 shadow-sm backdrop-blur-md p-4 md:p-6">
         <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-2 w-full md:w-auto">
             <Filter className="h-4 w-4 text-muted-foreground" />
@@ -309,7 +310,7 @@ export function AdminDeletedJobsPage() {
         
         <div className="space-y-6">
           {filteredDeletedJobs.length === 0 ? (
-            <Card>
+            <Card className="bg-card/90 border border-border/60 backdrop-blur-sm">
               <CardContent className="p-8 text-center">
                 <Trash2 className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
                 <h3 className="text-lg font-medium mb-2">No deleted recordings found</h3>
@@ -352,6 +353,7 @@ export function AdminDeletedJobsPage() {
             />
           </div>
         )}
+        </div>
       </div>
     </div>
   );
@@ -394,7 +396,7 @@ function DeletedJobCard({
     ? deletedByInfo.name || deletedByInfo.email
     : "Unknown admin";
   return (
-    <Card className="hover:shadow-md transition-all duration-200 border-destructive/20 bg-card">
+    <Card className="bg-card/90 border border-border/60 hover:border-border hover:shadow-lg transition-all duration-200 backdrop-blur-sm">
       <CardHeader className="pb-4">
         <div className="flex items-start justify-between">
           <div className="space-y-1 flex-1 min-w-0">

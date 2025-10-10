@@ -54,10 +54,15 @@ export function getAudioTranscriptionQuery(id: string) {
     queryFn: () => getAudioTranscription(id),
     enabled: !!id,
     retry: (failureCount, error: any) => {
+      const status = error?.status || error?.response?.status;
       // Only retry for 404 errors (transcription not ready yet)
-      if (error?.status === 404 || error?.response?.status === 404) {
+      if (status === 404) {
         // Retry up to 20 times for 404s (about 10 minutes with exponential backoff)
         return failureCount < 20;
+      }
+      // Don't retry for 409 (transcription failed/unavailable) or other client errors
+      if (status === 409 || (status >= 400 && status < 500)) {
+        return false;
       }
       // For other errors, use default retry logic (3 times)
       return failureCount < 3;
@@ -67,10 +72,11 @@ export function getAudioTranscriptionQuery(id: string) {
       // Start with 3 seconds, then exponential backoff with max 30 seconds
       return Math.min(3000 * Math.pow(1.5, attemptIndex), 30000);
     },
-    // Prevent showing error states for 404s during retries
+    // Prevent showing error states for 404s and 409s during retries
     throwOnError: (error: any) => {
-      // Don't throw 404 errors to prevent toast notifications
-      if (error?.status === 404 || error?.response?.status === 404) {
+      const status = error?.status || error?.response?.status;
+      // Don't throw 404 or 409 errors to prevent toast notifications
+      if (status === 404 || status === 409) {
         return false;
       }
       return true;

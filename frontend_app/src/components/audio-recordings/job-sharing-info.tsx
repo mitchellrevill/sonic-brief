@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { sharingToasts } from "@/lib/toast-utils";
 import {
   Card,
   CardContent,
@@ -78,13 +78,13 @@ export function JobSharingInfo({ jobId, jobTitle = "Recording" }: JobSharingInfo
   const unshareJobMutation = useMutation({
     mutationFn: (userEmail: string) => unshareJob(jobId, userEmail),
     onSuccess: (_, userEmail) => {
-      toast.success(`Removed sharing with ${userEmail}`);
+      sharingToasts.revoked(userEmail);
       queryClient.invalidateQueries({ queryKey: ["jobSharingInfo", jobId] });
       queryClient.invalidateQueries({ queryKey: ["sharedJobs"] });
       queryClient.invalidateQueries({ queryKey: ["audioRecordings"] });
     },
     onError: (error, userEmail) => {
-      toast.error(`Failed to remove sharing with ${userEmail}: ${error.message}`);
+      sharingToasts.failed(userEmail, error.message);
     },
   });
 

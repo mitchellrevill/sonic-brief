@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RetentionDisclaimer } from "@/components/ui/retention-disclaimer";
+import { formatDate } from "@/lib/date-utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -300,7 +301,7 @@ export function AudioRecordingsCombined({
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {new Date(parseInt(row.created_at)).toLocaleDateString()}
+                      {formatDate(parseInt(row.created_at))}
                     </TableCell>
                     <TableCell>
                       {/* Action Dropdown */}

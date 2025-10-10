@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/select";
 import {
   FileAudio,
-  Loader2,
   Filter,
   RefreshCw,
   ClipboardList,
@@ -28,6 +27,7 @@ import {
 import { fetchAllUsers, fetchAllJobsApi } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { RecordingCardSkeletonGrid } from "@/components/ui/recording-card-skeleton";
 import { EnhancedPagination } from "@/components/ui/pagination";
 import { useState, useMemo } from "react";
 
@@ -128,12 +128,11 @@ export function AdminAllJobsPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-background to-muted/20">
         <div className="container mx-auto px-4 py-6">
-          <div className="flex items-center justify-center min-h-[400px]">
-            <div className="text-center">
-              <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
-              <p className="text-muted-foreground">Loading all recordings...</p>
-            </div>
+          <div className="mb-6">
+            <h1 className="text-3xl font-bold mb-2">All Recordings</h1>
+            <p className="text-muted-foreground">Loading recordings...</p>
           </div>
+          <RecordingCardSkeletonGrid count={9} />
         </div>
       </div>
     );
@@ -165,14 +164,14 @@ export function AdminAllJobsPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-muted/20">
       {/* Header */}
-      <div className="border-b border-border/50 bg-card/50 backdrop-blur-sm">
+      <div>
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10 text-primary">
+            <div className="p-2 rounded-lg bg-zinc-200/70 text-zinc-700 dark:bg-zinc-700/60 dark:text-zinc-100">
               <ClipboardList className="h-6 w-6" />
             </div>
             <div className="space-y-1">
-              <h1 className="text-2xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
+              <h1 className="text-2xl font-bold bg-gradient-to-r from-zinc-800 to-zinc-600 dark:from-zinc-200 dark:to-zinc-400 bg-clip-text text-transparent">
                 All Recordings
               </h1>
               <SmartBreadcrumb items={breadcrumbs} />
@@ -315,7 +314,7 @@ function JobCard({
     : job.user_email || "Unknown user";
 
   return (
-    <Card className="hover:shadow-md transition-all duration-200">
+    <Card className="bg-card/90 border border-border/60 hover:border-border hover:shadow-lg transition-all duration-200 backdrop-blur-sm">
       <CardHeader className="pb-4">
         <div className="flex items-start justify-between">
           <div className="space-y-1 flex-1 min-w-0">

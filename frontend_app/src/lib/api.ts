@@ -2090,3 +2090,112 @@ export async function updateJobDisplayName(jobId: string, displayname: string) {
   return response.json();
 }
 
+// User Session Analytics Types and Functions
+export interface UserSessionSummaryResponse {
+  user_id: string;
+  period_days: number;
+  session_summary: {
+    total_sessions: number;
+    total_duration_minutes: number;
+    average_session_duration: number;
+    unique_endpoints: number;
+    browser_usage: Record<string, number>;
+    most_active_day: string | null;
+    daily_activity: Record<string, number>;
+  };
+  query_timestamp: string;
+}
+
+export interface UserActivityPatternsResponse {
+  user_id: string;
+  period_days: number;
+  activity_patterns: {
+    peak_hours: Record<string, number>;
+    browser_distribution: Record<string, number>;
+    platform_distribution: Record<string, number>;
+    endpoints_accessed: Record<string, number>;
+    session_patterns: Record<string, number>;
+  };
+  query_timestamp: string;
+}
+
+export async function getUserSessionSummary(userId: string, days: number = 30): Promise<UserSessionSummaryResponse> {
+  const token = localStorage.getItem("token");
+  if (!token) throw new Error("No authentication token found. Please log in again.");
+
+  const response = await fetch(`${USER_ANALYTICS_API}/${userId}/session-analytics?days=${days}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  // Calculate most active day from daily distribution
+  const dailyActivity = data.usage_analytics?.daily_distribution || {};
+  const mostActiveDayEntry = Object.entries(dailyActivity).reduce((max, [date, count]) =>
+    (count as number) > (max.count as number) ? { date, count: count as number } : max,
+    { date: '', count: 0 }
+  );
+  const mostActiveDay = mostActiveDayEntry.count > 0 ? mostActiveDayEntry.date : null;
+
+  // Transform backend response to match component expectations
+  return {
+    user_id: data.user_id,
+    period_days: data.period_days,
+    session_summary: {
+      total_sessions: data.total_sessions,
+      total_duration_minutes: data.performance_metrics?.total_requests * 0.1 || 0, // Rough estimate: 0.1 min per request
+      average_session_duration: data.performance_metrics?.average_session_duration || 0,
+      unique_endpoints: Object.keys(data.usage_analytics?.endpoints_accessed || {}).length,
+      browser_usage: data.usage_analytics?.browser_distribution || {},
+      most_active_day: mostActiveDay,
+      daily_activity: dailyActivity
+    },
+    query_timestamp: new Date().toISOString()
+  };
+}
+
+export async function getUserActivityPatterns(userId: string, days: number = 30): Promise<UserActivityPatternsResponse> {
+  const token = localStorage.getItem("token");
+  if (!token) throw new Error("No authentication token found. Please log in again.");
+
+  const response = await fetch(`${USER_ANALYTICS_API}/${userId}/session-analytics?days=${days}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  // Transform backend response to match component expectations
+  return {
+    user_id: data.user_id,
+    period_days: data.period_days,
+    activity_patterns: {
+      peak_hours: data.usage_analytics?.hourly_distribution || {},
+      browser_distribution: data.usage_analytics?.browser_distribution || {},
+      platform_distribution: data.usage_analytics?.platform_distribution || {},
+      endpoints_accessed: data.usage_analytics?.endpoints_accessed || {},
+      session_patterns: {
+        brief_sessions: data.engagement_metrics?.brief_sessions || 0,
+        medium_sessions: data.engagement_metrics?.medium_active_sessions || 0,
+        extended_sessions: data.engagement_metrics?.highly_active_sessions || 0
+      }
+    },
+    query_timestamp: new Date().toISOString()
+  };
+}
+

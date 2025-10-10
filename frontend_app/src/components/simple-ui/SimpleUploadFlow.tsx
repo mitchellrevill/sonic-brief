@@ -80,6 +80,7 @@ export function SimpleUploadFlow() {
 
   return (
     <div className="relative">
+      {/* DEV: Jump to Recording button removed for production */}
       <div 
         className={`transition-all duration-300 ease-in-out ${
           isTransitioning 

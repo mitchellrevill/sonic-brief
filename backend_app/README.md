@@ -13,10 +13,22 @@ Sonic Brief is a production-ready audio processing platform that transcribes mee
 - **Web Framework**: FastAPI (Python 3.11+)
 - **Database**: Azure Cosmos DB (NoSQL)
 - **Storage**: Azure Blob Storage  
-- **Authentication**: JWT + Microsoft SSO (MSAL)
+- **Authentication**: JWT + Microsoft SSO (MSAL) with cryptographic token validation
 - **AI/ML**: Azure OpenAI (GPT-4) + Azure Speech Services
 - **Processing**: Azure Functions (serverless audio pipeline)
 - **Monitoring**: Application Insights, structured logging
+
+### 🔒 Security Features
+
+- **Token Validation**: Cryptographic verification of Microsoft Azure AD tokens using JWKS
+- **Tenant Isolation**: Multi-tenant protection - only accepts tokens from authorized Azure AD tenant
+- **Audience Validation**: Ensures tokens are issued specifically for this application
+- **CORS Protection**: Restricts API access to authorized frontend domains only
+- **Rate Limiting**: Built-in protection against abuse and DDoS
+- **Input Validation**: SQL/NoSQL injection, XSS, and path traversal prevention
+- **Audit Logging**: Complete audit trail of authentication and sensitive operations
+
+See [SECURITY_CONFIGURATION.md](../SECURITY_CONFIGURATION.md) for detailed security documentation.
 
 ### High-Level Architecture
 

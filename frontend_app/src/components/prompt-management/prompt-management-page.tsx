@@ -2,31 +2,46 @@ import { useState } from "react";
 import { PromptManagementProvider } from "@/components/prompt-management/prompt-management-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, FileText } from "lucide-react";
 import { PromptManagementSidebar } from "@/components/prompt-management/prompt-management-sidebar";
 import { PromptBrowseView } from "@/components/prompt-management/prompt-browse-view";
 import { FocusedEditor } from "@/components/prompt-management/focused-editor";
+import { SmartBreadcrumb } from "@/components/ui/smart-breadcrumb";
+import { useBreadcrumbs } from "@/hooks/use-breadcrumbs";
 
 const TABS = ["Browse", "Editor"] as const;
 type TabType = typeof TABS[number];
 
 function PromptManagementHeader() {
+  const breadcrumbs = useBreadcrumbs();
+
   return (
-    <div className="flex items-center justify-between px-4 py-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">
-          Prompt Management
-        </h1>
-      </div>
-      <div className="flex items-center space-x-2">
-        <Button size="sm" variant="outline">
-          <Search className="mr-2 h-4 w-4" />
-          <span className="hidden sm:inline">Search</span>
-        </Button>
-        <Button size="sm">
-          <Plus className="mr-2 h-4 w-4" />
-          <span className="hidden sm:inline">New Category</span>
-        </Button>
+    <div>
+      <div className="container mx-auto px-4 py-6">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-zinc-200/70 text-zinc-700 dark:bg-zinc-700/60 dark:text-zinc-100">
+            <FileText className="h-6 w-6" />
+          </div>
+          <div className="space-y-1 flex-1">
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-zinc-800 to-zinc-600 dark:from-zinc-200 dark:to-zinc-400 bg-clip-text text-transparent">
+              Prompt Management
+            </h1>
+            <SmartBreadcrumb items={breadcrumbs} />
+            <p className="text-muted-foreground">
+              Manage and customize prompts for your audio analysis workflows
+            </p>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Button size="sm" variant="outline">
+              <Search className="mr-2 h-4 w-4" />
+              <span className="hidden sm:inline">Search</span>
+            </Button>
+            <Button size="sm">
+              <Plus className="mr-2 h-4 w-4" />
+              <span className="hidden sm:inline">New Category</span>
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -112,9 +127,11 @@ function PromptManagementContent() {
 export function PromptManagementPage() {
   return (
     <PromptManagementProvider>
-      <div className="space-y-6">
+      <div className="min-h-screen bg-gradient-to-br from-background to-muted/20">
         <PromptManagementHeader />
-        <PromptManagementContent />
+        <div className="container mx-auto px-4 py-6">
+          <PromptManagementContent />
+        </div>
       </div>
     </PromptManagementProvider>
   );

@@ -818,7 +818,7 @@ export function CategorySelection({ onSelectionComplete }: CategorySelectionProp
               <Button 
                 onClick={handleContinue} 
                 disabled={isSubmitting}
-                className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-slate-600 to-gray-600 hover:from-slate-700 hover:to-gray-700 shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50"
+                className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-zinc-700 to-zinc-800 hover:from-zinc-800 hover:to-zinc-700 shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50 dark:from-zinc-200 dark:to-zinc-300 dark:hover:from-zinc-300 dark:hover:to-zinc-200 dark:text-zinc-800"
                 size="lg"
               >
                 {isSubmitting ? (

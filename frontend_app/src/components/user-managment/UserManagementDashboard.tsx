@@ -248,56 +248,58 @@ export function UserManagementDashboard() {
 
   return (
     <PermissionGuard requiredCapability={Capability.CAN_VIEW_USERS}>
-      <div className="p-6 space-y-6">
+      <div className="min-h-screen bg-gradient-to-br from-background to-muted/20">
         <UserManagementHeader onExportCSV={handleExportMinutesCSV} />
 
-        <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="overview" className="flex items-center gap-2">
-              <Users className="h-4 w-4" />
-              Overview
-            </TabsTrigger>
-            <TabsTrigger value="analytics" className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4" />
-              System Analytics
-            </TabsTrigger>
-          </TabsList>
+        <div className="container mx-auto px-4 py-6">
+          <Tabs defaultValue="overview" className="space-y-6">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="overview" className="flex items-center gap-2">
+                <Users className="h-4 w-4" />
+                Overview
+              </TabsTrigger>
+              <TabsTrigger value="analytics" className="flex items-center gap-2">
+                <BarChart3 className="h-4 w-4" />
+                System Analytics
+              </TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="overview" className="space-y-6">
-            {/* System Overview Cards */}
-            <UserOverviewCards
-              users={users}
-              usersLoading={usersLoading}
-              systemAnalytics={systemAnalytics || null}
-              analyticsLoading={analyticsLoading}
-            />
+            <TabsContent value="overview" className="space-y-6">
+              {/* System Overview Cards */}
+              <UserOverviewCards
+                users={users}
+                usersLoading={usersLoading}
+                systemAnalytics={systemAnalytics || null}
+                analyticsLoading={analyticsLoading}
+              />
 
-            {/* User Management List */}
-            <UserManagementList
-              users={users}
-              usersLoading={usersLoading}
-              searchTerm={searchTerm}
-              setSearchTerm={setSearchTerm}
-              filterPermission={filterPermission}
-              setFilterPermission={setFilterPermission}
-              filteredUsers={filteredUsers}
-              onUserClick={navigateToUserDetails}
-            />
-          </TabsContent>
+              {/* User Management List */}
+              <UserManagementList
+                users={users}
+                usersLoading={usersLoading}
+                searchTerm={searchTerm}
+                setSearchTerm={setSearchTerm}
+                filterPermission={filterPermission}
+                setFilterPermission={setFilterPermission}
+                filteredUsers={filteredUsers}
+                onUserClick={navigateToUserDetails}
+              />
+            </TabsContent>
 
-          <TabsContent value="analytics" className="space-y-6">
-            <SystemAnalyticsTab
-              analyticsPeriod={analyticsPeriod}
-              setAnalyticsPeriod={setAnalyticsPeriod}
-              users={users}
-              usersLoading={usersLoading}
-              systemAnalytics={systemAnalytics || null}
-              analyticsLoading={analyticsLoading}
-              analyticsData={analyticsData}
-            />
-          
-          </TabsContent>
-        </Tabs>
+            <TabsContent value="analytics" className="space-y-6">
+              <SystemAnalyticsTab
+                analyticsPeriod={analyticsPeriod}
+                setAnalyticsPeriod={setAnalyticsPeriod}
+                users={users}
+                usersLoading={usersLoading}
+                systemAnalytics={systemAnalytics || null}
+                analyticsLoading={analyticsLoading}
+                analyticsData={analyticsData}
+              />
+            
+            </TabsContent>
+          </Tabs>
+        </div>
       </div>
     </PermissionGuard>
   );

@@ -1,6 +1,7 @@
 import type { AudioRecording } from "@/components/audio-recordings/audio-recordings-context";
 import { useEffect, useState } from "react";
 import { RecordingDetailsPage } from "@/components/audio-recordings/recording-details-page";
+import { RecordingDetailsSkeleton } from "@/components/ui/recording-details-skeleton";
 import { useRouter } from "@tanstack/react-router";
 import { fetchRecordingByIdApi } from "@/lib/api";
 
@@ -86,11 +87,7 @@ export function RecordingDetailsPageWrapper({
   }, [id, router]);
 
   if (isLoading) {
-    return (
-      <div className="container mx-auto px-4 py-6">
-        Loading recording details...
-      </div>
-    );
+    return <RecordingDetailsSkeleton />;
   }
 
   if (error) {

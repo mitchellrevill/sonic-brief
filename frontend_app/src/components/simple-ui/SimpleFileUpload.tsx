@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { uploadToasts } from "@/lib/toast-utils";
 import { toast } from "sonner";
 import { uploadFile } from "@/lib/api";
 
@@ -44,11 +45,13 @@ export function SimpleFileUpload({ categoryId, subcategoryId, onUploadComplete }
     }
     try {
       await uploadFile(fileToUpload, categoryId, subcategoryId);
-      toast.success("File uploaded successfully!");
+      uploadToasts.success();
       setSelectedFile(null);
       onUploadComplete();
     } catch (e) {
-      toast.error("Upload failed");
+      toast.error("Upload failed", {
+        description: "Please check your connection and try again"
+      });
     } finally {
       setIsUploading(false);
     }
