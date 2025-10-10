@@ -57,7 +57,7 @@ IMPORTANT FORMATTING REQUIREMENTS:
 - For lists, use simple bullet points (•) or numbered lists without markdown
 - Structure your response with clear sections for easy document formatting
 - Write in a professional, clear style suitable for Word documents
-
+- Always use British English spelling and grammar
 Provide concise and accurate summaries of conversations in this format."""},
                 {"role": "user", "content": prompt}
                 ]
