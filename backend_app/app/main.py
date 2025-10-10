@@ -217,11 +217,29 @@ config = get_config()
 # header must not be the wildcard '*' — browsers will reject wildcard with credentials.
 cors_origins = config.cors_origins_list if config.cors_origins_list else []
 allow_origin_regex = None
+
+# SECURITY WARNING: Check for wildcard in production
 if cors_origins == ["*"] or "*" in cors_origins:
-    # Allow all origins but use a regex so the middleware will echo the request Origin
-    # header instead of sending a literal '*'. This is required when allow_credentials=True.
-    cors_origins = []
-    allow_origin_regex = r".*"
+    import os
+    environment = os.getenv("ENVIRONMENT", "development").lower()
+    if environment in ["production", "prod"]:
+        logger.critical(
+            "🚨 SECURITY RISK: CORS configured with wildcard '*' in production! "
+            "This allows ANY website to make authenticated requests to your API. "
+            "Set CORS_ORIGINS to your frontend domain(s) immediately."
+        )
+        # In production, fail fast - don't start with insecure CORS
+        import sys
+        sys.exit(1)
+    else:
+        logger.warning(
+            "⚠️  CORS configured with wildcard '*' - acceptable for local development only. "
+            "Ensure CORS_ORIGINS is set to specific domain(s) before deploying to production."
+        )
+        # Allow all origins but use a regex so the middleware will echo the request Origin
+        # header instead of sending a literal '*'. This is required when allow_credentials=True.
+        cors_origins = []
+        allow_origin_regex = r".*"
 
 app.add_middleware(
     CORSMiddleware,

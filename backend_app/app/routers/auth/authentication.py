@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends, Request
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
+from jwt.exceptions import InvalidTokenError, ExpiredSignatureError, InvalidAudienceError, InvalidIssuerError
 from passlib.context import CryptContext
 from pydantic import BaseModel
 import logging
@@ -26,6 +27,7 @@ from ...core.errors import (
     ErrorHandler,
     ValidationError,
 )
+from ...utils.microsoft_token_validator import MicrosoftTokenValidator
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -266,34 +268,82 @@ async def microsoft_sso_auth(
         access_token = data.get("access_token")
         refresh_token = data.get("refresh_token")
 
-        # Extract user info from tokens
+        # Get configuration for token validation
+        try:
+            config = get_config()
+        except Exception as exc:
+            _handle_internal_error(error_handler, "load authentication configuration", exc)
+
+        # Initialize Microsoft token validator with tenant and client ID validation
+        validator = MicrosoftTokenValidator(
+            tenant_id=config.microsoft_tenant_id,
+            client_id=config.microsoft_client_id,
+        )
+
+        # Extract user info from tokens with PROPER VALIDATION
         email = None
         full_name = None
         given_name = None
         family_name = None
         oid = None
         tenant_id = None
+        decoded = None
 
         # Prefer id_token for user info (OpenID Connect standard)
         if id_token:
             try:
-                decoded = jwt.get_unverified_claims(id_token)
-            except Exception as exc:
+                # SECURE: Validate token signature, issuer, audience, expiration
+                decoded = validator.validate_id_token(id_token)
+                logger.info("ID token validated successfully")
+            except ExpiredSignatureError:
                 raise ValidationError(
-                    "Invalid id_token",
+                    "ID token has expired",
+                    details={"reason": "Token expired"},
+                )
+            except InvalidAudienceError:
+                raise ValidationError(
+                    "ID token audience mismatch - token not intended for this application",
+                    details={"reason": "Invalid audience"},
+                )
+            except InvalidIssuerError:
+                raise ValidationError(
+                    "ID token from untrusted issuer",
+                    details={"reason": "Invalid issuer"},
+                )
+            except InvalidTokenError as exc:
+                raise ValidationError(
+                    "Invalid ID token",
                     details={"reason": str(exc)},
                 ) from exc
         elif access_token:
             try:
-                decoded = jwt.get_unverified_claims(access_token)
-            except Exception as exc:
+                # SECURE: Validate access token
+                decoded = validator.validate_access_token(access_token)
+                logger.info("Access token validated successfully")
+            except ExpiredSignatureError:
                 raise ValidationError(
-                    "Invalid access_token",
+                    "Access token has expired",
+                    details={"reason": "Token expired"},
+                )
+            except InvalidAudienceError:
+                raise ValidationError(
+                    "Access token audience mismatch - token not intended for this application",
+                    details={"reason": "Invalid audience"},
+                )
+            except InvalidIssuerError:
+                raise ValidationError(
+                    "Access token from untrusted issuer",
+                    details={"reason": "Invalid issuer"},
+                )
+            except InvalidTokenError as exc:
+                raise ValidationError(
+                    "Invalid access token",
                     details={"reason": str(exc)},
                 ) from exc
         else:
             raise ValidationError("Missing id_token or access_token")
 
+        # Extract user information from validated token
         email = (
             decoded.get("email")
             or decoded.get("upn")
@@ -304,6 +354,16 @@ async def microsoft_sso_auth(
         family_name = decoded.get("family_name")
         oid = decoded.get("oid")
         tenant_id = decoded.get("tid")
+
+        # SECURITY: Validate tenant ID matches configuration
+        if config.microsoft_tenant_id and tenant_id != config.microsoft_tenant_id:
+            logger.error(
+                f"Tenant ID mismatch: token from tenant {tenant_id}, expected {config.microsoft_tenant_id}"
+            )
+            raise AuthenticationError(
+                "Authentication failed: Invalid tenant",
+                details={"reason": "Tenant not authorized"},
+            )
 
         if not email:
             raise ValidationError(

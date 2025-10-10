@@ -11,7 +11,8 @@ pydantic-settings==2.1.0
 # Authentication & Security
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
-PyJWT==2.8.0
+PyJWT[crypto]==2.8.0  # [crypto] provides RSA/ECDSA support for Microsoft token validation
+cryptography>=41.0.0  # Required for JWT signature verification
 bcrypt==4.2.1
 
 # Azure Integration

@@ -84,8 +84,15 @@ class AppConfig(BaseSettings):
     azure_functions_base_url: str = Field("http://localhost:7071", env="AZURE_FUNCTIONS_BASE_URL")
     azure_functions_key: str = Field(..., env="AZURE_FUNCTIONS_KEY")
     
-    # CORS
-    cors_origins: str = Field("*", env="CORS_ORIGINS")
+    # CORS - SECURITY: Set CORS_ORIGINS to your frontend domain(s) in production
+    # Example: "https://your-frontend.azurewebsites.net,https://custom-domain.com"
+    # DO NOT use "*" in production - it allows any website to make authenticated requests
+    # Default allows localhost for development - set CORS_ORIGINS env var for production
+    frontend_url: Optional[str] = Field(None, env="FRONTEND_URL")
+    cors_origins: str = Field(
+        "http://localhost:3000",
+        env="CORS_ORIGINS"
+    )
     cors_allow_credentials: bool = Field(True, env="CORS_ALLOW_CREDENTIALS")
     
     # File Processing
